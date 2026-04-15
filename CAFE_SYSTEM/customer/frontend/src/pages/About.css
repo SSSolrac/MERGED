@@ -8,8 +8,7 @@
   border-bottom: 1px solid rgba(231, 84, 128, 0.12);
 }
 
-.about-intro__inner,
-.about-visit {
+.about-intro__inner {
   max-width: 1280px;
   margin: 0 auto;
 }
@@ -29,8 +28,7 @@
 }
 
 .about-intro h1,
-.about-split__content h2,
-.about-visit__card h2 {
+.about-split__content h2 {
   margin: 0;
   color: #111111;
   font-family: Georgia, "Times New Roman", serif;
@@ -76,14 +74,12 @@
   justify-content: center;
 }
 
-.about-split__content h2,
-.about-visit__card h2 {
+.about-split__content h2 {
   font-size: clamp(2.6rem, 4.2vw, 4.2rem);
   margin-bottom: 22px;
 }
 
-.about-split__content p,
-.about-visit__card p {
+.about-split__content p {
   margin: 0 0 16px;
   color: #3f4454;
   font-size: 1.06rem;
@@ -95,6 +91,7 @@
   flex-wrap: wrap;
   gap: 14px;
   margin-top: 16px;
+  justify-content: center;
 }
 
 .about-button {
@@ -165,41 +162,6 @@
   height: 100%;
 }
 
-.about-visit {
-  padding: 64px 24px 90px;
-}
-
-.about-visit__card {
-  background: linear-gradient(180deg, rgba(255, 246, 250, 0.96), rgba(255, 255, 255, 0.98));
-  border: 1px solid #f6d4e0;
-  border-radius: 30px;
-  padding: 44px;
-  box-shadow: 0 18px 36px rgba(231, 84, 128, 0.08);
-}
-
-.about-visit__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px;
-  margin-top: 10px;
-}
-
-.about-visit__grid h3 {
-  margin: 0 0 10px;
-  color: #ba4f7b;
-  font-size: 0.94rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.about-visit__grid p {
-  margin: 0 0 8px;
-}
-
-.about-visit__note {
-  margin-top: 18px;
-}
-
 @media (max-width: 1040px) {
   .about-split {
     grid-template-columns: 1fr;
@@ -233,17 +195,8 @@
     font-size: 1rem;
   }
 
-  .about-split__content,
-  .about-visit__card {
+  .about-split__content {
     padding: 38px 22px;
-  }
-
-  .about-visit {
-    padding: 40px 18px 70px;
-  }
-
-  .about-visit__grid {
-    grid-template-columns: 1fr;
   }
 
   .about-band {

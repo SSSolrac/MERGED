@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import aboutUs from "../assets/about/about-us.jpg";
 import aboutUsStorefront from "../assets/about/about-us-storefront.jpg";
 import aboutUsPetBirthday from "../assets/about/about-us-pet-birthday.jpg";
@@ -48,12 +47,14 @@ function About() {
             feel welcome. The goal is simple: create a place where everyday visits become happy memories.
           </p>
           <div className="about-actions">
-            <Link to="/order" className="about-button about-button--primary">
-              Start Ordering
-            </Link>
-            <Link to="/menu" className="about-button">
-              View Cafe Menu
-            </Link>
+            <a
+              href="https://web.facebook.com/happytailspetcafe.lc"
+              target="_blank"
+              rel="noreferrer"
+              className="about-button about-button--primary"
+            >
+              Find Out More About Us
+            </a>
           </div>
         </div>
       </section>
@@ -115,27 +116,6 @@ function About() {
         </div>
       </section>
 
-      <section className="about-visit">
-        <div className="about-visit__card">
-          <p className="about-kicker">Visit Happy Tails</p>
-          <h2>See you in Happy Tails</h2>
-          <div className="about-visit__grid">
-            <div>
-              <h3>Location</h3>
-              <p>AMCJ Commercial Building, Bonifacio Drive, Pleasantville, Lucena City</p>
-            </div>
-            <div>
-              <h3>Open Daily</h3>
-              <p>Monday-Friday: 8:00 AM - 7:30 PM</p>
-              <p>Saturday-Sunday: 8:00 AM - 8:00 PM</p>
-            </div>
-          </div>
-          <p className="about-visit__note">
-            Drop by for cafe favorites, pet essentials, grooming support, hotel services, and celebrations made with
-            fur families in mind.
-          </p>
-        </div>
-      </section>
     </div>
   );
 }
