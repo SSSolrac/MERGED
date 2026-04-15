@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "Customer",
+			"path": "../../Customer"
+		},
+		{
+			"name": "staffowner",
+			"path": ".."
+		}
+	],
+	"settings": {}
+}

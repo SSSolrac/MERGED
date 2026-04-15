@@ -1,0 +1,15 @@
+.history-page { max-width: 900px; margin: 0 auto; padding: 120px 20px 40px; }
+.history-page h1 { color:#ff5f9a; margin-bottom:8px; }
+.history-subtitle { color:#666; margin: 0 0 16px; }
+.history-list { display:grid; gap:12px; }
+.history-card { background:#fff; border-radius:14px; padding:14px; box-shadow:0 6px 16px rgba(0,0,0,.06); }
+.history-row { display:flex; align-items:center; justify-content:space-between; }
+.status-pill { background:#e8fbfd; color:#27828e; border-radius:999px; padding:4px 10px; font-size:.82rem; font-weight:600; }
+.history-card p { margin:8px 0; color:#666; }
+.history-items-summary { color:#474747; }
+.history-actions { display:flex; gap:8px; margin-top: 10px; flex-wrap: wrap; }
+.history-actions button, .history-actions a { border:0; padding:8px 12px; border-radius:8px; background:#36d7e8; color:#fff; text-decoration:none; cursor:pointer; }
+.history-actions .ghost-btn { background:#fff; color:#444; border:1px solid #ccc; }
+.history-card ul { margin:10px 0 0; padding-left:18px; color:#444; }
+.history-state { max-width:700px; margin:120px auto 40px; text-align:center; background:#fff; border-radius:14px; padding:24px; }
+.history-error { color:#bf2456; }

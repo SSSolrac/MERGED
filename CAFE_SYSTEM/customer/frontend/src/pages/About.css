@@ -1,0 +1,252 @@
+.about-page {
+  color: #1f2940;
+}
+
+.about-intro {
+  background: #f8c8dc;
+  padding: calc(78px + 30px) 24px 48px;
+  border-bottom: 1px solid rgba(231, 84, 128, 0.12);
+}
+
+.about-intro__inner,
+.about-visit {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.about-intro__inner {
+  text-align: center;
+}
+
+.about-eyebrow,
+.about-kicker {
+  margin: 0 0 12px;
+  color: #ba4f7b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.about-intro h1,
+.about-split__content h2,
+.about-visit__card h2 {
+  margin: 0;
+  color: #111111;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1.04;
+}
+
+.about-intro h1 {
+  font-size: clamp(3.4rem, 7vw, 5.8rem);
+}
+
+.about-intro__lead {
+  width: min(760px, 100%);
+  margin: 18px auto 0;
+  font-size: 1.16rem;
+  line-height: 1.68;
+  color: #3b3550;
+}
+
+.about-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: 100%;
+}
+
+.about-split__media,
+.about-split__content {
+  min-height: 680px;
+}
+
+.about-split__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.about-split__content {
+  background: rgba(255, 255, 255, 0.96);
+  padding: 88px clamp(32px, 6vw, 92px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.about-split__content h2,
+.about-visit__card h2 {
+  font-size: clamp(2.6rem, 4.2vw, 4.2rem);
+  margin-bottom: 22px;
+}
+
+.about-split__content p,
+.about-visit__card p {
+  margin: 0 0 16px;
+  color: #3f4454;
+  font-size: 1.06rem;
+  line-height: 1.8;
+}
+
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.about-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid #1f2940;
+  color: #1f2940;
+  text-decoration: none;
+  font-weight: 700;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.about-button:hover {
+  transform: translateY(-1px);
+}
+
+.about-button--primary {
+  background: #f06b96;
+  border-color: #f06b96;
+  color: #ffffff;
+}
+
+.about-service-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 18px;
+}
+
+.about-service-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #fff2f8;
+  color: #ba4f7b;
+  border: 1px solid #f6d1e0;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.about-band {
+  background: #f8c8dc;
+  color: #7b2f52;
+  padding: 26px 24px;
+}
+
+.about-band__inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  text-align: center;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.8rem, 3vw, 3rem);
+  line-height: 1.2;
+}
+
+.about-split__media--stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 680px;
+}
+
+.about-split__media--stack img {
+  height: 100%;
+}
+
+.about-visit {
+  padding: 64px 24px 90px;
+}
+
+.about-visit__card {
+  background: linear-gradient(180deg, rgba(255, 246, 250, 0.96), rgba(255, 255, 255, 0.98));
+  border: 1px solid #f6d4e0;
+  border-radius: 30px;
+  padding: 44px;
+  box-shadow: 0 18px 36px rgba(231, 84, 128, 0.08);
+}
+
+.about-visit__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin-top: 10px;
+}
+
+.about-visit__grid h3 {
+  margin: 0 0 10px;
+  color: #ba4f7b;
+  font-size: 0.94rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.about-visit__grid p {
+  margin: 0 0 8px;
+}
+
+.about-visit__note {
+  margin-top: 18px;
+}
+
+@media (max-width: 1040px) {
+  .about-split {
+    grid-template-columns: 1fr;
+  }
+
+  .about-split__media,
+  .about-split__content,
+  .about-split__media--stack {
+    min-height: auto;
+  }
+
+  .about-split__media img {
+    min-height: 360px;
+  }
+
+  .about-split__media--stack {
+    grid-template-columns: 1fr;
+  }
+
+  .about-split__media--stack img {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 760px) {
+  .about-intro {
+    padding: calc(78px + 22px) 18px 36px;
+  }
+
+  .about-intro__lead {
+    font-size: 1rem;
+  }
+
+  .about-split__content,
+  .about-visit__card {
+    padding: 38px 22px;
+  }
+
+  .about-visit {
+    padding: 40px 18px 70px;
+  }
+
+  .about-visit__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .about-band {
+    padding: 20px 18px;
+  }
+}

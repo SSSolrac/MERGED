@@ -1,0 +1,124 @@
+/* src/components/MenuBelt.css */
+.belt-section {
+  padding: 80px 0;
+  background: #fff;
+  text-align: center;
+}
+
+.belt-title {
+  font-size: 48px;
+  margin: 0;
+  font-weight: 800;
+}
+
+.belt-subtitle {
+  margin: 10px auto 35px;
+  max-width: 720px;
+  opacity: 0.8;
+}
+
+.belt-viewport {
+  overflow: hidden;
+  width: 100%;
+  position: relative;
+}
+
+/* Restoring the animation track */
+.belt-track {
+  display: flex;
+  gap: 28px;
+  padding: 20px 28px 30px;
+  width: max-content;
+  animation: beltMove 28s linear infinite;
+}
+
+/* Restoring pause on hover */
+.belt-viewport:hover .belt-track {
+  animation-play-state: paused;
+}
+
+@keyframes beltMove {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); } 
+}
+
+/* Card Alignment Fixes */
+.belt-card {
+  width: 260px;
+  min-width: 260px;
+  background: #e9eff7;
+  border: none;
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  /* Flexbox makes children line up */
+  display: flex;
+  flex-direction: column;
+}
+
+.belt-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.10);
+}
+
+.belt-card:focus-visible {
+  outline: 3px solid rgba(54, 215, 232, 0.9);
+  outline-offset: 3px;
+}
+
+.belt-imgWrap {
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0; 
+}
+
+.belt-img {
+  max-height: 220px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.belt-name {
+  margin: 10px 0 12px;
+  font-size: 20px;
+  font-weight: 800;
+  /* Fixed height so 1-line and 2-line names match */
+  min-height: 2.5em; 
+  display: flex;
+  align-items: center;
+}
+
+.belt-tags {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.15);
+  font-size: 14px;
+  opacity: 0.85;
+  /* Pushes this row to the bottom of the card */
+  margin-top: auto; 
+}
+
+.belt-ctaRow {
+  margin-top: 28px;
+}
+
+.belt-ctaBtn {
+  display: inline-block;
+  padding: 12px 28px;
+  border-radius: 999px;
+  background: #e75480;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  transition: transform 0.2s ease;
+}
+
+.belt-ctaBtn:hover {
+  transform: scale(1.05);
+}
