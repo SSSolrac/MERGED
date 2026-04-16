@@ -21,7 +21,7 @@ const blankAddressFields = {
   selectedPurokId: "",
 };
 
-function Profile({ linkComponent: LinkComponent }) {
+function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const { user, session } = useAuth();
   const [formData, setFormData] = useState(blankProfile);
   const [addressFields, setAddressFields] = useState(blankAddressFields);
@@ -260,101 +260,106 @@ function Profile({ linkComponent: LinkComponent }) {
   }
 
   const LinkImpl = LinkComponent || RouterLink;
+  const isLoyaltyView = view === "loyalty";
 
   return (
     <div className="profile-page">
-      <h1>My Profile</h1>
+      <h1>{isLoyaltyView ? "Loyalty and Perks" : "Profile Info"}</h1>
       <p className="profile-session">
         Signed in as <strong>{user?.email || session?.user?.email}</strong>
       </p>
 
       {error ? <p className="field-error profile-top-error">{error}</p> : null}
 
-      {loyaltyData ? (
-        <LoyaltyCard loyaltyData={loyaltyData} onRedeemReward={handleRedeemReward} redeemingRewardId={redeemingRewardId} />
-      ) : (
-        <p className="loyalty-loading">Loading loyalty card...</p>
-      )}
+      {isLoyaltyView ? (
+        <>
+          {loyaltyData ? (
+            <LoyaltyCard loyaltyData={loyaltyData} onRedeemReward={handleRedeemReward} redeemingRewardId={redeemingRewardId} />
+          ) : (
+            <p className="loyalty-loading">Loading loyalty card...</p>
+          )}
 
-      <div className="profile-links">
-        <LinkImpl href="/order-history" to="/order-history">
-          View order history
-        </LinkImpl>
-        <LinkImpl href="/track-order" to="/track-order">
-          Track latest order
-        </LinkImpl>
-      </div>
-
-      <form className="profile-form" onSubmit={handleSave}>
-        <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} />
-        {errors.name ? <p className="field-error">{errors.name}</p> : null}
-
-        <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleChange} />
-        {errors.email ? <p className="field-error">{errors.email}</p> : null}
-
-        <input type="text" name="phone" placeholder="Phone Number" value={formData.phone} onChange={handleChange} />
-        {errors.phone ? <p className="field-error">{errors.phone}</p> : null}
-
-        <div className="profile-address-group">
-          <input
-            type="text"
-            placeholder="House/Unit, Street, Landmark"
-            value={addressFields.houseDetails}
-            onChange={handleHouseDetailsChange}
-            autoComplete="address-line1"
-            disabled={addressInputsDisabled}
-          />
-          <select value={addressFields.selectedPurokId} onChange={handlePurokChange} disabled={addressInputsDisabled}>
-            <option value="">
-              {isLoadingDeliveryConfig
-                ? "Loading delivery coverage..."
-                : canEditDeliveryAddress
-                  ? "Select a purok"
-                  : "Delivery coverage unavailable"}
-            </option>
-            {activePuroks.map((purok) => (
-              <option key={purok.id} value={purok.id}>
-                {purok.purokName}
-              </option>
-            ))}
-          </select>
-
-          <div className="profile-fixed-address-grid">
-            <label>
-              Barangay / Area
-              <input className="profile-fixed-address" value={String(deliveryConfig?.fixedBarangayName || "")} readOnly aria-label="Barangay / Area" />
-            </label>
-            <label>
-              City
-              <input className="profile-fixed-address" value={String(deliveryConfig?.city || "")} readOnly aria-label="City" />
-            </label>
-            <label>
-              Province
-              <input className="profile-fixed-address" value={String(deliveryConfig?.province || "")} readOnly aria-label="Province" />
-            </label>
-            <label>
-              Country
-              <input className="profile-fixed-address" value={String(deliveryConfig?.country || "")} readOnly aria-label="Country" />
-            </label>
+          <div className="profile-links">
+            <LinkImpl href="/order-history" to="/order-history">
+              View order history
+            </LinkImpl>
+            <LinkImpl href="/track-order" to="/track-order">
+              Track latest order
+            </LinkImpl>
           </div>
-        </div>
+        </>
+      ) : (
+        <form className="profile-form" onSubmit={handleSave}>
+          <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} />
+          {errors.name ? <p className="field-error">{errors.name}</p> : null}
 
-        <p className="profile-address-hint">
-          Save your house/unit + purok here for checkout autofill. The exact delivery pin is still confirmed on the map during checkout.
-        </p>
-        {!canEditDeliveryAddress ? (
-          <p className="profile-address-hint profile-address-warning">
-            Active delivery coverage is not available right now. You can still update your basic profile details, but address changes are disabled until owner delivery settings are restored.
+          <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleChange} />
+          {errors.email ? <p className="field-error">{errors.email}</p> : null}
+
+          <input type="text" name="phone" placeholder="Phone Number" value={formData.phone} onChange={handleChange} />
+          {errors.phone ? <p className="field-error">{errors.phone}</p> : null}
+
+          <div className="profile-address-group">
+            <input
+              type="text"
+              placeholder="House/Unit, Street, Landmark"
+              value={addressFields.houseDetails}
+              onChange={handleHouseDetailsChange}
+              autoComplete="address-line1"
+              disabled={addressInputsDisabled}
+            />
+            <select value={addressFields.selectedPurokId} onChange={handlePurokChange} disabled={addressInputsDisabled}>
+              <option value="">
+                {isLoadingDeliveryConfig
+                  ? "Loading delivery coverage..."
+                  : canEditDeliveryAddress
+                    ? "Select a purok"
+                    : "Delivery coverage unavailable"}
+              </option>
+              {activePuroks.map((purok) => (
+                <option key={purok.id} value={purok.id}>
+                  {purok.purokName}
+                </option>
+              ))}
+            </select>
+
+            <div className="profile-fixed-address-grid">
+              <label>
+                Barangay / Area
+                <input className="profile-fixed-address" value={String(deliveryConfig?.fixedBarangayName || "")} readOnly aria-label="Barangay / Area" />
+              </label>
+              <label>
+                City
+                <input className="profile-fixed-address" value={String(deliveryConfig?.city || "")} readOnly aria-label="City" />
+              </label>
+              <label>
+                Province
+                <input className="profile-fixed-address" value={String(deliveryConfig?.province || "")} readOnly aria-label="Province" />
+              </label>
+              <label>
+                Country
+                <input className="profile-fixed-address" value={String(deliveryConfig?.country || "")} readOnly aria-label="Country" />
+              </label>
+            </div>
+          </div>
+
+          <p className="profile-address-hint">
+            Save your house/unit + purok here for checkout autofill. The exact delivery pin is still confirmed on the map during checkout.
           </p>
-        ) : null}
-        {errors.addresses ? <p className="field-error">{errors.addresses}</p> : null}
+          {!canEditDeliveryAddress ? (
+            <p className="profile-address-hint profile-address-warning">
+              Active delivery coverage is not available right now. You can still update your basic profile details, but address changes are disabled until owner delivery settings are restored.
+            </p>
+          ) : null}
+          {errors.addresses ? <p className="field-error">{errors.addresses}</p> : null}
 
-        <button type="submit" className="save-btn" disabled={isSaving}>
-          {isSaving ? "Saving..." : "Save Information"}
-        </button>
+          <button type="submit" className="save-btn" disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save Information"}
+          </button>
 
-        {message ? <p className="profile-message">{message}</p> : null}
-      </form>
+          {message ? <p className="profile-message">{message}</p> : null}
+        </form>
+      )}
     </div>
   );
 }

@@ -520,8 +520,8 @@ export default function Checkout() {
         Ordering as <strong>{user?.email || form.name || "Authenticated user"}</strong>
       </p>
 
-      <div className="checkout-layout">
-        <form className="checkout-card" onSubmit={submit}>
+      <form className="checkout-layout" onSubmit={submit}>
+        <section className="checkout-card checkout-card--details">
           <h3>Customer Details</h3>
 
           <label>Name</label>
@@ -593,7 +593,10 @@ export default function Checkout() {
               </div>
             </>
           )}
+        </section>
 
+        <section className="checkout-card checkout-card--payment">
+          <h3>Payment Details</h3>
           <label>Payment</label>
           <select
             value={form.paymentMethod}
@@ -660,27 +663,30 @@ export default function Checkout() {
 
           {errors.form ? <p className="field-error">{errors.form}</p> : null}
           {errors.items ? <p className="field-error">{errors.items}</p> : null}
+        </section>
 
+        <aside className="checkout-card checkout-card--summary">
+          <h3>Order Summary</h3>
+          <div className="checkout-summary-list">
+            {cart.map((item) => (
+              <div className="summary-row" key={item.id}>
+                <span>{item.displayName || item.name} x {item.qty}</span>
+                <span>PHP {(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="checkout-summary-footer">
+            <hr />
+            <div className="summary-row total-row">
+              <span>Total</span>
+              <span>PHP {Number(total || 0).toFixed(2)}</span>
+            </div>
+          </div>
           <button className="checkout-submit" type="submit" disabled={isSubmitting || !canSubmit}>
             {isSubmitting ? "Placing order..." : "Place Order"}
           </button>
-        </form>
-
-        <div className="checkout-card">
-          <h3>Order Summary</h3>
-          {cart.map((item) => (
-            <div className="summary-row" key={item.id}>
-              <span>{item.displayName || item.name} x {item.qty}</span>
-              <span>PHP {(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</span>
-            </div>
-          ))}
-          <hr />
-          <div className="summary-row total-row">
-            <span>Total</span>
-            <span>PHP {Number(total || 0).toFixed(2)}</span>
-          </div>
-        </div>
-      </div>
+        </aside>
+      </form>
     </div>
   );
 }

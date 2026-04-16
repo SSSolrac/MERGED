@@ -34,7 +34,6 @@ function About() {
         </div>
 
         <div className="about-split__content">
-          <p className="about-kicker">Our Concept</p>
           <h2>A pet cafe that feels like home</h2>
           <p>
             At Happy Tails, pets are family. That idea shapes everything from our bright and welcoming interiors to the
@@ -61,7 +60,6 @@ function About() {
 
       <section className="about-split about-split--image-right">
         <div className="about-split__content">
-          <p className="about-kicker">What We Offer</p>
           <h2>More than a usual cafe visit</h2>
           <p>
             Happy Tails is built around the everyday needs of fur parents. Aside from serving food and drinks, we also
@@ -102,7 +100,6 @@ function About() {
         </div>
 
         <div className="about-split__content">
-          <p className="about-kicker">Celebrate Here</p>
           <h2>Made for pawties and special days</h2>
           <p>
             Happy Tails is also a place for celebrations. With dog and cat cakes, birthday pawty setups, and a playful

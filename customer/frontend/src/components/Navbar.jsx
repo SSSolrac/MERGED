@@ -14,10 +14,12 @@ function Navbar({ onSignOut, onOpenModal }) {
   const location = useLocation();
   const cartMenuRef = useRef(null);
   const notificationMenuRef = useRef(null);
+  const profileMenuRef = useRef(null);
   const { cartCount, isMiniCartOpen, toggleMiniCart, closeMiniCart } = useCart();
   const { isAuthenticated } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const refreshUnreadCount = () => {
     setUnreadCount(getUnreadNotificationCount());
@@ -48,19 +50,22 @@ function Navbar({ onSignOut, onOpenModal }) {
     closeMiniCart();
     const timeoutId = window.setTimeout(() => {
       setIsNotificationsOpen(false);
+      setIsProfileMenuOpen(false);
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [closeMiniCart, location.pathname, location.search]);
 
   useEffect(() => {
-    if (!isMiniCartOpen && !isNotificationsOpen) return;
+    if (!isMiniCartOpen && !isNotificationsOpen && !isProfileMenuOpen) return;
 
     const handlePointerDown = (event) => {
       const clickedCart = cartMenuRef.current?.contains(event.target);
       const clickedNotifications = notificationMenuRef.current?.contains(event.target);
-      if (!clickedCart && !clickedNotifications) {
+      const clickedProfile = profileMenuRef.current?.contains(event.target);
+      if (!clickedCart && !clickedNotifications && !clickedProfile) {
         closeMiniCart();
         setIsNotificationsOpen(false);
+        setIsProfileMenuOpen(false);
       }
     };
 
@@ -68,6 +73,7 @@ function Navbar({ onSignOut, onOpenModal }) {
       if (event.key === "Escape") {
         closeMiniCart();
         setIsNotificationsOpen(false);
+        setIsProfileMenuOpen(false);
       }
     };
 
@@ -78,16 +84,24 @@ function Navbar({ onSignOut, onOpenModal }) {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [closeMiniCart, isMiniCartOpen, isNotificationsOpen]);
+  }, [closeMiniCart, isMiniCartOpen, isNotificationsOpen, isProfileMenuOpen]);
 
   const handleToggleNotifications = () => {
     closeMiniCart();
+    setIsProfileMenuOpen(false);
     setIsNotificationsOpen((prev) => !prev);
   };
 
   const handleToggleMiniCart = () => {
     setIsNotificationsOpen(false);
+    setIsProfileMenuOpen(false);
     toggleMiniCart();
+  };
+
+  const handleToggleProfileMenu = () => {
+    closeMiniCart();
+    setIsNotificationsOpen(false);
+    setIsProfileMenuOpen((prev) => !prev);
   };
 
   const visibleUnreadCount = isAuthenticated ? unreadCount : 0;
@@ -108,7 +122,6 @@ function Navbar({ onSignOut, onOpenModal }) {
         <li><Link to="/" style={{ color: "#000000" }}>Home</Link></li>
         <li><Link to="/menu" style={{ color: "#000000" }}>Cafe Menu</Link></li>
         <li><Link to="/about" style={{ color: "#000000" }}>About Us</Link></li>
-        {isAuthenticated ? <li><Link to="/order-history" style={{ color: "#000000" }}>My Orders</Link></li> : null}
       </ul>
 
       <div className="nav-right">
@@ -149,9 +162,25 @@ function Navbar({ onSignOut, onOpenModal }) {
 
         {isAuthenticated ? (
           <>
-            <Link to="/profile" className="profile-link">
-              <img src={profileIcon} alt="Profile" className="profile-icon" style={{ filter: "brightness(0)" }} />
-            </Link>
+            <div className="profile-menu" ref={profileMenuRef}>
+              <button
+                type="button"
+                className="profile-link profile-trigger"
+                aria-label="Account menu"
+                aria-expanded={isProfileMenuOpen}
+                onClick={handleToggleProfileMenu}
+              >
+                <img src={profileIcon} alt="" className="profile-icon" style={{ filter: "brightness(0)" }} />
+              </button>
+              {isProfileMenuOpen ? (
+                <div className="profile-dropdown" role="menu" aria-label="Account">
+                  <p className="profile-dropdown-title">Account</p>
+                  <Link to="/profile/info" role="menuitem">Profile Info</Link>
+                  <Link to="/profile/loyalty" role="menuitem">Loyalty and Perks</Link>
+                  <Link to="/order-history" role="menuitem">Order History</Link>
+                </div>
+              ) : null}
+            </div>
             <button className="auth-btn" onClick={onSignOut} style={{ color: "#000000" }}>Sign Out</button>
           </>
         ) : (

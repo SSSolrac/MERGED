@@ -44,6 +44,10 @@ function App() {
   const location = useLocation();
 
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname]);
+
+  useEffect(() => {
     const isLanding = location.pathname === "/";
 
     if (!isLanding) {
@@ -97,7 +101,9 @@ function App() {
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/cart" element={<Navigate to="/order" replace />} />
           <Route path="/checkout" element={<Checkout />} />
-          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
+          <Route path="/profile/info" element={<ProtectedRoute><Profile view="info" /></ProtectedRoute>} />
+          <Route path="/profile/loyalty" element={<ProtectedRoute><Profile view="loyalty" /></ProtectedRoute>} />
           <Route path="/order-history" element={<ProtectedRoute><OrderHistory /></ProtectedRoute>} />
         </Routes>
       </main>
