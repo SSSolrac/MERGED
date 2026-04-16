@@ -78,6 +78,14 @@
   color: #555;
 }
 
+.checkout-address-optional {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px dashed #c9dce1;
+  border-radius: 10px;
+  background: #f7fcfd;
+}
+
 .receipt-preview {
   margin-top: 10px;
   border: 1px solid #e8e8e8;

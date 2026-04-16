@@ -43,6 +43,11 @@ function toMs(value) {
   return new Date(value).getTime() || 0;
 }
 
+function asTrimmedText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
 function toCanonicalOrderType(value) {
   return labelToCanonicalOrderType(value);
 }
@@ -58,6 +63,16 @@ function asNumber(value, fallback = 0) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim()
+  );
+}
+
+function normalizeCode(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function mapOrderRow(row) {
@@ -158,10 +173,10 @@ function buildFallbackTimeline(order) {
   const updatedAt = order.updatedAt || baseAt;
   const status = String(order.status || "pending").toLowerCase();
 
-  if (status === "pending") return [{ status: "pending", at: baseAt }];
+  if (status === "pending") return [{ status: "pending", at: baseAt, note: "" }];
   return [
-    { status: "pending", at: baseAt },
-    { status, at: updatedAt },
+    { status: "pending", at: baseAt, note: "" },
+    { status, at: updatedAt, note: "" },
   ];
 }
 
@@ -230,7 +245,13 @@ function attachRelatedData(orderRows, itemRows, historyRows) {
       const orderId = String(order.id);
       const items = (itemsByOrderId.get(orderId) || []).map(mapOrderItemRow).map(normalizeOrderItem);
       const history = (historyByOrderId.get(orderId) || []).map(mapStatusHistoryRow);
-      const timeline = history.length ? history.map((entry) => ({ status: entry.status, at: entry.changedAt })) : buildFallbackTimeline(order);
+      const timeline = history.length
+        ? history.map((entry) => ({
+            status: entry.status,
+            at: entry.changedAt,
+            note: asTrimmedText(entry.note),
+          }))
+        : buildFallbackTimeline(order);
       const totals = deriveOrderTotals(order, items);
 
       return withUiLabels({
@@ -249,6 +270,25 @@ export function getStatusSteps(orderType) {
 
 export function getStatusLabel(status) {
   return canonicalStatusToLabel(status);
+}
+
+export function getOrderStatusNote(order, status) {
+  if (!order) return "";
+  const targetStatus = String(status || order.status || "").toLowerCase();
+  if (!targetStatus) return "";
+
+  const timeline = Array.isArray(order.statusTimeline) ? order.statusTimeline : [];
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const entry = timeline[index];
+    if (String(entry?.status || "").toLowerCase() !== targetStatus) continue;
+    const note = asTrimmedText(entry?.note);
+    if (note) return note;
+  }
+  return "";
+}
+
+export function getOrderCancellationReason(order) {
+  return getOrderStatusNote(order, "cancelled");
 }
 
 export function formatRemainingCancellationTime(remainingSeconds) {
@@ -283,6 +323,76 @@ function deriveLineAmounts(item) {
   return { unitPrice, discountAmount, quantity: Math.max(1, quantity), lineTotal };
 }
 
+async function fetchMenuSnapshot(items) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const codes = [...new Set(
+    safeItems
+      .map((item) => String(item?.menuItemCode || item?.menu_item_code || item?.code || "").trim())
+      .filter(Boolean)
+  )];
+  const ids = [...new Set(
+    safeItems
+      .map((item) => String(item?.id || item?.menu_item_id || "").trim())
+      .filter((id) => isUuid(id))
+  )];
+
+  if (!codes.length && !ids.length) return { byCode: new Map(), byId: new Map() };
+
+  const supabase = requireSupabaseClient();
+  const requests = [];
+  if (codes.length) {
+    requests.push(
+      supabase
+        .from("menu_items")
+        .select("id, code, name, price, discount, is_available")
+        .in("code", codes)
+    );
+  }
+  if (ids.length) {
+    requests.push(
+      supabase
+        .from("menu_items")
+        .select("id, code, name, price, discount, is_available")
+        .in("id", ids)
+    );
+  }
+
+  const results = await Promise.all(requests);
+  const rows = [];
+  for (const result of results) {
+    if (result?.error) continue;
+    if (Array.isArray(result?.data)) rows.push(...result.data);
+  }
+
+  const uniqueRows = rows.reduce((acc, row) => {
+    const id = String(row?.id || "").trim();
+    if (!id) return acc;
+    if (!acc.has(id)) acc.set(id, row);
+    return acc;
+  }, new Map());
+
+  const byId = new Map();
+  const byCode = new Map();
+  uniqueRows.forEach((row) => {
+    const idKey = String(row?.id || "").trim();
+    const codeKey = normalizeCode(row?.code);
+    if (idKey) byId.set(idKey, row);
+    if (codeKey) byCode.set(codeKey, row);
+  });
+
+  return { byCode, byId };
+}
+
+function resolveMenuSnapshot(item, menuSnapshot) {
+  const idKey = String(item?.id || item?.menu_item_id || "").trim();
+  if (idKey && menuSnapshot.byId.has(idKey)) return menuSnapshot.byId.get(idKey);
+
+  const codeKey = normalizeCode(item?.menuItemCode || item?.menu_item_code || item?.code);
+  if (codeKey && menuSnapshot.byCode.has(codeKey)) return menuSnapshot.byCode.get(codeKey);
+
+  return null;
+}
+
 export async function createOrder(orderPayload) {
   await requireUser();
   const supabase = requireSupabaseClient();
@@ -300,13 +410,33 @@ export async function createOrder(orderPayload) {
   const normalizedReceiptImageUrl =
     paymentMethod === "cash" ? null : String(orderPayload.receiptImageUrl || "").trim() || null;
 
-  const lineItems = (orderPayload.items || []).map((item) => {
-    const amounts = deriveLineAmounts(item);
-    const menuItemCode = String(item.menuItemCode || item.menu_item_code || item.code || "").trim();
+  const rawItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
+  const menuSnapshot = await fetchMenuSnapshot(rawItems);
+
+  const lineItems = rawItems.map((item, index) => {
+    const snapshot = resolveMenuSnapshot(item, menuSnapshot);
+    const menuItemCode = String(snapshot?.code || item.menuItemCode || item.menu_item_code || item.code || "").trim();
+    const fallbackName = String(item.displayName || item.name || item.itemName || `Item ${index + 1}`).trim();
+
+    if (!snapshot) {
+      throw new Error(`${fallbackName} is no longer available. Please remove it from your cart and add it again.`);
+    }
+
+    if (snapshot && snapshot.is_available === false) {
+      throw new Error(`${snapshot.name || menuItemCode} is no longer available. Please update your cart.`);
+    }
+
+    const amounts = deriveLineAmounts({
+      ...item,
+      unitPrice: snapshot ? snapshot.price : item.unitPrice,
+      price: snapshot ? snapshot.price : item.price,
+      discountAmount: snapshot ? snapshot.discount : item.discountAmount,
+    });
+
     return {
-      menu_item_id: item.id,
-      menu_item_code: menuItemCode || null,
-      item_name: String(item.displayName || item.name || item.itemName || "").trim(),
+      menu_item_id: snapshot?.id || (isUuid(item.id) ? item.id : null),
+      menu_item_code: menuItemCode || snapshot?.code || null,
+      item_name: String(snapshot?.name || fallbackName).trim(),
       unit_price: amounts.unitPrice,
       discount_amount: amounts.discountAmount,
       quantity: amounts.quantity,
@@ -314,8 +444,14 @@ export async function createOrder(orderPayload) {
     };
   });
 
-  const subtotal = lineItems.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
-  const discountTotal = lineItems.reduce((sum, line) => sum + line.discountAmount * line.quantity, 0);
+  const subtotal = lineItems.reduce(
+    (sum, line) => sum + asNumber(line.unit_price, 0) * Math.max(1, Math.floor(asNumber(line.quantity, 1))),
+    0
+  );
+  const discountTotal = lineItems.reduce(
+    (sum, line) => sum + asNumber(line.discount_amount, 0) * Math.max(1, Math.floor(asNumber(line.quantity, 1))),
+    0
+  );
   const totalAmount = Math.max(subtotal - discountTotal, 0);
 
   const deliveryAddress = {
@@ -323,6 +459,7 @@ export async function createOrder(orderPayload) {
     phone: orderPayload.customer?.phone || "",
     email: orderPayload.customer?.email || "",
     address: orderPayload.customer?.address || "",
+    ...(orderPayload.deliveryMeta && typeof orderPayload.deliveryMeta === "object" ? orderPayload.deliveryMeta : {}),
   };
 
   const { data, error } = await supabase.rpc("create_customer_order", {
@@ -348,7 +485,7 @@ export async function createOrder(orderPayload) {
 
     if (normalized.kind === "missing_rpc" || normalized.kind === "missing_relation") {
       const err = new Error(
-        "Order system is not fully deployed. Please apply the Supabase schema (customer/frontend/supabase/unified_schema.sql) so create_customer_order is available."
+        "Order system is not fully deployed. Please apply unified_schema.sql and delivery_area_schema.sql so create_customer_order and delivery validations are available."
       );
       err.kind = normalized.kind;
       err.relation = normalized.relation || "create_customer_order";

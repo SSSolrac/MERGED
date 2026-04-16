@@ -6,7 +6,6 @@ import { formatCurrency } from '@/utils/currency';
 import type { DateRangePreset } from '@/types/dashboard';
 import type { Order } from '@/types/order';
 
-type TimePreset = 'all_day' | 'morning' | 'afternoon' | 'evening';
 type ChartPreset = 'area' | 'line' | 'bar';
 type GroupPreset = 'days' | 'weeks' | 'months';
 
@@ -56,32 +55,6 @@ const labelFromGroupKey = (groupBy: GroupPreset, key: string) => {
   return groupBy === 'weeks' ? `Week of ${baseLabel}` : baseLabel;
 };
 
-const isInTimePreset = (order: Order, preset: TimePreset) => {
-  if (order.code.startsWith('IMP-')) return preset === 'all_day';
-  if (preset === 'all_day') return true;
-  const date = toSafeDate(order.placedAt || order.createdAt);
-  if (!date) return false;
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  const openMinutes = 8 * 60;
-  const closeMinutes = date.getDay() === 0 || date.getDay() === 6 ? 20 * 60 : 19 * 60 + 30;
-  const inStoreHours = minutes >= openMinutes && minutes <= closeMinutes;
-
-  if (!inStoreHours) return false;
-  if (preset === 'morning') return minutes < 12 * 60;
-  if (preset === 'afternoon') return minutes >= 12 * 60 && minutes < 17 * 60;
-  return minutes >= 17 * 60;
-};
-
-const timeLabel = (preset: TimePreset) => {
-  const map: Record<TimePreset, string> = {
-    all_day: 'Store hours',
-    morning: 'Opening hours',
-    afternoon: 'Afternoon',
-    evening: 'Evening',
-  };
-  return map[preset];
-};
-
 const resolveOrderAmount = (order: Order) => {
   const safeTotal = Number.isFinite(order.totalAmount) ? Math.max(0, order.totalAmount) : 0;
   if (safeTotal > 0) return safeTotal;
@@ -125,7 +98,6 @@ const deriveAccountingParts = (order: Order) => {
 
 export const DashboardPage = () => {
   const { data, loading, error, selectedRange, setSelectedRange } = useDashboardData();
-  const [timePreset, setTimePreset] = useState<TimePreset>('all_day');
   const [chartPreset, setChartPreset] = useState<ChartPreset>('area');
   const [groupBy, setGroupBy] = useState<GroupPreset>('days');
 
@@ -148,12 +120,7 @@ export const DashboardPage = () => {
     return data.rangeOrders.length ? data.rangeOrders : data.recentOrders;
   }, [data]);
 
-  const filteredOrders = useMemo(() => {
-    return allOrders.filter((order) => {
-      if (!isInTimePreset(order, timePreset)) return false;
-      return true;
-    });
-  }, [allOrders, timePreset]);
+  const filteredOrders = useMemo(() => allOrders, [allOrders]);
 
   const salesSeries = useMemo(() => {
     const totals = new Map<string, number>();
@@ -195,10 +162,9 @@ export const DashboardPage = () => {
   const recentRows = useMemo(
     () =>
       [...(data?.recentOrders ?? [])]
-        .filter((order) => isInTimePreset(order, timePreset))
         .sort((a, b) => new Date(b.placedAt || b.createdAt).getTime() - new Date(a.placedAt || a.createdAt).getTime())
         .slice(0, 10),
-    [data?.recentOrders, timePreset],
+    [data?.recentOrders],
   );
 
   if (loading) return <p>Loading dashboard...</p>;
@@ -229,32 +195,23 @@ export const DashboardPage = () => {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <DateRangeFilter value={selectedRange} onChange={setSelectedRange} variant="select" />
-            <label className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-slate-500">
-              <span>Time</span>
-              <select className="bg-transparent outline-none" value={timePreset} onChange={(event) => setTimePreset(event.target.value as TimePreset)}>
-                <option value="all_day">Store hours (8AM-close)</option>
-                <option value="morning">Opening (8AM-12PM)</option>
-                <option value="afternoon">Afternoon (12PM-5PM)</option>
-                <option value="evening">Evening (5PM-close)</option>
-              </select>
-            </label>
           </div>
         </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-5">
-        <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={`${rangeLabel(selectedRange)} - ${timeLabel(timePreset)}`} />
-        <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={`${rangeLabel(selectedRange)} - ${timeLabel(timePreset)}`} />
+        <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
+        <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
         <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
-        <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={`${rangeLabel(selectedRange)} - ${timeLabel(timePreset)}`} />
-        <SummaryCard title="Gross profit" value={formatCurrency(grossProfitEstimate)} subtitle={`Estimate (${rangeLabel(selectedRange)} - ${timeLabel(timePreset)})`} />
+        <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
+        <SummaryCard title="Gross profit" value={formatCurrency(grossProfitEstimate)} subtitle={`Estimate (${rangeLabel(selectedRange)})`} />
       </div>
 
       <div className="rounded-lg border bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-medium">Gross sales</h3>
-            <p className="text-xs text-slate-500">Filtered by date and time selections.</p>
+            <p className="text-xs text-slate-500">Filtered by date selection.</p>
           </div>
           <div className="flex items-center gap-2">
             <label className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-slate-600">

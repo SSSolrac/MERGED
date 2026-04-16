@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowClockwise, BellFill, Check2All, XLg } from "react-bootstrap-icons";
 import {
   getCustomerNotifications,
+  getNotificationTypeLabel,
   getUnreadNotificationCount,
   markAllNotificationsRead,
   markNotificationRead,
@@ -13,10 +14,6 @@ import "./MiniNotificationsPanel.css";
 function formatDate(value) {
   if (!value) return "Just now";
   return new Date(value).toLocaleString();
-}
-
-function getTypeLabel(type) {
-  return String(type || "").replaceAll("_", " ");
 }
 
 export default function MiniNotificationsPanel({ onClose, onUnreadCountChange }) {
@@ -117,7 +114,7 @@ export default function MiniNotificationsPanel({ onClose, onUnreadCountChange })
                 className={`mini-notification-card${item.isRead ? "" : " mini-notification-card--unread"}`}
               >
                 <div className="mini-notification-top">
-                  <span className="mini-notification-type">{getTypeLabel(item.type)}</span>
+                  <span className="mini-notification-type">{getNotificationTypeLabel(item.type)}</span>
                   <span className="mini-notification-time">{formatDate(item.createdAt)}</span>
                 </div>
 

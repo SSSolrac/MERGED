@@ -7,6 +7,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  MapPinned,
   Menu,
   Settings,
   Upload,
@@ -39,6 +40,7 @@ export const DashboardLayout = () => {
       { section: 'Customers', label: 'Customer Loyalty', path: '/customers', icon: Users },
       { section: 'Administration', label: 'Import Sales Data', path: '/imports', icon: Upload, ownerOnly: true },
       { section: 'Administration', label: 'Settings', path: '/settings', icon: Settings, ownerOnly: true },
+      { section: 'Administration', label: 'Delivery Coverage', path: '/admin/delivery-coverage', icon: MapPinned, ownerOnly: true },
       { section: 'Administration', label: 'Activity Log', path: '/admin/activity-log', icon: History, ownerOnly: true },
     ] as const;
 

@@ -1,14 +1,19 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getOrderCancellationState, getOrderHistory, getStatusLabel } from "../services/orderService";
+import {
+  getOrderCancellationReason,
+  getOrderCancellationState,
+  getOrderHistory,
+  getStatusLabel,
+} from "../services/orderService";
 import "./OrderHistory.css";
 
 function formatMoney(value) {
-  return `₱${Number(value || 0).toFixed(2)}`;
+  return `PHP ${Number(value || 0).toFixed(2)}`;
 }
 
 function formatDateTime(value) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Date(value).toLocaleString();
 }
 
@@ -25,8 +30,8 @@ export default function OrderHistory() {
       try {
         const result = await getOrderHistory();
         setOrders(result);
-      } catch (error) {
-        setError(error?.message || "Unable to load your order history right now. Please try again shortly.");
+      } catch (loadError) {
+        setError(loadError?.message || "Unable to load your order history right now. Please try again shortly.");
       } finally {
         setIsLoading(false);
       }
@@ -61,6 +66,8 @@ export default function OrderHistory() {
             return sum + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
           }, 0);
           const itemLabel = totalItemQuantity === 1 ? "item" : "items";
+          const cancellationReason = getOrderCancellationReason(order);
+
           return (
             <article key={order.id} className="history-card">
               <div className="history-row">
@@ -69,9 +76,9 @@ export default function OrderHistory() {
               </div>
 
               <p>Placed: {formatDateTime(order.placedAt || order.createdAt)}</p>
-              <p>Payment: {String(order.paymentStatus || "pending")} • {order.paymentMethodLabel}</p>
+              <p>Payment: {String(order.paymentStatus || "pending")} | {order.paymentMethodLabel}</p>
               <p>
-                {order.orderTypeLabel} • {order.paymentMethodLabel} • {totalItemQuantity} {itemLabel} • <strong>{formatMoney(order.totalAmount)}</strong>
+                {order.orderTypeLabel} | {order.paymentMethodLabel} | {totalItemQuantity} {itemLabel} | <strong>{formatMoney(order.totalAmount)}</strong>
               </p>
               {(() => {
                 const cancellationState = getOrderCancellationState(order);
@@ -81,8 +88,12 @@ export default function OrderHistory() {
                 return <p className="history-items-summary">{cancellationState.reason}</p>;
               })()}
 
+              {order.status === "cancelled" && cancellationReason ? (
+                <p className="history-cancel-reason"><strong>Cancellation reason:</strong> {cancellationReason}</p>
+              ) : null}
+
               <p className="history-items-summary">
-                {orderItems.slice(0, 2).map((item) => `${item.itemName} × ${item.quantity}`).join(", ")}
+                {orderItems.slice(0, 2).map((item) => `${item.itemName} x ${item.quantity}`).join(", ")}
                 {orderItems.length > 2 ? ` +${orderItems.length - 2} more` : ""}
               </p>
 
@@ -96,7 +107,7 @@ export default function OrderHistory() {
               {isExpanded ? (
                 <ul>
                   {orderItems.map((item) => (
-                    <li key={item.id}>{item.itemName} × {item.quantity} — {formatMoney(item.lineTotal)}</li>
+                    <li key={item.id}>{item.itemName} x {item.quantity} - {formatMoney(item.lineTotal)}</li>
                   ))}
                 </ul>
               ) : null}

@@ -1,0 +1,74 @@
+.campaign-banner {
+  width: 100%;
+  z-index: 8;
+}
+
+.campaign-banner--overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.campaign-banner__surface {
+  width: 100%;
+  overflow: hidden;
+  min-height: 36px;
+  border-top: 1px solid rgba(0, 0, 0, 0.16);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.16);
+  background: rgba(255, 255, 255, 0.36);
+  backdrop-filter: blur(1px);
+  display: flex;
+  align-items: center;
+}
+
+.campaign-banner__track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  white-space: nowrap;
+  will-change: transform;
+  animation: campaign-banner-marquee 32s linear infinite;
+}
+
+.campaign-banner__line {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 0;
+  color: #111111;
+  font-size: clamp(0.84rem, 1.05vw, 0.98rem);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding-right: 1.5rem;
+}
+
+.campaign-banner__line + .campaign-banner__line {
+  padding-left: 1.5rem;
+}
+
+@keyframes campaign-banner-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 860px) {
+  .campaign-banner__surface {
+    min-height: 32px;
+  }
+
+  .campaign-banner__track {
+    animation-duration: 24s;
+  }
+
+  .campaign-banner__line {
+    font-size: 0.8rem;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+}

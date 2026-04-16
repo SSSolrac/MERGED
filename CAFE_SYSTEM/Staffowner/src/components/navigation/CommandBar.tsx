@@ -16,6 +16,7 @@ export const CommandBar = () => {
     { label: 'Customer Loyalty', path: '/customers' },
     ...(isOwner ? [{ label: 'Import Sales Data', path: '/imports' }] : []),
     ...(isOwner ? [{ label: 'Settings', path: '/settings' }] : []),
+    ...(isOwner ? [{ label: 'Delivery Coverage', path: '/admin/delivery-coverage' }] : []),
     ...(isOwner ? [{ label: 'Activity Log', path: '/admin/activity-log' }] : []),
   ], [isOwner]);
 

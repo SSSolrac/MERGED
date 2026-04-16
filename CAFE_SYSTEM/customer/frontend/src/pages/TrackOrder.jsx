@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useOrderTracking } from "../hooks/useOrderTracking";
 import {
   cancelOrder,
+  getOrderCancellationReason,
   getOrderCancellationState,
-  getStatusLabel
+  getStatusLabel,
 } from "../services/orderService";
 import { syncCustomerNotifications } from "../services/notificationService";
 import "./TrackOrder.css";
@@ -30,15 +31,23 @@ export default function TrackOrder() {
   }, [order]);
 
   const cancellationState = useMemo(() => getOrderCancellationState(order), [order]);
+  const cancellationReason = useMemo(() => getOrderCancellationReason(order), [order]);
   const orderItems = useMemo(() => (Array.isArray(order?.items) ? order.items : []), [order?.items]);
 
   const activeTimeline = useMemo(() => {
-    const timelineMap = new Map((order?.statusTimeline || []).map((entry) => [entry.status, entry.at]));
-    return steps.map((step, index) => ({
-      step,
-      at: timelineMap.get(step) || null,
-      state: index < currentStepIndex ? "complete" : index === currentStepIndex ? "current" : "upcoming"
-    }));
+    const timelineMap = new Map(
+      (order?.statusTimeline || []).map((entry) => [entry.status, { at: entry.at, note: entry.note }])
+    );
+
+    return steps.map((step, index) => {
+      const timelineEntry = timelineMap.get(step) || {};
+      return {
+        step,
+        at: timelineEntry.at || null,
+        note: String(timelineEntry.note || "").trim(),
+        state: index < currentStepIndex ? "complete" : index === currentStepIndex ? "current" : "upcoming",
+      };
+    });
   }, [order?.statusTimeline, steps, currentStepIndex]);
 
   const handleLookup = async (event) => {
@@ -105,9 +114,12 @@ export default function TrackOrder() {
             <p><strong>Order:</strong> {order.code || order.id}</p>
             <p><strong>Placed:</strong> {formatTimestamp(order.placedAt || order.createdAt)}</p>
             <p><strong>Last update:</strong> {formatTimestamp(order.updatedAt)}</p>
-            <p><strong>Payment:</strong> {String(order.paymentStatus || "pending")} • {order.paymentMethodLabel}</p>
-            <p><strong>Total:</strong> ₱{Number(order.totalAmount || 0).toFixed(2)}</p>
-            <p><strong>Items:</strong> {orderItems.map((item) => `${item.itemName} × ${item.quantity}`).join(", ") || "No items found"}</p>
+            <p><strong>Payment:</strong> {String(order.paymentStatus || "pending")} | {order.paymentMethodLabel}</p>
+            <p><strong>Total:</strong> PHP {Number(order.totalAmount || 0).toFixed(2)}</p>
+            <p><strong>Items:</strong> {orderItems.map((item) => `${item.itemName} x ${item.quantity}`).join(", ") || "No items found"}</p>
+            {order.status === "cancelled" && cancellationReason ? (
+              <p className="track-cancel-reason"><strong>Cancellation reason:</strong> {cancellationReason}</p>
+            ) : null}
 
             <div className="track-cancel-panel">
               <h3>Need to cancel?</h3>
@@ -126,14 +138,15 @@ export default function TrackOrder() {
           </div>
 
           <div className="track-timeline">
-            {activeTimeline.map(({ step, at, state }) => (
+            {activeTimeline.map(({ step, at, note, state }) => (
               <div className="timeline-row" key={step}>
                 <div className={`timeline-dot ${state !== "upcoming" ? "active" : ""}`}>
-                  {state === "complete" ? "✓" : ""}
+                  {state === "complete" ? "OK" : ""}
                 </div>
                 <div>
                   <p className={state !== "upcoming" ? "active" : ""}>{getStatusLabel(step)}</p>
                   <small>{at ? `Updated ${formatTimestamp(at)}` : "Awaiting this stage"}</small>
+                  {note ? <small className="track-status-note">Note: {note}</small> : null}
                 </div>
               </div>
             ))}

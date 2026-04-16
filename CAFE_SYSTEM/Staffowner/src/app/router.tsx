@@ -4,6 +4,7 @@ import { LoginPage } from '@/auth/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { ActivityLogPage } from '@/pages/admin/ActivityLogPage';
+import { DeliveryCoveragePage } from '@/pages/admin/DeliveryCoveragePage';
 import { OrdersPage } from '@/pages/orders/OrdersPage';
 import { DailyMenuPage } from '@/pages/menu/DailyMenuPage';
 import { MenuManagementPage } from '@/pages/menu/MenuManagementPage';
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: 'imports', element: <ProtectedRoute ownerOnly><ImportsReportsPage /></ProtectedRoute> },
       { path: 'profile', element: <ProtectedRoute ownerOnly><Navigate to="/settings" replace /></ProtectedRoute> },
       { path: 'settings', element: <ProtectedRoute ownerOnly><SettingsPage /></ProtectedRoute> },
+      { path: 'admin/delivery-coverage', element: <ProtectedRoute ownerOnly><DeliveryCoveragePage /></ProtectedRoute> },
       { path: 'admin/activity-log', element: <ProtectedRoute ownerOnly><ActivityLogPage /></ProtectedRoute> },
       { path: 'admin/login-history', element: <ProtectedRoute ownerOnly><Navigate to="/admin/activity-log" replace /></ProtectedRoute> },
     ],

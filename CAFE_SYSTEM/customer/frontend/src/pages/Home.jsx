@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import HeroSlider from "../components/HeroSlider";
+import CampaignBanner from "../components/CampaignBanner";
 import MenuBelt from "../components/MenuBelt";
 import MenuOfTheDay from "../components/dailyMenu/MenuOfTheDay";
 import "../components/dailyMenu/MenuOfTheDay.css";
@@ -21,7 +22,10 @@ export default function Home({ onOrderClick }) {
 
   return (
     <>
-      <HeroSlider onOrderClick={onOrderClick} />
+      <div style={{ position: "relative" }}>
+        <CampaignBanner overlay />
+        <HeroSlider onOrderClick={onOrderClick} />
+      </div>
       {isLoadingMenu ? (
         <section className="daily-menu" aria-label="Menu of the Day loading">
           <p className="daily-menu__empty">Loading menu of the day...</p>

@@ -14,3 +14,5 @@ export * from './ingredientService';
 export * from './inventoryService';
 export * from './staffService';
 export * from './businessSettingsService';
+export * from './campaignAnnouncementService';
+export * from './deliveryCoverageService';

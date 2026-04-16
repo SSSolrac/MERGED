@@ -1,18 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import LoyaltyCard from "../components/loyalty/LoyaltyCard";
 import { FREE_LATTE_CHOICES, getCustomerLoyaltyData, isLatteReward, redeemLoyaltyReward } from "../services/loyaltyService";
 import { getCustomerProfile, saveCustomerProfile } from "../services/profileService";
+import { getActiveDeliveryConfig } from "../services/deliveryAreaService";
+import { buildDeliveryAddress, parseDeliveryAddress } from "../utils/deliveryAddress";
 import { useAuth } from "../context/AuthContext";
-import {
-  composeLucenaAddress,
-  findLucenaBarangay,
-  findLucenaPurok,
-  getPuroksForBarangay,
-  LUCENA_CITY_LABEL,
-  LUCENA_PROVINCE_LABEL,
-  parseLucenaAddress,
-} from "../utils/lucenaAddress";
 import "./Profile.css";
 
 const blankProfile = {
@@ -20,23 +13,22 @@ const blankProfile = {
   phone: "",
   email: "",
   addresses: [],
-  preferences: {}
+  preferences: {},
 };
-
-const DELIVERY_BARANGAY = "Ilayang Iyam";
 
 const blankAddressFields = {
   houseDetails: "",
-  purok: "",
-  barangay: DELIVERY_BARANGAY,
+  selectedPurokId: "",
 };
 
 function Profile({ linkComponent: LinkComponent }) {
   const { user, session } = useAuth();
   const [formData, setFormData] = useState(blankProfile);
   const [addressFields, setAddressFields] = useState(blankAddressFields);
+  const [deliveryConfig, setDeliveryConfig] = useState(null);
   const [loyaltyData, setLoyaltyData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingDeliveryConfig, setIsLoadingDeliveryConfig] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [redeemingRewardId, setRedeemingRewardId] = useState("");
   const [error, setError] = useState("");
@@ -49,34 +41,69 @@ function Profile({ linkComponent: LinkComponent }) {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadProfile = async () => {
       setIsLoading(true);
+      setIsLoadingDeliveryConfig(true);
       setError("");
+
       try {
-        const profile = await getCustomerProfile();
+        const [profile, config] = await Promise.all([
+          getCustomerProfile(),
+          getActiveDeliveryConfig({ force: true }),
+        ]);
+
+        if (cancelled) return;
+
         const mergedProfile = {
           ...blankProfile,
           email: user?.email || "",
-          ...profile
+          ...profile,
         };
-        setFormData(mergedProfile);
         const primaryAddress = Array.isArray(mergedProfile.addresses) ? String(mergedProfile.addresses[0] || "") : "";
-        const parsedAddress = parseLucenaAddress(primaryAddress);
+        const parsedAddress = parseDeliveryAddress(primaryAddress, config);
+
+        setDeliveryConfig(config);
+        setFormData(mergedProfile);
         setAddressFields({
           houseDetails: parsedAddress.houseDetails || "",
-          purok: parsedAddress.purok || "",
-          barangay: parsedAddress.barangay || DELIVERY_BARANGAY,
+          selectedPurokId: parsedAddress.selectedPurokId || "",
         });
+
         await loadLoyaltyData();
       } catch (loadError) {
+        if (cancelled) return;
         setError(loadError?.message || "We couldn't load your account details right now.");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsLoadingDeliveryConfig(false);
+        }
       }
     };
 
     loadProfile();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.email]);
+
+  const activePuroks = useMemo(
+    () =>
+      (Array.isArray(deliveryConfig?.puroks) ? deliveryConfig.puroks : []).filter(
+        (purok) => purok?.isActive !== false && String(purok?.deliveryStatus || "active").toLowerCase() !== "inactive"
+      ),
+    [deliveryConfig?.puroks]
+  );
+
+  const canEditDeliveryAddress =
+    deliveryConfig &&
+    deliveryConfig.isActive !== false &&
+    String(deliveryConfig.deliveryStatus || "active").toLowerCase() !== "inactive" &&
+    activePuroks.length > 0;
+
+  const addressInputsDisabled = isSaving || isLoadingDeliveryConfig || !canEditDeliveryAddress;
 
   const handleChange = (event) => {
     setFormData({ ...formData, [event.target.name]: event.target.value });
@@ -86,18 +113,23 @@ function Profile({ linkComponent: LinkComponent }) {
 
   const updateAddressFields = (nextFields) => {
     const houseDetails = String(nextFields.houseDetails || "");
-    const canonicalBarangay = findLucenaBarangay(nextFields.barangay);
-    const canonicalPurok = findLucenaPurok(canonicalBarangay, nextFields.purok);
-    const composedAddress = composeLucenaAddress({
-      houseDetails,
-      purok: canonicalPurok,
-      barangay: canonicalBarangay,
-    });
+    const selectedPurokId = String(nextFields.selectedPurokId || "");
+    const matchedPurok = activePuroks.find((purok) => String(purok.id) === selectedPurokId) || null;
+    const composedAddress =
+      canEditDeliveryAddress && matchedPurok
+        ? buildDeliveryAddress({
+            houseDetails,
+            purokName: matchedPurok.purokName,
+            fixedBarangayName: deliveryConfig?.fixedBarangayName,
+            city: deliveryConfig?.city,
+            province: deliveryConfig?.province,
+            country: deliveryConfig?.country,
+          })
+        : "";
 
     setAddressFields({
       houseDetails,
-      purok: canonicalPurok,
-      barangay: canonicalBarangay,
+      selectedPurokId: matchedPurok ? matchedPurok.id : "",
     });
     setFormData((prev) => ({
       ...prev,
@@ -114,42 +146,43 @@ function Profile({ linkComponent: LinkComponent }) {
     });
   };
 
-  const handleBarangayChange = (event) => {
-    const nextBarangay = findLucenaBarangay(event.target.value);
-    const availablePuroks = getPuroksForBarangay(nextBarangay);
-    const nextPurok = availablePuroks.includes(addressFields.purok) ? addressFields.purok : "";
-
-    updateAddressFields({
-      ...addressFields,
-      barangay: nextBarangay,
-      purok: nextPurok,
-    });
-  };
-
   const handlePurokChange = (event) => {
     updateAddressFields({
       ...addressFields,
-      purok: event.target.value,
+      selectedPurokId: event.target.value,
     });
   };
 
   const handleSave = async (event) => {
     event.preventDefault();
+
     const nextErrors = {};
     const houseDetails = String(addressFields.houseDetails || "").trim();
-    const canonicalBarangay = findLucenaBarangay(addressFields.barangay || DELIVERY_BARANGAY);
-    const canonicalPurok = findLucenaPurok(canonicalBarangay, addressFields.purok);
-    const normalizedAddress = composeLucenaAddress({
-      houseDetails,
-      purok: canonicalPurok,
-      barangay: canonicalBarangay,
-    });
+    const wantsToSaveAddress = Boolean(houseDetails || addressFields.selectedPurokId);
+    const matchedPurok = activePuroks.find((purok) => String(purok.id) === String(addressFields.selectedPurokId || "")) || null;
+
+    let normalizedAddress = "";
+    if (canEditDeliveryAddress && matchedPurok) {
+      normalizedAddress = buildDeliveryAddress({
+        houseDetails,
+        purokName: matchedPurok.purokName,
+        fixedBarangayName: deliveryConfig?.fixedBarangayName,
+        city: deliveryConfig?.city,
+        province: deliveryConfig?.province,
+        country: deliveryConfig?.country,
+      });
+    }
 
     if (!formData.name.trim()) nextErrors.name = "Name is required.";
     if (!/^\+?[0-9\-\s]{7,15}$/.test(formData.phone.trim())) nextErrors.phone = "Enter a valid phone number.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) nextErrors.email = "Enter a valid email address.";
-    if (!houseDetails || canonicalBarangay !== DELIVERY_BARANGAY || !canonicalPurok) {
-      nextErrors.addresses = "Use an address inside Barangay Ilayang Iyam, Lucena City (House/Unit/Street + Purok).";
+
+    if (wantsToSaveAddress) {
+      if (!canEditDeliveryAddress) {
+        nextErrors.addresses = "Delivery coverage is unavailable right now, so address changes are temporarily disabled.";
+      } else if (!houseDetails || !matchedPurok || !normalizedAddress) {
+        nextErrors.addresses = "Enter your house/unit/street and choose an active purok.";
+      }
     }
 
     if (Object.keys(nextErrors).length) {
@@ -159,19 +192,30 @@ function Profile({ linkComponent: LinkComponent }) {
 
     setIsSaving(true);
     setError("");
+
     try {
       const profileToSave = {
         ...formData,
-        addresses: [normalizedAddress],
+        addresses: canEditDeliveryAddress
+          ? normalizedAddress
+            ? [normalizedAddress]
+            : []
+          : Array.isArray(formData.addresses)
+            ? formData.addresses
+            : [],
       };
+
       await saveCustomerProfile(profileToSave);
       setFormData(profileToSave);
       setAddressFields({
         houseDetails,
-        purok: canonicalPurok,
-        barangay: canonicalBarangay,
+        selectedPurokId: matchedPurok ? matchedPurok.id : "",
       });
-      setMessage("Profile saved. Checkout will use your latest details automatically.");
+      setMessage(
+        normalizedAddress
+          ? "Profile saved. Checkout will prefill this address, but you still need to confirm the exact delivery pin during checkout."
+          : "Profile saved."
+      );
       await loadLoyaltyData();
     } catch (saveError) {
       setError(saveError?.message || "Unable to save right now. Please try again.");
@@ -218,9 +262,11 @@ function Profile({ linkComponent: LinkComponent }) {
   const LinkImpl = LinkComponent || RouterLink;
 
   return (
-      <div className="profile-page">
+    <div className="profile-page">
       <h1>My Profile</h1>
-      <p className="profile-session">Signed in as <strong>{user?.email || session?.user?.email}</strong></p>
+      <p className="profile-session">
+        Signed in as <strong>{user?.email || session?.user?.email}</strong>
+      </p>
 
       {error ? <p className="field-error profile-top-error">{error}</p> : null}
 
@@ -231,8 +277,12 @@ function Profile({ linkComponent: LinkComponent }) {
       )}
 
       <div className="profile-links">
-        <LinkImpl href="/order-history" to="/order-history">View order history</LinkImpl>
-        <LinkImpl href="/track-order" to="/track-order">Track latest order</LinkImpl>
+        <LinkImpl href="/order-history" to="/order-history">
+          View order history
+        </LinkImpl>
+        <LinkImpl href="/track-order" to="/track-order">
+          Track latest order
+        </LinkImpl>
       </div>
 
       <form className="profile-form" onSubmit={handleSave}>
@@ -248,28 +298,55 @@ function Profile({ linkComponent: LinkComponent }) {
         <div className="profile-address-group">
           <input
             type="text"
-            placeholder="House/Unit, Street"
+            placeholder="House/Unit, Street, Landmark"
             value={addressFields.houseDetails}
             onChange={handleHouseDetailsChange}
             autoComplete="address-line1"
+            disabled={addressInputsDisabled}
           />
-          <select value={DELIVERY_BARANGAY} onChange={handleBarangayChange} disabled>
-            <option value={DELIVERY_BARANGAY}>{DELIVERY_BARANGAY}</option>
+          <select value={addressFields.selectedPurokId} onChange={handlePurokChange} disabled={addressInputsDisabled}>
+            <option value="">
+              {isLoadingDeliveryConfig
+                ? "Loading delivery coverage..."
+                : canEditDeliveryAddress
+                  ? "Select a purok"
+                  : "Delivery coverage unavailable"}
+            </option>
+            {activePuroks.map((purok) => (
+              <option key={purok.id} value={purok.id}>
+                {purok.purokName}
+              </option>
+            ))}
           </select>
-          {addressFields.barangay ? (
-            <select value={addressFields.purok} onChange={handlePurokChange}>
-              <option value="">Select Purok (Ilayang Iyam)</option>
-              {getPuroksForBarangay(addressFields.barangay).map((purok) => (
-                <option key={purok} value={purok}>
-                  {purok}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          <input className="profile-fixed-address" value={LUCENA_CITY_LABEL} readOnly aria-label="City" />
-          <input className="profile-fixed-address" value={LUCENA_PROVINCE_LABEL} readOnly aria-label="Province" />
+
+          <div className="profile-fixed-address-grid">
+            <label>
+              Barangay / Area
+              <input className="profile-fixed-address" value={String(deliveryConfig?.fixedBarangayName || "")} readOnly aria-label="Barangay / Area" />
+            </label>
+            <label>
+              City
+              <input className="profile-fixed-address" value={String(deliveryConfig?.city || "")} readOnly aria-label="City" />
+            </label>
+            <label>
+              Province
+              <input className="profile-fixed-address" value={String(deliveryConfig?.province || "")} readOnly aria-label="Province" />
+            </label>
+            <label>
+              Country
+              <input className="profile-fixed-address" value={String(deliveryConfig?.country || "")} readOnly aria-label="Country" />
+            </label>
+          </div>
         </div>
-        <p className="profile-address-hint">Delivery is only available in Barangay Ilayang Iyam, Lucena City, Quezon.</p>
+
+        <p className="profile-address-hint">
+          Save your house/unit + purok here for checkout autofill. The exact delivery pin is still confirmed on the map during checkout.
+        </p>
+        {!canEditDeliveryAddress ? (
+          <p className="profile-address-hint profile-address-warning">
+            Active delivery coverage is not available right now. You can still update your basic profile details, but address changes are disabled until owner delivery settings are restored.
+          </p>
+        ) : null}
         {errors.addresses ? <p className="field-error">{errors.addresses}</p> : null}
 
         <button type="submit" className="save-btn" disabled={isSaving}>

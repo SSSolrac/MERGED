@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   getCustomerNotifications,
+  getNotificationTypeLabel,
   markAllNotificationsRead,
   markNotificationRead,
   syncCustomerNotifications
@@ -11,10 +12,6 @@ import "./Notifications.css";
 function formatDate(value) {
   if (!value) return "Just now";
   return new Date(value).toLocaleString();
-}
-
-function getTypeLabel(type) {
-  return String(type || "").replaceAll("_", " ");
 }
 
 export default function Notifications() {
@@ -58,7 +55,7 @@ export default function Notifications() {
       <div className="notifications-header">
         <div>
           <h1>Notifications</h1>
-          <p>Order updates and promos are listed here.</p>
+          <p>Order updates, promo alerts, and new menu items are listed here.</p>
         </div>
         {items.length ? (
           <button type="button" onClick={onMarkAllRead} className="notifications-mark-all">
@@ -70,7 +67,7 @@ export default function Notifications() {
       {!items.length ? (
         <div className="notifications-state">
           <h2>No notifications yet</h2>
-          <p>We will show order updates and promo alerts here.</p>
+          <p>We will show order updates, promo alerts, and new item notices here.</p>
           <Link to="/order">Start an order</Link>
         </div>
       ) : (
@@ -84,7 +81,7 @@ export default function Notifications() {
               tabIndex={0}
             >
               <div className="notification-top">
-                <span className="notification-type">{getTypeLabel(item.type)}</span>
+                <span className="notification-type">{getNotificationTypeLabel(item.type)}</span>
                 <span className="notification-time">{formatDate(item.createdAt)}</span>
               </div>
               <h3>{item.title}</h3>

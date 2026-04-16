@@ -40,6 +40,7 @@ function classifySupabaseError({ code, status, message }) {
   const upperCode = asNonEmptyText(code).toUpperCase();
 
   if (upperCode === "SUPABASE_CONFIG_MISSING") return "missing_config";
+  if (upperCode === "P0001") return "business_rule";
   if (lowered.includes("create_customer_order") && lowered.includes("does not exist")) return "missing_rpc";
   if (lowered.includes("rpc create_customer_order") && lowered.includes("does not exist")) return "missing_rpc";
   if (upperCode === "PGRST302") return "missing_rpc"; // PostgREST missing function
@@ -125,6 +126,8 @@ export function normalizeSupabaseError(error, options = {}) {
   } else if (kind === "permission_denied") {
     const relationLabel = inferredRelation ? ` (${inferredRelation})` : "";
     userMessage = `${fallbackMessage} Supabase denied access${relationLabel}. Check Row Level Security (RLS) policies and grants for the current role (anon/authenticated).`;
+  } else if (kind === "business_rule") {
+    userMessage = message || fallbackMessage;
   } else if (kind === "no_rows") {
     userMessage = fallbackMessage;
   } else {

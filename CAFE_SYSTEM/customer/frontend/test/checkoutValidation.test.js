@@ -15,31 +15,45 @@ function basePayload(overrides = {}) {
 }
 
 test("address is required for delivery", async () => {
-  const payload = basePayload({ orderType: "delivery", customer: { name: "A", phone: "+639171234567", address: "" } });
+  const payload = basePayload({
+    orderType: "delivery",
+    customer: { name: "A", phone: "+639171234567", address: "" },
+  });
   const result = await validateCheckout(payload);
   assert.equal(result.isValid, false);
   assert.ok(result.errors.address);
 });
 
-test("address is required for pickup", async () => {
-  const payload = basePayload({ orderType: "pickup", customer: { name: "A", phone: "+639171234567", address: "" } });
-  const result = await validateCheckout(payload);
-  assert.equal(result.isValid, false);
-  assert.ok(result.errors.address);
+test("address is optional for pickup, takeout, and dine-in", async () => {
+  const pickup = await validateCheckout(
+    basePayload({ orderType: "pickup", customer: { name: "A", phone: "+639171234567", address: "" } })
+  );
+  assert.equal(pickup.isValid, true);
+  assert.equal(Boolean(pickup.errors.address), false);
+
+  const takeout = await validateCheckout(
+    basePayload({ orderType: "takeout", customer: { name: "A", phone: "+639171234567", address: "" } })
+  );
+  assert.equal(takeout.isValid, true);
+  assert.equal(Boolean(takeout.errors.address), false);
+
+  const dineIn = await validateCheckout(
+    basePayload({ orderType: "dine_in", customer: { name: "A", phone: "+639171234567", address: "" } })
+  );
+  assert.equal(dineIn.isValid, true);
+  assert.equal(Boolean(dineIn.errors.address), false);
 });
 
-test("address is required for takeout", async () => {
-  const payload = basePayload({ orderType: "takeout", customer: { name: "A", phone: "+639171234567", address: "" } });
+test("delivery requires active purok + map pin metadata", async () => {
+  const payload = basePayload({
+    orderType: "delivery",
+    customer: { name: "A", phone: "+639171234567", address: "Lucena City" },
+    deliveryMeta: {},
+  });
   const result = await validateCheckout(payload);
   assert.equal(result.isValid, false);
-  assert.ok(result.errors.address);
-});
-
-test("address is required for dine-in", async () => {
-  const payload = basePayload({ orderType: "dine_in", customer: { name: "A", phone: "+639171234567", address: "" } });
-  const result = await validateCheckout(payload);
-  assert.equal(result.isValid, false);
-  assert.ok(result.errors.address);
+  assert.ok(result.errors.purok);
+  assert.ok(result.errors.mapPin);
 });
 
 test("receipt is optional for cash and required for non-cash", async () => {

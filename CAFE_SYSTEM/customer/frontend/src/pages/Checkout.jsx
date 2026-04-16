@@ -5,17 +5,15 @@ import { useAuth } from "../context/AuthContext";
 import { createOrder, validateCheckout } from "../services/orderService";
 import { getCustomerProfile, saveCustomerProfile } from "../services/profileService";
 import { syncCustomerNotifications } from "../services/notificationService";
+import { DEFAULT_PUBLIC_BUSINESS_SETTINGS, getPublicBusinessSettings } from "../services/businessSettingsService";
 import { labelToCanonicalOrderType } from "../constants/canonical";
 import { PAYMENT_METHOD_OPTIONS, getPaymentQrAsset, paymentMethodToLabel } from "../utils/paymentMethods";
+import { getActiveDeliveryConfig, validateDeliveryAddressOnServer } from "../services/deliveryAreaService";
 import {
-  composeLucenaAddress,
-  findLucenaBarangay,
-  findLucenaPurok,
-  getPuroksForBarangay,
-  LUCENA_CITY_LABEL,
-  LUCENA_PROVINCE_LABEL,
-  parseLucenaAddress,
-} from "../utils/lucenaAddress";
+  parseDeliveryAddress,
+  validateDeliveryAddress,
+} from "../utils/deliveryAddress";
+import DeliveryAddressForm from "../components/DeliveryAddressForm";
 import "./Checkout.css";
 
 const defaultForm = {
@@ -24,17 +22,40 @@ const defaultForm = {
   address: "",
   orderType: "Dine-in",
   paymentMethod: "qrph",
-  notes: ""
+  notes: "",
 };
 
-const DELIVERY_BARANGAY = "Ilayang Iyam";
-const DELIVERY_AREA_ERROR_MESSAGE = "Sorry, we currently only deliver within Barangay Ilayang Iyam, Lucena City, Quezon.";
-const ADDRESS_REQUIRED_MESSAGE = "Please complete your full address (House/Unit/Street + Purok) for Barangay Ilayang Iyam.";
-const defaultAddressFields = {
+const defaultDeliveryInput = {
   houseDetails: "",
-  purok: "",
-  barangay: DELIVERY_BARANGAY,
+  selectedPurokId: "",
+  latitude: null,
+  longitude: null,
 };
+
+const ORDER_TYPE_OPTIONS = [
+  { value: "Dine-in", enabledKey: "enableDineIn" },
+  { value: "Pickup", enabledKey: "enablePickup" },
+  { value: "Takeout", enabledKey: "enableTakeout" },
+  { value: "Delivery", enabledKey: "enableDelivery" },
+];
+
+function isPaymentMethodEnabled(settings, method) {
+  const safeSettings = settings && typeof settings === "object" ? settings : DEFAULT_PUBLIC_BUSINESS_SETTINGS;
+  switch (String(method || "").trim().toLowerCase()) {
+    case "qrph":
+      return safeSettings.enableQrph !== false;
+    case "gcash":
+      return safeSettings.enableGcash !== false;
+    case "maribank":
+      return safeSettings.enableMariBank !== false;
+    case "bdo":
+      return safeSettings.enableBdo !== false;
+    case "cash":
+      return safeSettings.enableCash !== false;
+    default:
+      return false;
+  }
+}
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -66,12 +87,64 @@ export default function Checkout() {
   const { cart, total, clearCart } = useCart();
   const { user, isAuthenticated } = useAuth();
   const [form, setForm] = useState(defaultForm);
-  const [addressFields, setAddressFields] = useState(defaultAddressFields);
+  const [deliveryInput, setDeliveryInput] = useState(defaultDeliveryInput);
+  const [deliveryConfig, setDeliveryConfig] = useState(null);
+  const [isLoadingDeliveryConfig, setIsLoadingDeliveryConfig] = useState(true);
+  const [checkoutSettings, setCheckoutSettings] = useState(DEFAULT_PUBLIC_BUSINESS_SETTINGS);
+  const [isLoadingCheckoutSettings, setIsLoadingCheckoutSettings] = useState(true);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreviewUrl, setReceiptPreviewUrl] = useState("");
+  const savedAddressFromProfileRef = useRef("");
+  const appliedProfileAddressRef = useRef(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadCheckoutSettings = async () => {
+      try {
+        setIsLoadingCheckoutSettings(true);
+        const settings = await getPublicBusinessSettings();
+        if (isCancelled) return;
+        setCheckoutSettings(settings);
+      } catch {
+        if (isCancelled) return;
+        setCheckoutSettings(DEFAULT_PUBLIC_BUSINESS_SETTINGS);
+      } finally {
+        if (!isCancelled) setIsLoadingCheckoutSettings(false);
+      }
+    };
+
+    loadCheckoutSettings();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadDeliveryConfig = async () => {
+      try {
+        setIsLoadingDeliveryConfig(true);
+        const config = await getActiveDeliveryConfig({ force: true });
+        if (isCancelled) return;
+        setDeliveryConfig(config);
+      } catch {
+        if (isCancelled) return;
+        setDeliveryConfig(null);
+      } finally {
+        if (!isCancelled) setIsLoadingDeliveryConfig(false);
+      }
+    };
+
+    loadDeliveryConfig();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -81,7 +154,7 @@ export default function Checkout() {
       try {
         const profile = await getCustomerProfile();
         const savedAddress = Array.isArray(profile?.addresses) ? String(profile.addresses[0] || "") : "";
-        const parsedAddress = parseLucenaAddress(savedAddress);
+        savedAddressFromProfileRef.current = savedAddress;
 
         setForm((prev) => ({
           ...prev,
@@ -89,11 +162,6 @@ export default function Checkout() {
           phone: toPhilippineLocalDigits(profile?.phone || "") || prev.phone,
           address: savedAddress || prev.address,
         }));
-        setAddressFields({
-          houseDetails: parsedAddress.houseDetails || "",
-          purok: parsedAddress.purok || "",
-          barangay: parsedAddress.barangay || DELIVERY_BARANGAY,
-        });
       } catch {
         if (fallbackName) {
           setForm((prev) => (String(prev.name || "").trim() ? prev : { ...prev, name: fallbackName }));
@@ -105,10 +173,53 @@ export default function Checkout() {
   }, [isAuthenticated, user?.name]);
 
   useEffect(() => {
+    if (appliedProfileAddressRef.current) return;
+    if (!deliveryConfig) return;
+
+    const parsed = parseDeliveryAddress(savedAddressFromProfileRef.current, deliveryConfig);
+    if (!parsed.houseDetails && !parsed.selectedPurokId) return;
+
+    setDeliveryInput((prev) => ({
+      ...prev,
+      houseDetails: parsed.houseDetails || prev.houseDetails,
+      selectedPurokId: parsed.selectedPurokId || prev.selectedPurokId,
+    }));
+    appliedProfileAddressRef.current = true;
+  }, [deliveryConfig]);
+
+  useEffect(() => {
     return () => {
       if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
     };
   }, [receiptPreviewUrl]);
+
+  const availableOrderTypeOptions = useMemo(
+    () => ORDER_TYPE_OPTIONS.filter((option) => checkoutSettings?.[option.enabledKey] !== false),
+    [checkoutSettings]
+  );
+
+  const availablePaymentOptions = useMemo(
+    () => PAYMENT_METHOD_OPTIONS.filter((method) => isPaymentMethodEnabled(checkoutSettings, method.value)),
+    [checkoutSettings]
+  );
+
+  useEffect(() => {
+    if (!availableOrderTypeOptions.length) return;
+    setForm((prev) =>
+      availableOrderTypeOptions.some((option) => option.value === prev.orderType)
+        ? prev
+        : { ...prev, orderType: availableOrderTypeOptions[0].value }
+    );
+  }, [availableOrderTypeOptions]);
+
+  useEffect(() => {
+    if (!availablePaymentOptions.length) return;
+    setForm((prev) =>
+      availablePaymentOptions.some((option) => option.value === prev.paymentMethod)
+        ? prev
+        : { ...prev, paymentMethod: availablePaymentOptions[0].value }
+    );
+  }, [availablePaymentOptions]);
 
   useEffect(() => {
     if (form.paymentMethod !== "cash") return;
@@ -123,15 +234,49 @@ export default function Checkout() {
   }, [form.paymentMethod, receiptFile, receiptPreviewUrl]);
 
   const normalizedPhone = toPhilippineE164(form.phone);
+  const canonicalOrderType = labelToCanonicalOrderType(form.orderType);
+  const requiresDeliveryAddress = canonicalOrderType === "delivery";
   const isCashPayment = form.paymentMethod === "cash";
   const hasName = Boolean(form.name.trim());
   const isPhoneValid = /^9\d{9}$/.test(form.phone);
-  const hasAddress =
-    Boolean(addressFields.houseDetails.trim()) &&
-    Boolean(findLucenaBarangay(addressFields.barangay)) &&
-    Boolean(findLucenaPurok(addressFields.barangay, addressFields.purok));
   const hasReceipt = isCashPayment || Boolean(receiptFile);
-  const canSubmit = hasName && isPhoneValid && hasAddress && hasReceipt;
+  const hasAvailableOrderTypes = availableOrderTypeOptions.length > 0;
+  const hasAvailablePaymentMethods = availablePaymentOptions.length > 0;
+  const isSelectedOrderTypeEnabled = availableOrderTypeOptions.some((option) => option.value === form.orderType);
+  const isSelectedPaymentEnabled = availablePaymentOptions.some((option) => option.value === form.paymentMethod);
+
+  const deliveryValidation = useMemo(() => {
+    if (!deliveryConfig) {
+      return {
+        isValid: false,
+        errors: { address: "Delivery configuration is currently unavailable." },
+        normalizedAddress: "",
+        selectedPurok: null,
+        latitude: NaN,
+        longitude: NaN,
+      };
+    }
+
+    return validateDeliveryAddress({
+      houseDetails: deliveryInput.houseDetails,
+      selectedPurokId: deliveryInput.selectedPurokId,
+      latitude: deliveryInput.latitude,
+      longitude: deliveryInput.longitude,
+      config: deliveryConfig,
+    });
+  }, [deliveryConfig, deliveryInput.houseDetails, deliveryInput.latitude, deliveryInput.longitude, deliveryInput.selectedPurokId]);
+
+  const hasAddress = !requiresDeliveryAddress || (!isLoadingDeliveryConfig && deliveryValidation.isValid);
+  const canSubmit =
+    hasName &&
+    isPhoneValid &&
+    hasAddress &&
+    hasReceipt &&
+    !isLoadingCheckoutSettings &&
+    hasAvailableOrderTypes &&
+    hasAvailablePaymentMethods &&
+    isSelectedOrderTypeEnabled &&
+    isSelectedPaymentEnabled;
 
   const payload = useMemo(
     () => ({
@@ -140,20 +285,26 @@ export default function Checkout() {
         name: form.name,
         phone: normalizedPhone,
         address: form.address,
-        email: user?.email || ""
+        email: user?.email || "",
       },
-      orderType: labelToCanonicalOrderType(form.orderType),
+      orderType: canonicalOrderType,
       paymentMethod: form.paymentMethod,
       notes: form.notes,
       items: cart,
-      total
+      total,
     }),
-    [cart, form, normalizedPhone, total, user?.email, user?.id]
+    [canonicalOrderType, cart, form, normalizedPhone, total, user?.email, user?.id]
   );
 
   const handleFieldChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setErrors((prev) => ({ ...prev, [key]: "" }));
+    setErrors((prev) => ({
+      ...prev,
+      [key]: "",
+      ...(key === "orderType"
+        ? { address: "", houseDetails: "", purok: "", mapPin: "" }
+        : {}),
+    }));
   };
 
   const handlePhoneChange = (value) => {
@@ -161,84 +312,9 @@ export default function Checkout() {
     setErrors((prev) => ({ ...prev, phone: "" }));
   };
 
-  const handleHouseDetailsChange = (value) => {
-    const nextHouseDetails = String(value || "");
-    const composedAddress = composeLucenaAddress({
-      houseDetails: nextHouseDetails,
-      purok: addressFields.purok,
-      barangay: addressFields.barangay,
-    });
-
-    setAddressFields((prev) => ({ ...prev, houseDetails: nextHouseDetails }));
-    setForm((prev) => ({ ...prev, address: composedAddress }));
-    setErrors((prev) => ({ ...prev, address: "" }));
-  };
-
-  const handleBarangayChange = (value) => {
-    const canonicalBarangay = findLucenaBarangay(value);
-    const availablePuroks = getPuroksForBarangay(canonicalBarangay);
-    const canonicalPurok = findLucenaPurok(canonicalBarangay, addressFields.purok);
-    const nextPurok = availablePuroks.includes(canonicalPurok) ? canonicalPurok : "";
-    const composedAddress = composeLucenaAddress({
-      houseDetails: addressFields.houseDetails,
-      purok: nextPurok,
-      barangay: canonicalBarangay,
-    });
-
-    setAddressFields((prev) => ({ ...prev, barangay: canonicalBarangay, purok: nextPurok }));
-    setForm((prev) => ({ ...prev, address: composedAddress }));
-    setErrors((prev) => ({ ...prev, address: "" }));
-  };
-
-  const handlePurokChange = (value) => {
-    const canonicalPurok = findLucenaPurok(addressFields.barangay, value);
-    const composedAddress = composeLucenaAddress({
-      houseDetails: addressFields.houseDetails,
-      purok: canonicalPurok,
-      barangay: addressFields.barangay,
-    });
-
-    setAddressFields((prev) => ({ ...prev, purok: canonicalPurok }));
-    setForm((prev) => ({ ...prev, address: composedAddress }));
-    setErrors((prev) => ({ ...prev, address: "" }));
-  };
-
-  const ensureLucenaAddress = () => {
-    const houseDetails = String(addressFields.houseDetails || "").trim();
-    const canonicalBarangay = findLucenaBarangay(addressFields.barangay || DELIVERY_BARANGAY);
-    const canonicalPurok = findLucenaPurok(canonicalBarangay, addressFields.purok);
-
-    if (!houseDetails) {
-      setErrors((prev) => ({ ...prev, address: ADDRESS_REQUIRED_MESSAGE }));
-      return "";
-    }
-
-    if (canonicalBarangay !== DELIVERY_BARANGAY) {
-      setAddressFields((prev) => ({ ...prev, barangay: DELIVERY_BARANGAY, purok: "" }));
-      setForm((prev) => ({ ...prev, address: "" }));
-      setErrors((prev) => ({ ...prev, address: DELIVERY_AREA_ERROR_MESSAGE }));
-      return "";
-    }
-
-    if (!canonicalPurok) {
-      setErrors((prev) => ({ ...prev, address: ADDRESS_REQUIRED_MESSAGE }));
-      return "";
-    }
-
-    const composedAddress = composeLucenaAddress({
-      houseDetails,
-      purok: canonicalPurok,
-      barangay: canonicalBarangay,
-    });
-
-    setAddressFields({
-      houseDetails,
-      purok: canonicalPurok,
-      barangay: DELIVERY_BARANGAY,
-    });
-    setForm((prev) => ({ ...prev, address: composedAddress }));
-    setErrors((prev) => ({ ...prev, address: "" }));
-    return composedAddress;
+  const handleDeliveryInputChange = (nextValue) => {
+    setDeliveryInput((prev) => ({ ...prev, ...nextValue }));
+    setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "" }));
   };
 
   const handleReceiptChange = (event) => {
@@ -279,8 +355,81 @@ export default function Checkout() {
     setIsSubmitting(true);
 
     try {
-      const normalizedAddress = ensureLucenaAddress();
-      if (!normalizedAddress) return;
+      if (isLoadingCheckoutSettings) {
+        setErrors((prev) => ({ ...prev, form: "Checkout settings are still loading. Please try again." }));
+        return;
+      }
+
+      if (!hasAvailableOrderTypes || !isSelectedOrderTypeEnabled) {
+        setErrors((prev) => ({ ...prev, form: "No order type is currently available for checkout." }));
+        return;
+      }
+
+      if (!hasAvailablePaymentMethods || !isSelectedPaymentEnabled) {
+        setErrors((prev) => ({ ...prev, form: "No payment method is currently available for checkout." }));
+        return;
+      }
+
+      let normalizedAddress = "";
+      let deliveryMeta = null;
+
+      if (requiresDeliveryAddress) {
+        if (isLoadingDeliveryConfig || !deliveryConfig) {
+          setErrors((prev) => ({ ...prev, address: "Delivery configuration is still loading. Please try again." }));
+          return;
+        }
+
+        if (!deliveryValidation.isValid) {
+          const nextAddressError =
+            deliveryValidation.errors.address ||
+            deliveryValidation.errors.mapPin ||
+            deliveryValidation.errors.purok ||
+            deliveryValidation.errors.houseDetails ||
+            "Please complete your delivery details.";
+          setErrors((prev) => ({
+            ...prev,
+            ...deliveryValidation.errors,
+            address: nextAddressError,
+          }));
+          return;
+        }
+
+        const serverValidation = await validateDeliveryAddressOnServer({
+          deliveryAreaId: deliveryConfig.id,
+          selectedPurokId: deliveryValidation.selectedPurok?.id || deliveryInput.selectedPurokId,
+          houseDetails: deliveryInput.houseDetails,
+          latitude: deliveryValidation.latitude,
+          longitude: deliveryValidation.longitude,
+        });
+
+        normalizedAddress = String(serverValidation.normalizedAddress || "").trim();
+        if (!normalizedAddress) {
+          setErrors((prev) => ({ ...prev, address: "Unable to build delivery address. Please check your details." }));
+          return;
+        }
+
+        deliveryMeta = {
+          deliveryAreaId: serverValidation.deliveryAreaId || deliveryConfig.id,
+          selectedPurokId: serverValidation.selectedPurokId || deliveryValidation.selectedPurok?.id || "",
+          selectedPurokName: serverValidation.selectedPurokName || deliveryValidation.selectedPurok?.purokName || "",
+          fixedBarangayName: serverValidation.fixedBarangayName || deliveryConfig.fixedBarangayName || "",
+          city: serverValidation.city || deliveryConfig.city || "",
+          province: serverValidation.province || deliveryConfig.province || "",
+          country: serverValidation.country || deliveryConfig.country || "",
+          houseDetails: deliveryInput.houseDetails.trim(),
+          latitude:
+            Number.isFinite(serverValidation.latitude) ? serverValidation.latitude : deliveryValidation.latitude,
+          longitude:
+            Number.isFinite(serverValidation.longitude) ? serverValidation.longitude : deliveryValidation.longitude,
+          address: normalizedAddress,
+        };
+
+        setForm((prev) => ({ ...prev, address: normalizedAddress }));
+        setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "" }));
+      } else {
+        normalizedAddress = "";
+        setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "" }));
+      }
 
       if (!isCashPayment && !receiptFile) {
         setErrors((prev) => ({ ...prev, receipt: "Receipt upload is required." }));
@@ -303,6 +452,7 @@ export default function Checkout() {
           ...payload.customer,
           address: normalizedAddress,
         },
+        deliveryMeta,
         receiptImageUrl: isCashPayment ? null : receiptDataUrl,
       };
 
@@ -317,10 +467,11 @@ export default function Checkout() {
         phone: normalizedPhone,
       };
 
-      profileUpdate.addresses = [normalizedAddress];
+      if (requiresDeliveryAddress && normalizedAddress) {
+        profileUpdate.addresses = [normalizedAddress];
+      }
 
       await saveCustomerProfile(profileUpdate);
-
       await createOrder(payloadWithReceipt);
       await syncCustomerNotifications();
       clearCart();
@@ -330,7 +481,7 @@ export default function Checkout() {
       setErrors({ form: error.message || "Could not place your order." });
       if (error?.kind === "missing_rpc" || error?.kind === "missing_relation") {
         setErrors({
-          form: "Our order system isn't fully deployed. Please try again after the Supabase schema (unified_schema.sql) is applied on the backend.",
+          form: "Our order system isn't fully deployed. Please apply unified_schema.sql and delivery_area_schema.sql on Supabase.",
         });
       }
     } finally {
@@ -374,7 +525,7 @@ export default function Checkout() {
           <h3>Customer Details</h3>
 
           <label>Name</label>
-          <input value={form.name} onChange={(e) => handleFieldChange("name", e.target.value)} />
+          <input value={form.name} onChange={(event) => handleFieldChange("name", event.target.value)} />
           {errors.name ? <p className="field-error">{errors.name}</p> : null}
 
           <label>
@@ -389,59 +540,85 @@ export default function Checkout() {
               placeholder="9XXXXXXXXX or 09XXXXXXXXX"
               maxLength={11}
               value={form.phone}
-              onChange={(e) => handlePhoneChange(e.target.value)}
+              onChange={(event) => handlePhoneChange(event.target.value)}
             />
           </div>
           <p className="field-hint">You can type either `9XXXXXXXXX` or `09XXXXXXXXX`.</p>
           {errors.phone ? <p className="field-error">{errors.phone}</p> : null}
 
           <label>Order Type</label>
-          <select value={form.orderType} onChange={(e) => handleFieldChange("orderType", e.target.value)}>
-            <option value="Dine-in">Dine-in</option>
-            <option value="Pickup">Pickup</option>
-            <option value="Takeout">Takeout</option>
-            <option value="Delivery">Delivery</option>
-          </select>
-
-          <label>
-            Address <span className="required-indicator">*</span>
-          </label>
-          <div className="lucena-address-grid">
-            <input
-              value={addressFields.houseDetails}
-              onChange={(e) => handleHouseDetailsChange(e.target.value)}
-              placeholder="House/Unit, Street"
-              autoComplete="address-line1"
-            />
-            <select value={DELIVERY_BARANGAY} onChange={(e) => handleBarangayChange(e.target.value)} disabled>
-              <option value={DELIVERY_BARANGAY}>{DELIVERY_BARANGAY}</option>
-            </select>
-            {addressFields.barangay ? (
-              <select value={addressFields.purok} onChange={(e) => handlePurokChange(e.target.value)}>
-                <option value="">Select Purok (Ilayang Iyam)</option>
-                {getPuroksForBarangay(addressFields.barangay).map((purok) => (
-                  <option key={purok} value={purok}>
-                    {purok}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <input className="fixed-address-field" value={LUCENA_CITY_LABEL} readOnly aria-label="City" />
-            <input className="fixed-address-field" value={LUCENA_PROVINCE_LABEL} readOnly aria-label="Province" />
-          </div>
-          <p className="field-hint">Delivery is only available in Barangay Ilayang Iyam, Lucena City, Quezon.</p>
-          {errors.address ? <p className="field-error">{errors.address}</p> : null}
-
-          <label>Payment</label>
-          <select value={form.paymentMethod} onChange={(e) => handleFieldChange("paymentMethod", e.target.value)}>
-            {PAYMENT_METHOD_OPTIONS.map((method) => (
-              <option key={method.value} value={method.value}>{method.label}</option>
+          <select
+            value={form.orderType}
+            onChange={(event) => handleFieldChange("orderType", event.target.value)}
+            disabled={isLoadingCheckoutSettings || !hasAvailableOrderTypes}
+          >
+            {availableOrderTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.value}
+              </option>
             ))}
           </select>
+          <p className="field-hint">Available order types are pulled from owner-managed business settings.</p>
+          {!hasAvailableOrderTypes && !isLoadingCheckoutSettings ? (
+            <p className="field-error">No order type is currently enabled for checkout.</p>
+          ) : null}
+
+          {requiresDeliveryAddress ? (
+            <>
+              <label>
+                Delivery Address <span className="required-indicator">*</span>
+              </label>
+              {isLoadingDeliveryConfig ? (
+                <p className="field-hint">Loading delivery coverage...</p>
+              ) : (
+                <DeliveryAddressForm
+                  config={deliveryConfig}
+                  value={deliveryInput}
+                  onChange={handleDeliveryInputChange}
+                  validationErrors={errors}
+                />
+              )}
+              <p className="field-hint">
+                Only pins inside the configured service polygon can be submitted.
+              </p>
+              {errors.address ? <p className="field-error">{errors.address}</p> : null}
+            </>
+          ) : (
+            <>
+              <label>Address</label>
+              <div className="checkout-address-optional" aria-live="polite">
+                <p className="field-hint">
+                  Address is not required for {form.orderType} orders. Select Delivery for map-validated doorstep delivery.
+                </p>
+              </div>
+            </>
+          )}
+
+          <label>Payment</label>
+          <select
+            value={form.paymentMethod}
+            onChange={(event) => handleFieldChange("paymentMethod", event.target.value)}
+            disabled={isLoadingCheckoutSettings || !hasAvailablePaymentMethods}
+          >
+            {availablePaymentOptions.map((method) => (
+              <option key={method.value} value={method.value}>
+                {method.label}
+              </option>
+            ))}
+          </select>
+          <p className="field-hint">Enabled payment methods are controlled from owner business settings.</p>
           {errors.paymentMethod ? <p className="field-error">{errors.paymentMethod}</p> : null}
+          {!hasAvailablePaymentMethods && !isLoadingCheckoutSettings ? (
+            <p className="field-error">No payment method is currently enabled for checkout.</p>
+          ) : null}
 
           <div className="payment-qr-preview" aria-live="polite">
-            {getPaymentQrAsset(form.paymentMethod) ? (
+            {!hasAvailablePaymentMethods ? (
+              <>
+                <p className="payment-qr-title">No payment method available</p>
+                <p className="field-hint">Ask the cafe to enable at least one payment method in owner settings.</p>
+              </>
+            ) : getPaymentQrAsset(form.paymentMethod) ? (
               <>
                 <p className="payment-qr-title">Scan to pay via {paymentMethodToLabel(form.paymentMethod)}</p>
                 <img src={getPaymentQrAsset(form.paymentMethod)} alt={`${paymentMethodToLabel(form.paymentMethod)} QR code`} />
@@ -479,7 +656,7 @@ export default function Checkout() {
           )}
 
           <label>Notes (optional)</label>
-          <textarea value={form.notes} onChange={(e) => handleFieldChange("notes", e.target.value)} />
+          <textarea value={form.notes} onChange={(event) => handleFieldChange("notes", event.target.value)} />
 
           {errors.form ? <p className="field-error">{errors.form}</p> : null}
           {errors.items ? <p className="field-error">{errors.items}</p> : null}
@@ -493,14 +670,14 @@ export default function Checkout() {
           <h3>Order Summary</h3>
           {cart.map((item) => (
             <div className="summary-row" key={item.id}>
-              <span>{item.displayName || item.name} × {item.qty}</span>
-              <span>₱{(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</span>
+              <span>{item.displayName || item.name} x {item.qty}</span>
+              <span>PHP {(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</span>
             </div>
           ))}
           <hr />
           <div className="summary-row total-row">
             <span>Total</span>
-            <span>₱{Number(total || 0).toFixed(2)}</span>
+            <span>PHP {Number(total || 0).toFixed(2)}</span>
           </div>
         </div>
       </div>

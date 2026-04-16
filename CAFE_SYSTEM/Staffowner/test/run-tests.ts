@@ -141,14 +141,30 @@ const tests: TestCase[] = [
     },
   },
   {
-    name: 'dashboard page excludes imported rows from time-of-day slices',
+    name: 'dashboard service merges imported rows into range totals while recent orders stay live-first',
     async run() {
-      const pageSrc = await readFile(new URL('../src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
+      const serviceSrc = await readFile(new URL('../src/services/dashboardService.ts', import.meta.url), 'utf8');
       assert.ok(
-        pageSrc.includes("if (order.code.startsWith('IMP-')) return preset === 'all_day';"),
-        'Dashboard time filter should only include imported rows in all-day view.',
+        serviceSrc.includes('rangeOrders: combinedOrders'),
+        'Dashboard range data should include live + imported rows together.',
       );
+      assert.ok(
+        serviceSrc.includes('recentOrders: liveRecentOrders.length ? liveRecentOrders : combinedOrders.slice(0, 10)'),
+        'Recent orders should prefer live order rows when they are available.',
+      );
+      const pageSrc = await readFile(new URL('../src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
       assert.ok(pageSrc.includes('deriveAccountingParts'), 'Dashboard should compute accounting metrics from normalized order data.');
+    },
+  },
+  {
+    name: 'settings page exposes owner-controlled service availability toggles',
+    async run() {
+      const pageSrc = await readFile(new URL('../src/pages/SettingsPage.tsx', import.meta.url), 'utf8');
+      assert.ok(pageSrc.includes('checked={dineIn}'), 'Settings page should expose dine-in availability.');
+      assert.ok(pageSrc.includes('checked={pickup}'), 'Settings page should expose pickup availability.');
+      assert.ok(pageSrc.includes('checked={takeout}'), 'Settings page should expose takeout availability.');
+      assert.ok(pageSrc.includes('checked={delivery}'), 'Settings page should expose delivery availability.');
+      assert.ok(pageSrc.includes('Delivery Coverage'), 'Settings page should explain that polygon coverage is managed separately.');
     },
   },
   {

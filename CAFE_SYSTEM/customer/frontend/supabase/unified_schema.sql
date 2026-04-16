@@ -378,6 +378,7 @@ create table if not exists public.business_settings (
   service_fee_pct numeric(5,2) not null default 5 check (service_fee_pct >= 0),
   tax_pct numeric(5,2) not null default 12 check (tax_pct >= 0),
   kitchen_cutoff text not null default '20:30',
+  campaign_announcements jsonb not null default '[]'::jsonb,
   updated_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -396,6 +397,7 @@ alter table public.business_settings add column if not exists delivery_radius_km
 alter table public.business_settings add column if not exists service_fee_pct numeric(5,2) not null default 5;
 alter table public.business_settings add column if not exists tax_pct numeric(5,2) not null default 12;
 alter table public.business_settings add column if not exists kitchen_cutoff text not null default '20:30';
+alter table public.business_settings add column if not exists campaign_announcements jsonb not null default '[]'::jsonb;
 
 drop trigger if exists trg_business_settings_updated_at on public.business_settings;
 create trigger trg_business_settings_updated_at
@@ -833,6 +835,33 @@ create index if not exists idx_daily_menu_items_daily_menu_id on public.daily_me
 create index if not exists idx_daily_menus_menu_date_published on public.daily_menus(menu_date, is_published);
 
 -- =========================================================
+-- HOMEPAGE CAMPAIGN ANNOUNCEMENTS
+-- =========================================================
+
+create table if not exists public.campaign_announcements (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  message text not null,
+  cta_text text,
+  cta_link text,
+  is_active boolean not null default true,
+  start_at timestamptz,
+  end_at timestamptz,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (start_at is null or end_at is null or end_at >= start_at)
+);
+
+drop trigger if exists trg_campaign_announcements_updated_at on public.campaign_announcements;
+create trigger trg_campaign_announcements_updated_at
+before update on public.campaign_announcements
+for each row execute procedure public.set_updated_at();
+
+create index if not exists idx_campaign_announcements_active_window
+  on public.campaign_announcements(is_active, start_at, end_at);
+
+-- =========================================================
 -- LOYALTY
 -- =========================================================
 
@@ -1061,7 +1090,11 @@ begin
         (r.menu_item_id is not null and mi.id = r.menu_item_id)
         or (r.menu_item_id is null and r.menu_item_code is not null and lower(mi.code) = lower(r.menu_item_code))
       )
-      and (r.menu_item_code is null or lower(mi.code) = lower(r.menu_item_code))
+      and (
+        r.menu_item_id is not null
+        or r.menu_item_code is null
+        or lower(mi.code) = lower(r.menu_item_code)
+      )
     where mi.is_available = true
   )
   select
@@ -2005,6 +2038,7 @@ for each row execute procedure public.log_table_activity();
 
 alter table public.profiles enable row level security;
 alter table public.business_settings enable row level security;
+alter table public.campaign_announcements enable row level security;
 alter table public.login_history enable row level security;
 alter table public.activity_logs enable row level security;
 alter table public.menu_categories enable row level security;
@@ -2058,6 +2092,17 @@ create policy "business_settings_owner_only"
 on public.business_settings for all
 using (public.is_owner())
 with check (public.is_owner());
+
+drop policy if exists "campaign_announcements_read_all" on public.campaign_announcements;
+create policy "campaign_announcements_read_all"
+on public.campaign_announcements for select
+using (true);
+
+drop policy if exists "campaign_announcements_manage_owner_staff" on public.campaign_announcements;
+create policy "campaign_announcements_manage_owner_staff"
+on public.campaign_announcements for all
+using (public.is_owner_or_staff())
+with check (public.is_owner_or_staff());
 
 -- public menu readable by everyone
 drop policy if exists "menu_categories_read_all" on public.menu_categories;
@@ -2541,6 +2586,7 @@ grant select on table public.daily_menus to anon;
 grant select on table public.daily_menu_items to anon;
 grant select on table public.loyalty_rewards to anon;
 grant select on table public.business_settings to anon;
+grant select on table public.campaign_announcements to anon;
 grant select on table public.menu_item_effective_availability to anon;
 grant execute on function public.menu_best_sellers(integer, integer) to anon;
 

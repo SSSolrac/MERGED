@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,18 @@ import { normalizeSupabaseError } from "../src/lib/supabaseErrors.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readSource = (relativePath) => readFile(path.join(__dirname, "..", relativePath), "utf8");
 const readSchema = () => readSource("supabase/unified_schema.sql");
+
+async function listFiles(rootDir) {
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(rootDir, entry.name);
+      if (entry.isDirectory()) return listFiles(entryPath);
+      return [entryPath];
+    })
+  );
+  return nested.flat();
+}
 
 test("profiles: frontend does not insert profiles rows (trigger-only)", async () => {
   const src = await readSource("src/services/profileService.js");
@@ -26,7 +38,8 @@ test("orders: customer app uses transactional RPC and avoids DELETE", async () =
 test("orders: tracking/history tolerates missing status history", async () => {
   const src = await readSource("src/services/orderService.js");
   assert.ok(src.includes("buildFallbackTimeline"), "orderService should include a fallback timeline builder");
-  assert.ok(src.includes("history.length ? history.map"), "orderService should derive timeline from history when present");
+  assert.ok(src.includes("const timeline = history.length"), "orderService should derive timeline from history when present");
+  assert.ok(src.includes(": buildFallbackTimeline(order);"), "orderService should synthesize a timeline when history is empty");
   assert.ok(src.includes("buildFallbackTimeline(order)"), "orderService should fall back to a synthesized timeline when history is empty");
 });
 
@@ -52,6 +65,54 @@ test("checkout: submit handler uses in-flight guard to avoid duplicate order sub
   assert.ok(src.includes("submitLockRef"), "Checkout should use an in-flight ref lock for submits.");
   assert.ok(src.includes("submitLockRef.current || isSubmitting"), "Checkout submit should short-circuit when a submit is already in progress.");
   assert.ok(src.includes("submitLockRef.current = false"), "Checkout submit lock should be released in finally.");
+});
+
+test("checkout: customer app reads owner-managed availability settings", async () => {
+  const src = await readSource("src/pages/Checkout.jsx");
+  assert.ok(src.includes("getPublicBusinessSettings"), "Checkout should load public business settings.");
+  assert.ok(src.includes("availableOrderTypeOptions"), "Checkout should derive order types from owner-managed settings.");
+  assert.ok(src.includes("availablePaymentOptions"), "Checkout should derive payment methods from owner-managed settings.");
+});
+
+test("profile: customer address uses shared delivery-area config (no legacy lucena utility)", async () => {
+  const src = await readSource("src/pages/Profile.jsx");
+  assert.ok(src.includes("getActiveDeliveryConfig"), "Profile should load delivery coverage from the shared service.");
+  assert.ok(src.includes("buildDeliveryAddress"), "Profile should build saved addresses with the shared delivery helper.");
+  assert.ok(!src.includes("lucenaAddress"), "Profile should not depend on the removed lucenaAddress utility.");
+});
+
+test("codebase: no Google Maps runtime references remain in active source", async () => {
+  const roots = [
+    path.join(__dirname, "..", "src"),
+    path.join(__dirname, "..", "supabase"),
+    path.join(__dirname, "..", "..", "..", "Staffowner", "src"),
+  ];
+
+  const sourceFiles = (
+    await Promise.all(roots.map((root) => listFiles(root)))
+  )
+    .flat()
+    .filter((filePath) => /\.(js|jsx|ts|tsx|sql|md|css)$/i.test(filePath));
+
+  const offenders = [];
+  const forbiddenPattern = new RegExp(
+    [
+      ["google", "\\.", "maps"].join(""),
+      ["maps", "\\.", "googleapis"].join(""),
+      ["@react", "-", "google", "-", "maps"].join(""),
+      ["google", "-", "map", "-", "react"].join(""),
+    ].join("|"),
+    "i"
+  );
+
+  for (const filePath of sourceFiles) {
+    const contents = await readFile(filePath, "utf8");
+    if (forbiddenPattern.test(contents)) {
+      offenders.push(path.relative(path.join(__dirname, "..", "..", ".."), filePath));
+    }
+  }
+
+  assert.deepEqual(offenders, [], "Active source should not contain Google Maps references.");
 });
 
 test("auth: getSession validates with getUser and clears invalid local auth", async () => {

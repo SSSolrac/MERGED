@@ -1,4 +1,4 @@
-import { labelToCanonicalPaymentMethod } from "../constants/canonical.js";
+import { labelToCanonicalOrderType, labelToCanonicalPaymentMethod } from "../constants/canonical.js";
 
 export async function validateCheckout(orderPayload) {
   const errors = {};
@@ -21,7 +21,22 @@ export async function validateCheckout(orderPayload) {
   } else if (!/^\+639\d{9}$/.test(phone)) {
     errors.phone = "Use a valid PH mobile number (e.g., +639123456789).";
   }
-  if (!orderPayload.customer?.address?.trim()) errors.address = "Address is required.";
+  const canonicalOrderType = labelToCanonicalOrderType(orderPayload.orderType || "");
+  if (canonicalOrderType === "delivery" && !orderPayload.customer?.address?.trim()) {
+    errors.address = "Address is required for delivery.";
+  }
+  if (canonicalOrderType === "delivery") {
+    const deliveryMeta = orderPayload.deliveryMeta && typeof orderPayload.deliveryMeta === "object" ? orderPayload.deliveryMeta : {};
+    if (!String(deliveryMeta.selectedPurokId || "").trim()) {
+      errors.purok = "Select an active purok for delivery.";
+    }
+
+    const latitude = Number(deliveryMeta.latitude);
+    const longitude = Number(deliveryMeta.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      errors.mapPin = "Place a valid delivery pin on the map.";
+    }
+  }
 
   const paymentMethod = labelToCanonicalPaymentMethod(orderPayload.paymentMethod || orderPayload.payment);
   if (!["qrph", "gcash", "maribank", "bdo", "cash"].includes(paymentMethod || "")) {
