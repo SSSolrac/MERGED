@@ -1,0 +1,13 @@
+{
+  "name": "happytails-cafe-system",
+  "private": true,
+  "scripts": {
+    "postinstall": "npm --prefix ./customer/frontend install",
+    "dev": "npm --prefix ./customer/frontend run dev",
+    "dev:strict": "npm --prefix ./customer/frontend run dev:strict",
+    "build": "npm --prefix ./customer/frontend run build",
+    "preview": "npm --prefix ./customer/frontend run preview",
+    "lint": "npm --prefix ./customer/frontend run lint",
+    "test": "npm --prefix ./customer/frontend run test"
+  }
+}

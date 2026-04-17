@@ -60,7 +60,7 @@ That command binds to `127.0.0.1:5173` with `--strictPort` so stale Staffowner/c
 
 ## Vercel
 
-Deploy with `customer/frontend` as the Vercel project root. Do not deploy `Staffowner/`.
+Deploy from the `CAFE_SYSTEM` repository root. Do not deploy `Staffowner/`.
 
 Required environment variables:
 
@@ -78,7 +78,7 @@ npm run build
 Output directory:
 
 ```text
-dist
+customer/frontend/dist
 ```
 
 Framework preset:
@@ -90,7 +90,7 @@ Vite
 If the repository was imported from a parent wrapper folder that contains `CAFE_SYSTEM/`, set the Vercel Root Directory to:
 
 ```text
-CAFE_SYSTEM/customer/frontend
+CAFE_SYSTEM
 ```
 
-The `vercel.json` file must live in the same directory Vercel is building. In this repo that means the active frontend root above, not the retired `Staffowner/` folder.
+The active `vercel.json` file now lives at the `CAFE_SYSTEM` repo root so Vercel has one unambiguous build target while the actual app source continues to live in `customer/frontend`.

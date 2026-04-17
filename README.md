@@ -1,6 +1,6 @@
 # Happy Tails Cafe System
 
-This repo contains one active deployable frontend app:
+This repo contains one active frontend app:
 
 ```text
 customer/frontend
@@ -10,24 +10,20 @@ The old `Staffowner/` folder is retired and must not be used as the Vercel deplo
 
 ## Vercel
 
-If this directory is your Git repository root, use these project settings:
+Deploy this repository from the `CAFE_SYSTEM` root. The root build proxies into the unified frontend in `customer/frontend`.
+
+Use these project settings:
 
 ```text
-Root Directory: customer/frontend
+Root Directory: .
 Framework Preset: Vite
 Build Command: npm run build
-Output Directory: dist
+Output Directory: customer/frontend/dist
 Environment Variables: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
-```
-
-If you imported a parent wrapper folder that contains `CAFE_SYSTEM/`, set the Vercel Root Directory to:
-
-```text
-CAFE_SYSTEM/customer/frontend
 ```
 
 Direct refreshes and deep links such as `/staff/...` and `/owner/...` are handled by the SPA rewrite in:
 
 ```text
-customer/frontend/vercel.json
+vercel.json
 ```

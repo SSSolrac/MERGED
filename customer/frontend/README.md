@@ -49,23 +49,23 @@ If that port is already in use, stop the stale Vite/Node process instead of star
 
 Use the unified frontend only. Do not point Vercel at `Staffowner/`.
 
-If your Git repository root contains `customer/` and `Staffowner/`, set:
+If `CAFE_SYSTEM` is your repository root, deploy from that root and let it build this app:
 
 ```text
-Root Directory: customer/frontend
+Root Directory: .
 Framework Preset: Vite
 Build Command: npm run build
-Output Directory: dist
+Output Directory: customer/frontend/dist
 Required env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 ```
 
-If your Vercel project was imported from a parent wrapper folder that contains `CAFE_SYSTEM/`, use:
+If your Git provider imported a parent wrapper folder above `CAFE_SYSTEM`, set the Vercel Root Directory to:
 
 ```text
-Root Directory: CAFE_SYSTEM/customer/frontend
+CAFE_SYSTEM
 ```
 
-The included `vercel.json` rewrites all routes to `index.html` so direct refreshes on `/staff/...`, `/owner/...`, and protected customer routes resolve as SPA routes instead of returning `404: NOT_FOUND`.
+The repo-root `vercel.json` rewrites all routes to `index.html` so direct refreshes on `/staff/...`, `/owner/...`, and protected customer routes resolve as SPA routes instead of returning `404: NOT_FOUND`.
 
 ## Delivery Notes
 
