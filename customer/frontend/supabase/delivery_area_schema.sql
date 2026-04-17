@@ -24,10 +24,36 @@ create table if not exists public.delivery_puroks (
   is_active boolean not null default true,
   delivery_status text not null default 'active' check (lower(delivery_status) in ('active', 'inactive')),
   sort_order integer not null default 0 check (sort_order >= 0),
+  lat double precision,
+  lng double precision,
   updated_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.delivery_puroks add column if not exists lat double precision;
+alter table public.delivery_puroks add column if not exists lng double precision;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'delivery_puroks_coordinates_pair_chk'
+      and conrelid = 'public.delivery_puroks'::regclass
+  ) then
+    alter table public.delivery_puroks
+      add constraint delivery_puroks_coordinates_pair_chk
+      check (
+        (lat is null and lng is null)
+        or (
+          lat >= -90 and lat <= 90
+          and lng >= -180 and lng <= 180
+        )
+      );
+  end if;
+end
+$$;
 
 create table if not exists public.delivery_area_polygons (
   id uuid primary key default gen_random_uuid(),
@@ -212,14 +238,6 @@ begin
     p_delivery_address ->> 'lng'
   )), '')::double precision;
 
-  if v_lat is null or v_lng is null then
-    raise exception 'Map pin coordinates are required for delivery.';
-  end if;
-
-  if v_lat < -90 or v_lat > 90 or v_lng < -180 or v_lng > 180 then
-    raise exception 'Map pin coordinates are invalid.';
-  end if;
-
   if v_area_id is not null then
     select *
       into v_area
@@ -264,6 +282,19 @@ begin
 
   if not found then
     raise exception 'Selected purok is unavailable for delivery.';
+  end if;
+
+  if v_lat is null or v_lng is null then
+    v_lat := v_purok.lat;
+    v_lng := v_purok.lng;
+  end if;
+
+  if v_lat is null or v_lng is null then
+    raise exception 'Selected purok is missing map coordinates. Please choose a configured purok.';
+  end if;
+
+  if v_lat < -90 or v_lat > 90 or v_lng < -180 or v_lng > 180 then
+    raise exception 'Map pin coordinates are invalid.';
   end if;
 
   select
@@ -343,6 +374,9 @@ declare
   v_receipt_required boolean;
   v_resolved_items jsonb;
   v_validated_item_count integer;
+  v_reward_item_ids uuid[];
+  v_reward_item_count integer;
+  v_claimed_reward_item_count integer;
   v_delivery_validation jsonb;
   v_delivery_payload jsonb;
 begin
@@ -384,6 +418,7 @@ begin
     select 1
     from jsonb_to_recordset(p_items) as x(
       menu_item_id uuid,
+      loyalty_reward_item_id uuid,
       menu_item_code text,
       item_name text,
       unit_price numeric,
@@ -398,19 +433,41 @@ begin
       or coalesce(x.discount_amount, 0) < 0
       or coalesce(x.discount_amount, 0) > coalesce(x.unit_price, 0)
       or coalesce(x.line_total, 0) < 0
+      or (x.loyalty_reward_item_id is not null and coalesce(x.quantity, 0) <> 1)
   ) then
     raise exception 'Each order item must include a valid menu item code, name, quantity, and non-negative amounts.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_items) as x(
+      menu_item_id uuid,
+      loyalty_reward_item_id uuid,
+      menu_item_code text,
+      item_name text,
+      unit_price numeric,
+      discount_amount numeric,
+      quantity integer,
+      line_total numeric
+    )
+    where x.loyalty_reward_item_id is not null
+    group by x.loyalty_reward_item_id
+    having count(*) > 1
+  ) then
+    raise exception 'Each loyalty reward item can only be used once per order.';
   end if;
 
   with raw_items as (
     select
       row_number() over () as row_no,
       x.menu_item_id,
+      x.loyalty_reward_item_id,
       nullif(trim(coalesce(x.menu_item_code, '')), '') as menu_item_code,
       nullif(trim(coalesce(x.item_name, '')), '') as item_name,
       greatest(coalesce(x.quantity, 1), 1)::integer as quantity
     from jsonb_to_recordset(p_items) as x(
       menu_item_id uuid,
+      loyalty_reward_item_id uuid,
       menu_item_code text,
       item_name text,
       unit_price numeric,
@@ -423,20 +480,30 @@ begin
     select
       r.row_no,
       mi.id as menu_item_id,
+      lri.id as loyalty_reward_item_id,
       mi.code as menu_item_code,
       mi.name as item_name,
       round(coalesce(mi.price, 0)::numeric, 2) as unit_price,
-      round(least(greatest(coalesce(mi.discount, 0), 0), coalesce(mi.price, 0))::numeric, 2) as discount_amount,
+      round(
+        case
+          when lri.id is not null then coalesce(mi.price, 0)
+          else coalesce(mi.effective_discount, 0)
+        end::numeric,
+        2
+      ) as discount_amount,
       r.quantity,
       round(
-        greatest(
-          coalesce(mi.price, 0) - least(greatest(coalesce(mi.discount, 0), 0), coalesce(mi.price, 0)),
-          0
-        )::numeric * r.quantity,
+        case
+          when lri.id is not null then 0
+          else greatest(
+            coalesce(mi.price, 0) - coalesce(mi.effective_discount, 0),
+            0
+          )
+        end::numeric * r.quantity,
         2
       ) as line_total
     from raw_items r
-    join public.menu_items mi
+    join public.menu_item_effective_availability mi
       on (
         (r.menu_item_id is not null and mi.id = r.menu_item_id)
         or (r.menu_item_id is null and r.menu_item_code is not null and lower(mi.code) = lower(r.menu_item_code))
@@ -446,13 +513,21 @@ begin
         or r.menu_item_code is null
         or lower(mi.code) = lower(r.menu_item_code)
       )
-    where mi.is_available = true
+    left join public.loyalty_reward_items lri
+      on lri.id = r.loyalty_reward_item_id
+      and lri.customer_id = v_customer_id
+      and lri.status = 'pending'
+      and lri.claimed_order_id is null
+      and lri.menu_item_id = mi.id
+    where mi.effective_is_available = true
+      and (r.loyalty_reward_item_id is null or lri.id is not null)
   )
   select
     coalesce(
       jsonb_agg(
         jsonb_build_object(
           'menu_item_id', ri.menu_item_id,
+          'loyalty_reward_item_id', ri.loyalty_reward_item_id,
           'menu_item_code', ri.menu_item_code,
           'item_name', ri.item_name,
           'unit_price', ri.unit_price,
@@ -498,6 +573,7 @@ begin
     v_computed_total_amount
   from jsonb_to_recordset(v_resolved_items) as x(
     menu_item_id uuid,
+    loyalty_reward_item_id uuid,
     menu_item_code text,
     item_name text,
     unit_price numeric,
@@ -586,6 +662,7 @@ begin
     greatest(coalesce(unit_price, 0) - coalesce(discount_amount, 0), 0) * greatest(quantity, 1)
   from jsonb_to_recordset(v_resolved_items) as x(
     menu_item_id uuid,
+    loyalty_reward_item_id uuid,
     menu_item_code text,
     item_name text,
     unit_price numeric,
@@ -597,6 +674,38 @@ begin
 
   if v_inserted_item_count <> v_item_count then
     raise exception 'Invalid order items payload.';
+  end if;
+
+  select
+    coalesce(
+      array_agg(x.loyalty_reward_item_id) filter (where x.loyalty_reward_item_id is not null),
+      '{}'::uuid[]
+    ),
+    coalesce(count(*) filter (where x.loyalty_reward_item_id is not null), 0)
+  into
+    v_reward_item_ids,
+    v_reward_item_count
+  from jsonb_to_recordset(v_resolved_items) as x(
+    menu_item_id uuid,
+    loyalty_reward_item_id uuid,
+    menu_item_code text,
+    item_name text,
+    unit_price numeric,
+    discount_amount numeric,
+    quantity integer,
+    line_total numeric
+  );
+
+  if v_reward_item_count > 0 then
+    v_claimed_reward_item_count := public.claim_loyalty_reward_items_for_order(
+      v_order.id,
+      v_reward_item_ids,
+      coalesce(p_placed_at, now())
+    );
+
+    if coalesce(v_claimed_reward_item_count, 0) <> v_reward_item_count then
+      raise exception 'Invalid loyalty reward items payload.';
+    end if;
   end if;
 
   insert into public.order_status_history (
@@ -649,19 +758,21 @@ where not exists (
   select 1 from public.delivery_areas
 );
 
-insert into public.delivery_puroks (delivery_area_id, purok_name, sort_order, is_active, delivery_status)
+insert into public.delivery_puroks (delivery_area_id, purok_name, sort_order, lat, lng, is_active, delivery_status)
 select
   da.id,
   seed.purok_name,
   seed.sort_order,
+  seed.lat,
+  seed.lng,
   true,
   'active'
 from (
   values
-    ('Purok Pinagbuklod', 1),
-    ('Purok Carmelita', 2),
-    ('Purok Sampaguita', 3)
-) as seed(purok_name, sort_order)
+    ('Purok Pinagbuklod', 1, 13.94345::double precision, 121.61923::double precision),
+    ('Purok Carmelita', 2, 13.94090::double precision, 121.62780::double precision),
+    ('Purok Sampaguita', 3, 13.93680::double precision, 121.62620::double precision)
+) as seed(purok_name, sort_order, lat, lng)
 cross join (
   select id
   from public.delivery_areas
@@ -674,6 +785,33 @@ where not exists (
   from public.delivery_puroks dp
   where dp.delivery_area_id = da.id
 );
+
+with area_centers as (
+  select
+    da.id as delivery_area_id,
+    coalesce(avg(dap.lat), 13.94160::double precision) as center_lat,
+    coalesce(avg(dap.lng), 121.62240::double precision) as center_lng
+  from public.delivery_areas da
+  left join public.delivery_area_polygons dap on dap.delivery_area_id = da.id
+  group by da.id
+)
+update public.delivery_puroks dp
+set
+  lat = case
+    when lower(trim(dp.purok_name)) = 'purok pinagbuklod' then 13.94345::double precision
+    when lower(trim(dp.purok_name)) = 'purok carmelita' then 13.94090::double precision
+    when lower(trim(dp.purok_name)) = 'purok sampaguita' then 13.93680::double precision
+    else ac.center_lat
+  end,
+  lng = case
+    when lower(trim(dp.purok_name)) = 'purok pinagbuklod' then 121.61923::double precision
+    when lower(trim(dp.purok_name)) = 'purok carmelita' then 121.62780::double precision
+    when lower(trim(dp.purok_name)) = 'purok sampaguita' then 121.62620::double precision
+    else ac.center_lng
+  end
+from area_centers ac
+where dp.delivery_area_id = ac.delivery_area_id
+  and (dp.lat is null or dp.lng is null);
 
 insert into public.delivery_area_polygons (delivery_area_id, lat, lng, point_order)
 select

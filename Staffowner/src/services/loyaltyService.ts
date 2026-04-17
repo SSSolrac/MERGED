@@ -2,7 +2,7 @@ import { normalizeError } from '@/lib/errors';
 import { mapLoyaltyAccountRow, mapRewardRow } from '@/lib/mappers';
 import { requireSupabaseClient } from '@/lib/supabase';
 import type { LoyaltyAccount } from '@/types/loyalty';
-import type { Reward } from '@/types/loyalty';
+import type { ManualStampAwardResult, Reward } from '@/types/loyalty';
 
 const listActiveRewards = async (): Promise<Reward[]> => {
   const supabase = requireSupabaseClient();
@@ -14,6 +14,25 @@ const listActiveRewards = async (): Promise<Reward[]> => {
 
   if (error) throw normalizeError(error, { fallbackMessage: 'Unable to load loyalty rewards.' });
   return (Array.isArray(data) ? data : []).map(mapRewardRow);
+};
+
+const asText = (value: unknown, fallback = '') => (typeof value === 'string' ? value : value == null ? fallback : String(value));
+const asNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeManualStampAwardResult = (data: unknown): ManualStampAwardResult => {
+  const row = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : {};
+  return {
+    eventId: asText(row.eventId),
+    customerId: asText(row.customerId),
+    customerLabel: asText(row.customerLabel, 'Customer'),
+    stampDelta: asNumber(row.stampDelta, 0),
+    newStampCount: asNumber(row.newStampCount, 0),
+    reason: row.reason == null ? null : asText(row.reason),
+    awardedAt: asText(row.awardedAt, new Date().toISOString()),
+  };
 };
 
 export const loyaltyService = {
@@ -99,5 +118,26 @@ export const loyaltyService = {
 
       return acc;
     }, {});
+  },
+
+  async awardManualStamps(customerId: string, stampCount: number, reason = ''): Promise<ManualStampAwardResult> {
+    const supabase = requireSupabaseClient();
+    const safeCustomerId = customerId.trim();
+    const safeStampCount = Math.floor(Number(stampCount));
+    const safeReason = reason.trim();
+
+    if (!safeCustomerId) throw new Error('Choose a customer before awarding stamps.');
+    if (!Number.isFinite(safeStampCount) || safeStampCount < 1 || safeStampCount > 50) {
+      throw new Error('Stamp count must be between 1 and 50.');
+    }
+
+    const { data, error } = await supabase.rpc('award_manual_loyalty_stamps', {
+      p_customer_id: safeCustomerId,
+      p_stamp_count: safeStampCount,
+      p_reason: safeReason || null,
+    });
+
+    if (error) throw normalizeError(error, { fallbackMessage: 'Unable to award loyalty stamps.' });
+    return normalizeManualStampAwardResult(data);
   },
 };

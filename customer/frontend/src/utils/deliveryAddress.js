@@ -9,8 +9,16 @@ function asText(value) {
 
 function asNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value === null || value === undefined || value === "") return NaN;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function getPurokCoordinates(purok) {
+  const lat = asNumber(purok?.lat ?? purok?.latitude);
+  const lng = asNumber(purok?.lng ?? purok?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
 }
 
 function normalizePolygonPoint(point) {
@@ -92,10 +100,12 @@ export function validateDeliveryAddress({
 
   const safeHouseDetails = asText(houseDetails);
   const safePurokId = asText(selectedPurokId);
-  const safeLat = asNumber(latitude);
-  const safeLng = asNumber(longitude);
-
   const selectedPurok = puroks.find((item) => asText(item.id) === safePurokId && item.isActive !== false);
+  const purokCoordinates = getPurokCoordinates(selectedPurok);
+  const latFromPayload = asNumber(latitude);
+  const lngFromPayload = asNumber(longitude);
+  const safeLat = Number.isFinite(latFromPayload) ? latFromPayload : purokCoordinates?.lat ?? NaN;
+  const safeLng = Number.isFinite(lngFromPayload) ? lngFromPayload : purokCoordinates?.lng ?? NaN;
 
   if (!safeConfig || safeConfig.isActive === false || String(safeConfig.deliveryStatus || "").toLowerCase() === "inactive") {
     errors.address = "Delivery is currently unavailable for this area.";
@@ -111,6 +121,8 @@ export function validateDeliveryAddress({
 
   if (polygon.length < 3) {
     errors.mapPin = "Delivery polygon is not configured.";
+  } else if (selectedPurok && !purokCoordinates) {
+    errors.mapPin = "Selected purok is missing map coordinates.";
   } else if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) {
     errors.mapPin = "Please place the delivery pin on the map.";
   } else if (!isPointInsidePolygon(safeLat, safeLng, polygon)) {

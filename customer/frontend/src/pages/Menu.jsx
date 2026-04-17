@@ -79,9 +79,9 @@ function mapMenuItem(item, categoryById) {
   const name = String(item?.name || "").trim() || "Item";
   const categoryId = String(item?.categoryId || "").trim();
   const categoryName = categoryById.get(categoryId) || "";
-  const discountAmount = Number(item?.discount || 0);
+  const discountAmount = Number(item?.effectiveDiscount ?? item?.discount ?? 0);
   const basePrice = Number(item?.price || 0);
-  const price = Math.max(basePrice - discountAmount, 0);
+  const price = Number(item?.effectivePrice ?? Math.max(basePrice - discountAmount, 0));
 
   return {
     id: String(item?.id || name),
@@ -93,7 +93,10 @@ function mapMenuItem(item, categoryById) {
     discountAmount,
     price,
     basePrice,
+    isDiscountActive: Boolean(item?.isDiscountActive ?? discountAmount > 0),
     isAvailable: item?.isAvailable !== false,
+    isNew: Boolean(item?.isNew),
+    isLimited: Boolean(item?.isLimited),
     image:
       item?.imageUrl ||
       resolveMenuItemImage(name, categoryName) ||
@@ -236,6 +239,7 @@ function Menu() {
         previewItems,
         startingPrice,
         heroImage,
+        isNew: Boolean(category?.isNew),
       };
     });
   }, [availableItems, menuCategories]);
@@ -277,14 +281,14 @@ function Menu() {
           <div className="menu-hero__spotlight">
             <p className="menu-hero__spotlight-label">Popular right now</p>
             <div className="menu-hero__spotlight-list">
-              {heroFeaturedItems.length ? (
-                heroFeaturedItems.map((item) => (
-                  <Link key={item.id} to={item.orderLink} className="menu-hero__spotlight-chip">
-                    <span>{item.name}</span>
-                    <strong>{formatPrice(item.price)}</strong>
-                  </Link>
-                ))
-              ) : (
+                {heroFeaturedItems.length ? (
+                  heroFeaturedItems.map((item) => (
+                    <Link key={item.id} to={item.orderLink} className="menu-hero__spotlight-chip">
+                      <span>{item.name}</span>
+                      <strong>{formatPrice(item.price)}</strong>
+                    </Link>
+                  ))
+                ) : (
                 <div className="menu-hero__spotlight-empty">Best sellers will appear here once the latest menu finishes loading.</div>
               )}
             </div>
@@ -343,7 +347,9 @@ function Menu() {
                 <p className="featured-card__price">{formatPrice(item.price)}</p>
                 {item.description ? <p className="featured-card__description">{item.description}</p> : null}
                 <div className="featured-card__meta">
-                  {item.discountAmount ? <span className="menu-discount-tag">{formatPrice(item.discountAmount)} OFF</span> : null}
+                  {item.isNew ? <span className="menu-status-tag menu-status-tag--new">NEW</span> : null}
+                  {item.isDiscountActive ? <span className="menu-status-tag menu-status-tag--discount">{formatPrice(item.discountAmount)} OFF</span> : null}
+                  {item.isLimited ? <span className="menu-status-tag menu-status-tag--limited">LIMITED</span> : null}
                   <span className={item.isAvailable ? "available" : "sold-out"}>
                     {item.isAvailable ? "Available" : "Unavailable"}
                   </span>
@@ -373,7 +379,12 @@ function Menu() {
 
               <div className="menu-category-card__body">
                 <div className="menu-category-card__top">
-                  <h3>{category.displayName}</h3>
+                  <div className="menu-category-card__title-stack">
+                    <h3>{category.displayName}</h3>
+                    <div className="menu-category-card__badges">
+                      {category.isNew ? <span className="menu-status-tag menu-status-tag--new">NEW</span> : null}
+                    </div>
+                  </div>
                   <span className="menu-category-card__count">
                     {category.itemCount ? `${category.itemCount} items` : "Updating soon"}
                   </span>
@@ -421,6 +432,11 @@ function Menu() {
                     <div className="menu-preview-card__body">
                       <h4>{item.name}</h4>
                       {item.description ? <p>{item.description}</p> : <p>Open this category to add the item to your basket.</p>}
+                      <div className="menu-preview-card__tags">
+                        {item.isNew ? <span className="menu-status-tag menu-status-tag--new">NEW</span> : null}
+                        {item.isDiscountActive ? <span className="menu-status-tag menu-status-tag--discount">{formatPrice(item.discountAmount)} OFF</span> : null}
+                        {item.isLimited ? <span className="menu-status-tag menu-status-tag--limited">LIMITED</span> : null}
+                      </div>
                       <div className="menu-preview-card__footer">
                         <span>{formatPrice(item.price)}</span>
                         <span className="menu-preview-card__chip">Order now</span>

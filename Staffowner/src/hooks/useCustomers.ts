@@ -14,10 +14,12 @@ export const useCustomers = () => {
       setError('');
       const rows = await customerService.getCustomers();
       setCustomers(rows);
+      return rows;
     } catch (loadError) {
       console.error('Failed to load customers', loadError);
       setCustomers([]);
       setError(getErrorMessage(loadError, 'Unable to load customers.'));
+      return [];
     } finally {
       setLoading(false);
     }

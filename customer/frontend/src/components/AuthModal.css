@@ -20,8 +20,15 @@
     text-align: center;
   }
   
-  .modal-box h2 {
+.modal-box h2 {
     margin-bottom: 20px;
+  }
+
+.auth-helper {
+    margin: -8px 0 16px;
+    color: #6b7280;
+    font-size: 0.92rem;
+    line-height: 1.5;
   }
   
   .modal-box input {
@@ -56,6 +63,43 @@
   .signup-text {
     margin-top: 15px;
     font-size: 14px;
+  }
+
+  .auth-links {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .auth-link {
+    border: none;
+    background: none;
+    color: #ff6fa5;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .auth-secondary-link {
+    border: none;
+    background: none;
+    color: #ba4f7b;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .auth-feedback {
+    margin-top: 8px;
+  }
+
+  .auth-feedback--error {
+    color: #a11;
+  }
+
+  .auth-feedback--success {
+    color: #27835b;
   }
   
   .close-btn {

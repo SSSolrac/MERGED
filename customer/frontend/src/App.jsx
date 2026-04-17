@@ -37,7 +37,7 @@ function ProtectedRoute({ children }) {
 }
 
 function App() {
-  const { isAuthenticated, signIn, signOut, signUp } = useAuth();
+  const { isAuthenticated, isRecoveryMode, signIn, signOut, signUp, sendPasswordReset, confirmPasswordReset } = useAuth();
   const [showModal, setShowModal] = useState(false);
 
   const navigate = useNavigate();
@@ -46,6 +46,12 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (isRecoveryMode) {
+      setShowModal(true);
+    }
+  }, [isRecoveryMode]);
 
   useEffect(() => {
     const isLanding = location.pathname === "/";
@@ -81,6 +87,16 @@ function App() {
     navigate("/");
   };
 
+  const handlePasswordResetRequest = async ({ email }) => {
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
+    await sendPasswordReset({ email, redirectTo });
+  };
+
+  const handlePasswordResetConfirm = async ({ password }) => {
+    await confirmPasswordReset({ password });
+    setShowModal(false);
+  };
+
   const handleOrderClick = () => {
     navigate("/order");
   };
@@ -114,6 +130,9 @@ function App() {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         onLogin={handleLogin}
+        onRequestPasswordReset={handlePasswordResetRequest}
+        onUpdatePassword={handlePasswordResetConfirm}
+        isRecoveryMode={isRecoveryMode}
       />
     </div>
   );

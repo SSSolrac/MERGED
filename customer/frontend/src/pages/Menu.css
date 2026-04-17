@@ -385,15 +385,28 @@
   margin-top: 12px;
 }
 
-.menu-discount-tag {
+.menu-status-tag {
   display: inline-flex;
   align-items: center;
   font-size: 0.76rem;
   font-weight: 800;
-  color: #9c2155;
-  background: #ffe5ef;
   border-radius: 999px;
   padding: 4px 9px;
+}
+
+.menu-status-tag--discount {
+  color: #9c2155;
+  background: #ffe5ef;
+}
+
+.menu-status-tag--new {
+  color: #12536b;
+  background: #dcf6fb;
+}
+
+.menu-status-tag--limited {
+  color: #8a4b06;
+  background: #fff1d8;
 }
 
 .sold-out,
@@ -450,6 +463,19 @@
   gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
+}
+
+.menu-category-card__title-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-category-card__badges,
+.menu-preview-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .menu-category-card__top h3 {
@@ -562,6 +588,10 @@
   color: #666;
   line-height: 1.55;
   font-size: 0.88rem;
+}
+
+.menu-preview-card__tags {
+  margin-top: 12px;
 }
 
 .menu-preview-card__footer {

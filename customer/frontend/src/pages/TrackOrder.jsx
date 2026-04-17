@@ -5,6 +5,7 @@ import {
   cancelOrder,
   getOrderCancellationReason,
   getOrderCancellationState,
+  getOrderReference,
   getStatusLabel,
 } from "../services/orderService";
 import { syncCustomerNotifications } from "../services/notificationService";
@@ -111,7 +112,7 @@ export default function TrackOrder() {
               <h2>{order.statusLabel || getStatusLabel(order.status)}</h2>
               <span className="track-pill">{order.orderTypeLabel}</span>
             </div>
-            <p><strong>Order:</strong> {order.code || order.id}</p>
+            <p><strong>Order:</strong> {getOrderReference(order)}</p>
             <p><strong>Placed:</strong> {formatTimestamp(order.placedAt || order.createdAt)}</p>
             <p><strong>Last update:</strong> {formatTimestamp(order.updatedAt)}</p>
             <p><strong>Payment:</strong> {String(order.paymentStatus || "pending")} | {order.paymentMethodLabel}</p>

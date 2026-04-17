@@ -54,12 +54,18 @@ export const mapCustomerProfileRow = (row: unknown): CustomerProfile => {
 
 export const mapMenuCategoryRow = (row: unknown): MenuCategory => {
   const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
   return {
     id: asString(r.id, ''),
     name: asString(r.name, ''),
     description: r.description == null ? null : asString(r.description, ''),
     sortOrder: asNumber(r.sort_order, 0),
     isActive: asBoolean(r.is_active, true),
+    newTagStartedAt: r.new_tag_started_at == null ? null : asString(r.new_tag_started_at, ''),
+    newTagExpiresAt: r.new_tag_expires_at == null ? null : asString(r.new_tag_expires_at, ''),
+    isNew: asBoolean(r.is_new, false),
+    createdAt: asIsoString(r.created_at, now),
+    updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
   };
 };
 
@@ -79,9 +85,21 @@ export const mapMenuItemRow = (row: unknown): MenuItem => {
     name: asString(r.name, ''),
     description: r.description == null ? null : asString(r.description, ''),
     price: asNumber(r.price, 0),
+    effectivePrice: asNumber(r.effective_price, Math.max(asNumber(r.price, 0) - asNumber(r.effective_discount ?? r.discount, 0), 0)),
     discount: asNumber(r.discount, 0),
+    effectiveDiscount: asNumber(r.effective_discount, asNumber(r.discount, 0)),
+    isDiscountActive: asBoolean(r.is_discount_active, asNumber(r.effective_discount ?? r.discount, 0) > 0),
+    discountStartsAt: r.discount_starts_at == null ? null : asString(r.discount_starts_at, ''),
+    discountEndsAt: r.discount_ends_at == null ? null : asString(r.discount_ends_at, ''),
     isAvailable: asBoolean(effectiveAvailability, true),
     imageUrl: r.image_url == null ? null : asString(r.image_url, ''),
+    limitedTimeEndsAt: r.limited_time_ends_at == null ? null : asString(r.limited_time_ends_at, ''),
+    newTagStartedAt: r.new_tag_started_at == null ? null : asString(r.new_tag_started_at, ''),
+    newTagExpiresAt: r.new_tag_expires_at == null ? null : asString(r.new_tag_expires_at, ''),
+    isNew: asBoolean(r.is_new, false),
+    isLimited: asBoolean(r.is_limited, false),
+    isLimitedExpired: asBoolean(r.is_limited_expired, false),
+    categoryIsNew: asBoolean(r.category_is_new, false),
     createdAt: asIsoString(r.created_at, now),
     updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
   };

@@ -80,6 +80,58 @@
 
 .profile-session { margin: -10px 0 18px; color:#555; }
 .profile-top-error { text-align:center; margin-bottom:10px; }
+.profile-top-message { text-align: center; margin-bottom: 14px; }
+
+.profile-reward-items {
+  max-width: 620px;
+  margin: 0 auto 18px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #f0d5e2;
+  text-align: left;
+}
+
+.profile-reward-items h2 {
+  margin: 0 0 6px;
+  color: #7b4f2b;
+  font-size: 1.1rem;
+}
+
+.profile-reward-items > p {
+  margin: 0 0 12px;
+  color: #6b625e;
+  font-size: 0.88rem;
+}
+
+.profile-reward-items__list {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-reward-items__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px dashed #efd7e2;
+}
+
+.profile-reward-items__row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.profile-reward-items__row p {
+  margin: 4px 0 0;
+  color: #6d5f68;
+  font-size: 0.85rem;
+}
+
+.profile-reward-items__btn {
+  min-width: 138px;
+}
 
 .profile-address-group {
   display: grid;
@@ -129,5 +181,14 @@
 @media (max-width: 520px) {
   .profile-fixed-address-grid {
     grid-template-columns: 1fr;
+  }
+
+  .profile-reward-items__row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .profile-reward-items__btn {
+    width: 100%;
   }
 }

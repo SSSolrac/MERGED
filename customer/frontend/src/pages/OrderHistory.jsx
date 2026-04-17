@@ -4,6 +4,7 @@ import {
   getOrderCancellationReason,
   getOrderCancellationState,
   getOrderHistory,
+  getOrderReference,
   getStatusLabel,
 } from "../services/orderService";
 import "./OrderHistory.css";
@@ -71,7 +72,7 @@ export default function OrderHistory() {
           return (
             <article key={order.id} className="history-card">
               <div className="history-row">
-                <h3>{order.code || order.id}</h3>
+                <h3>{getOrderReference(order)}</h3>
                 <span className="status-pill">{getStatusLabel(order.status)}</span>
               </div>
 

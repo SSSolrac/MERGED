@@ -156,6 +156,39 @@
   border-bottom: 0;
 }
 
+.loyalty-reward-row__info {
+  flex: 1;
+  min-width: 220px;
+}
+
+.loyalty-reward-row__choice {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  max-width: 320px;
+}
+
+.loyalty-reward-row__choice label {
+  color: #7b4f2b;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.loyalty-reward-row__choice select {
+  border: 1px solid #e7c6b2;
+  border-radius: 12px;
+  background: #fffdfa;
+  color: #5b4b41;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.loyalty-reward-row__hint {
+  margin-top: 8px;
+  color: #8a5b12;
+  font-size: 0.8rem;
+}
+
 .loyalty-redeem-btn {
   border: 1px solid #f2b4d4;
   border-radius: 999px;

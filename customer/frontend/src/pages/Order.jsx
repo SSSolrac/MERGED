@@ -103,6 +103,7 @@ function Order({ navigateOverride }) {
           description: getResolvedCategoryDescription(category),
           itemCount: items.length,
           startingPrice,
+          isNew: Boolean(category?.isNew),
         };
       })
       .filter((entry) => entry.id);
@@ -152,7 +153,10 @@ function Order({ navigateOverride }) {
 
               <div className="order-category-card__body">
                 <div className="order-category-card__top">
-                  <h3>{category.displayTitle}</h3>
+                  <div className="order-category-card__title-stack">
+                    <h3>{category.displayTitle}</h3>
+                    {category.isNew ? <span className="order-status-tag order-status-tag--new">NEW</span> : null}
+                  </div>
                   <span className="order-category-card__count">
                     {category.itemCount ? `${category.itemCount} items` : "Updating soon"}
                   </span>

@@ -75,6 +75,11 @@ function normalizeCode(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+export function getOrderReference(order) {
+  if (!order) return "";
+  return String(order.code || order.id || "").trim();
+}
+
 function mapOrderRow(row) {
   if (!row) return null;
 
@@ -332,29 +337,68 @@ async function fetchMenuSnapshot(items) {
   )];
   const ids = [...new Set(
     safeItems
-      .map((item) => String(item?.id || item?.menu_item_id || "").trim())
+      .map((item) => String(item?.menuItemId || item?.id || item?.menu_item_id || "").trim())
       .filter((id) => isUuid(id))
   )];
 
   if (!codes.length && !ids.length) return { byCode: new Map(), byId: new Map() };
 
   const supabase = requireSupabaseClient();
+  const viewSelect =
+    "id, code, name, price, discount, effective_discount, is_available, effective_is_available, limited_time_ends_at, is_limited_expired";
   const requests = [];
   if (codes.length) {
     requests.push(
       supabase
-        .from("menu_items")
-        .select("id, code, name, price, discount, is_available")
+        .from("menu_item_effective_availability")
+        .select(viewSelect)
         .in("code", codes)
     );
   }
   if (ids.length) {
     requests.push(
       supabase
-        .from("menu_items")
-        .select("id, code, name, price, discount, is_available")
+        .from("menu_item_effective_availability")
+        .select(viewSelect)
         .in("id", ids)
     );
+  }
+
+  const results = await Promise.all(requests);
+  const rows = [];
+  for (const result of results) {
+    if (result?.error) {
+      return fetchMenuSnapshotFromBaseTable({ codes, ids, supabase });
+    }
+    if (Array.isArray(result?.data)) rows.push(...result.data);
+  }
+
+  const uniqueRows = rows.reduce((acc, row) => {
+    const id = String(row?.id || "").trim();
+    if (!id) return acc;
+    if (!acc.has(id)) acc.set(id, row);
+    return acc;
+  }, new Map());
+
+  const byId = new Map();
+  const byCode = new Map();
+  uniqueRows.forEach((row) => {
+    const idKey = String(row?.id || "").trim();
+    const codeKey = normalizeCode(row?.code);
+    if (idKey) byId.set(idKey, row);
+    if (codeKey) byCode.set(codeKey, row);
+  });
+
+  return { byCode, byId };
+}
+
+async function fetchMenuSnapshotFromBaseTable({ codes, ids, supabase }) {
+  const requests = [];
+  if (codes.length) {
+    requests.push(supabase.from("menu_items").select("id, code, name, price, discount, is_available").in("code", codes));
+  }
+  if (ids.length) {
+    requests.push(supabase.from("menu_items").select("id, code, name, price, discount, is_available").in("id", ids));
   }
 
   const results = await Promise.all(requests);
@@ -384,7 +428,7 @@ async function fetchMenuSnapshot(items) {
 }
 
 function resolveMenuSnapshot(item, menuSnapshot) {
-  const idKey = String(item?.id || item?.menu_item_id || "").trim();
+  const idKey = String(item?.menuItemId || item?.id || item?.menu_item_id || "").trim();
   if (idKey && menuSnapshot.byId.has(idKey)) return menuSnapshot.byId.get(idKey);
 
   const codeKey = normalizeCode(item?.menuItemCode || item?.menu_item_code || item?.code);
@@ -417,24 +461,34 @@ export async function createOrder(orderPayload) {
     const snapshot = resolveMenuSnapshot(item, menuSnapshot);
     const menuItemCode = String(snapshot?.code || item.menuItemCode || item.menu_item_code || item.code || "").trim();
     const fallbackName = String(item.displayName || item.name || item.itemName || `Item ${index + 1}`).trim();
+    const loyaltyRewardItemId = String(item.loyaltyRewardItemId || item.loyalty_reward_item_id || "").trim();
+    const isLoyaltyRewardItem = Boolean(loyaltyRewardItemId);
 
     if (!snapshot) {
       throw new Error(`${fallbackName} is no longer available. Please remove it from your cart and add it again.`);
     }
 
-    if (snapshot && snapshot.is_available === false) {
+    if (snapshot && (snapshot.effective_is_available === false || snapshot.is_available === false)) {
       throw new Error(`${snapshot.name || menuItemCode} is no longer available. Please update your cart.`);
     }
 
-    const amounts = deriveLineAmounts({
-      ...item,
-      unitPrice: snapshot ? snapshot.price : item.unitPrice,
-      price: snapshot ? snapshot.price : item.price,
-      discountAmount: snapshot ? snapshot.discount : item.discountAmount,
-    });
+    const amounts = isLoyaltyRewardItem
+      ? {
+          unitPrice: asNumber(snapshot?.price ?? item.unitPrice ?? item.originalPrice ?? 0),
+          discountAmount: asNumber(snapshot?.price ?? item.unitPrice ?? item.originalPrice ?? 0),
+          quantity: 1,
+          lineTotal: 0,
+        }
+      : deriveLineAmounts({
+          ...item,
+          unitPrice: snapshot ? snapshot.price : item.unitPrice,
+          price: snapshot ? snapshot.price : item.price,
+          discountAmount: snapshot ? snapshot.effective_discount ?? snapshot.discount : item.discountAmount,
+        });
 
     return {
-      menu_item_id: snapshot?.id || (isUuid(item.id) ? item.id : null),
+      loyalty_reward_item_id: loyaltyRewardItemId || null,
+      menu_item_id: snapshot?.id || (isUuid(item.menuItemId) ? item.menuItemId : isUuid(item.id) ? item.id : null),
       menu_item_code: menuItemCode || snapshot?.code || null,
       item_name: String(snapshot?.name || fallbackName).trim(),
       unit_price: amounts.unitPrice,

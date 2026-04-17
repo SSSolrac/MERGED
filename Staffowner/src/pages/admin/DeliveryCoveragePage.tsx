@@ -6,6 +6,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 import { toast } from 'sonner';
+import { StatusChip } from '@/components/ui';
 import { getErrorMessage } from '@/lib/errors';
 import {
   deliveryCoverageService,
@@ -44,11 +45,12 @@ const normalizePuroks = (puroks: DeliveryCoverageFormState['puroks']) =>
     .map((entry, index) => ({
       id: String(entry?.id || crypto.randomUUID()),
       purokName: String(entry?.purokName || '').trim(),
+      lat: asNumber(entry?.lat, NaN),
+      lng: asNumber(entry?.lng, NaN),
       isActive: entry?.isActive !== false,
       deliveryStatus: entry?.deliveryStatus === 'inactive' ? 'inactive' : 'active',
       sortOrder: asNumber(entry?.sortOrder, index + 1),
     }))
-    .filter((entry) => entry.purokName)
     .sort((left, right) => left.sortOrder - right.sortOrder);
 
 const toFormState = (config: DeliveryCoverageConfig): DeliveryCoverageFormState => ({
@@ -61,6 +63,8 @@ const toFormState = (config: DeliveryCoverageConfig): DeliveryCoverageFormState 
     (Array.isArray(config.puroks) ? config.puroks : []).map((purok) => ({
       id: purok.id,
       purokName: purok.purokName,
+      lat: purok.lat,
+      lng: purok.lng,
       isActive: purok.isActive !== false,
       deliveryStatus: purok.deliveryStatus === 'inactive' ? 'inactive' : 'active',
       sortOrder: purok.sortOrder,
@@ -79,6 +83,13 @@ const toFormState = (config: DeliveryCoverageConfig): DeliveryCoverageFormState 
 const getMapCenter = (polygon: DeliveryCoverageFormState['polygon']): LatLngTuple => {
   const first = normalizePolygon(polygon)[0];
   return first ? [first.lat, first.lng] : DEFAULT_CENTER;
+};
+
+const getPurokPosition = (purok: DeliveryCoverageFormState['puroks'][number] | null | undefined): LatLngTuple | null => {
+  const lat = asNumber(purok?.lat, NaN);
+  const lng = asNumber(purok?.lng, NaN);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return [lat, lng];
 };
 
 let hasConfiguredLeafletIcon = false;
@@ -126,12 +137,44 @@ const FitPolygonBounds = ({ polygon }: FitPolygonBoundsProps) => {
   return null;
 };
 
+type SyncSelectedPurokViewProps = {
+  position: LatLngTuple;
+  watchKey: string;
+};
+
+const SyncSelectedPurokView = ({ position, watchKey }: SyncSelectedPurokViewProps) => {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView(position, Math.max(map.getZoom() || 0, 16), { animate: false });
+  }, [map, position, watchKey]);
+
+  return null;
+};
+
+type PurokPointCaptureProps = {
+  onSetPoint: (lat: number, lng: number) => void;
+};
+
+const PurokPointCapture = ({ onSetPoint }: PurokPointCaptureProps) => {
+  useMapEvents({
+    click(event) {
+      const lat = asNumber(event?.latlng?.lat, NaN);
+      const lng = asNumber(event?.latlng?.lng, NaN);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      onSetPoint(lat, lng);
+    },
+  });
+  return null;
+};
+
 export const DeliveryCoveragePage = () => {
   ensureLeafletMarkerIcon();
 
   const [form, setForm] = useState<DeliveryCoverageFormState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedPurokId, setSelectedPurokId] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +202,27 @@ export const DeliveryCoveragePage = () => {
 
   const polygonCount = useMemo(() => normalizePolygon(form?.polygon || []).length, [form?.polygon]);
   const activePurokCount = useMemo(
-    () => normalizePuroks(form?.puroks || []).filter((purok) => purok.isActive && purok.deliveryStatus === 'active').length,
+    () =>
+      normalizePuroks(form?.puroks || []).filter(
+        (purok) => purok.isActive && purok.deliveryStatus === 'active' && String(purok.purokName || '').trim(),
+      ).length,
     [form?.puroks],
   );
+  const selectedPurokIndex = useMemo(
+    () => (form ? form.puroks.findIndex((purok) => purok.id === selectedPurokId) : -1),
+    [form, selectedPurokId],
+  );
+  const selectedPurok = selectedPurokIndex >= 0 && form ? form.puroks[selectedPurokIndex] : null;
+
+  useEffect(() => {
+    if (!form?.puroks?.length) {
+      setSelectedPurokId('');
+      return;
+    }
+
+    if (form.puroks.some((purok) => purok.id === selectedPurokId)) return;
+    setSelectedPurokId(form.puroks[0]?.id || '');
+  }, [form, selectedPurokId]);
 
   const updateArea = <K extends keyof DeliveryCoverageFormState['area']>(key: K, value: DeliveryCoverageFormState['area'][K]) => {
     setForm((current) => (current ? { ...current, area: { ...current.area, [key]: value } } : current));
@@ -192,19 +253,32 @@ export const DeliveryCoveragePage = () => {
   const addPurok = () => {
     setForm((current) => {
       if (!current) return current;
+      const nextId = crypto.randomUUID();
       return {
         ...current,
         puroks: normalizePuroks([
           ...current.puroks,
           {
-            id: crypto.randomUUID(),
+            id: nextId,
             purokName: '',
+            lat: NaN,
+            lng: NaN,
             isActive: true,
             deliveryStatus: 'active',
             sortOrder: current.puroks.length + 1,
           },
         ]),
       };
+    });
+  };
+
+  const setPurokPoint = (index: number, lat: number, lng: number) => {
+    setForm((current) => {
+      if (!current) return current;
+      const next = [...current.puroks];
+      if (!next[index]) return current;
+      next[index] = { ...next[index], lat, lng };
+      return { ...current, puroks: normalizePuroks(next) };
     });
   };
 
@@ -257,6 +331,12 @@ export const DeliveryCoveragePage = () => {
       toast.error('Delivery polygon must have at least 3 points.');
       return;
     }
+    const namedPuroks = form.puroks.filter((purok) => String(purok.purokName || '').trim());
+    const missingPurokCoordinates = namedPuroks.some((purok) => !getPurokPosition(purok));
+    if (missingPurokCoordinates) {
+      toast.error('Every saved purok needs valid map coordinates.');
+      return;
+    }
 
     try {
       setIsSaving(true);
@@ -289,6 +369,7 @@ export const DeliveryCoveragePage = () => {
 
   const normalizedPolygon = normalizePolygon(form.polygon);
   const polygonPositions: LatLngTuple[] = normalizedPolygon.map((point) => [point.lat, point.lng]);
+  const selectedPurokPosition = getPurokPosition(selectedPurok) || getMapCenter(form.polygon);
 
   return (
     <section className="rounded-lg border bg-white p-4 space-y-4">
@@ -450,8 +531,11 @@ export const DeliveryCoveragePage = () => {
         <p className="text-xs text-[#6B7280]">Active delivery puroks: {activePurokCount}</p>
         <div className="space-y-2">
           {form.puroks.map((purok, index) => (
-            <article key={purok.id || `purok-${index + 1}`} className="rounded border p-2 space-y-2">
-              <div className="grid md:grid-cols-[1.4fr_120px_120px_auto] gap-2 items-end">
+            <article
+              key={purok.id || `purok-${index + 1}`}
+              className={`rounded border p-2 space-y-2 ${selectedPurokId === purok.id ? 'border-[#36D7E8] ring-1 ring-[#36D7E8]/40' : ''}`}
+            >
+              <div className="grid md:grid-cols-[1.2fr_110px_160px_160px_120px_auto] gap-2 items-end">
                 <label className="text-sm">
                   Purok Name
                   <input
@@ -481,6 +565,29 @@ export const DeliveryCoveragePage = () => {
                     <option value="inactive">inactive</option>
                   </select>
                 </label>
+                <label className="text-sm">
+                  Latitude
+                  <input
+                    type="number"
+                    step="0.000001"
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    value={Number.isFinite(purok.lat) ? purok.lat : ''}
+                    onChange={(event) => updatePurok(index, 'lat', event.target.value === '' ? Number.NaN : Number(event.target.value))}
+                  />
+                </label>
+                <label className="text-sm">
+                  Longitude
+                  <input
+                    type="number"
+                    step="0.000001"
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    value={Number.isFinite(purok.lng) ? purok.lng : ''}
+                    onChange={(event) => updatePurok(index, 'lng', event.target.value === '' ? Number.NaN : Number(event.target.value))}
+                  />
+                </label>
+                <button type="button" className="rounded border px-2 py-1 text-xs h-9" onClick={() => setSelectedPurokId(purok.id)}>
+                  Edit on map
+                </button>
                 <button type="button" className="rounded border px-2 py-1 text-xs h-9" onClick={() => removePurok(index)}>
                   Remove
                 </button>
@@ -495,6 +602,58 @@ export const DeliveryCoveragePage = () => {
               </label>
             </article>
           ))}
+        </div>
+        <div className="rounded border p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h4 className="font-medium text-sm">Selected Purok Coordinates</h4>
+              <p className="text-xs text-[#6B7280]">
+                {selectedPurok ? `Editing ${selectedPurok.purokName || `Purok ${selectedPurokIndex + 1}`}` : 'Select a purok above to place its marker.'}
+              </p>
+            </div>
+            {selectedPurok ? <StatusChip label={selectedPurok.purokName || 'Selected'} tone="neutral" /> : null}
+          </div>
+          <div className="relative min-h-[280px] rounded border overflow-hidden bg-[#F8FAFC]">
+            <MapContainer className="h-[280px] w-full" center={selectedPurokPosition} zoom={16} scrollWheelZoom>
+              <TileLayer attribution={OSM_ATTRIBUTION} url={OSM_TILE_URL} />
+              {polygonPositions.length >= 3 ? (
+                <Polygon
+                  positions={polygonPositions}
+                  pathOptions={{
+                    color: '#111827',
+                    opacity: 0.7,
+                    weight: 2,
+                    fillColor: '#fb7185',
+                    fillOpacity: 0.12,
+                  }}
+                />
+              ) : null}
+              {selectedPurok ? (
+                <Marker
+                  position={selectedPurokPosition}
+                  draggable
+                  eventHandlers={{
+                    dragend(event) {
+                      const next = event.target.getLatLng();
+                      setPurokPoint(selectedPurokIndex, asNumber(next?.lat, selectedPurokPosition[0]), asNumber(next?.lng, selectedPurokPosition[1]));
+                    },
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -18]} permanent>
+                    {selectedPurok.purokName || 'Selected purok'}
+                  </Tooltip>
+                </Marker>
+              ) : null}
+              {selectedPurok ? (
+                <PurokPointCapture onSetPoint={(lat, lng) => setPurokPoint(selectedPurokIndex, lat, lng)} />
+              ) : null}
+              <SyncSelectedPurokView
+                position={selectedPurokPosition}
+                watchKey={`${selectedPurokId}:${selectedPurokPosition[0]}:${selectedPurokPosition[1]}`}
+              />
+            </MapContainer>
+          </div>
+          <p className="text-xs text-[#6B7280]">Click the map or drag the marker to update this purok’s saved coordinates.</p>
         </div>
       </article>
 

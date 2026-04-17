@@ -20,8 +20,18 @@ export interface LoyaltyActivityEntry {
   id: string;
   customerId: string;
   source: LoyaltyActivitySource;
-  stampDelta: 1;
+  stampDelta: number;
   at: string;
   orderId?: string;
   reason?: string;
 }
+
+export type ManualStampAwardResult = {
+  eventId: string;
+  customerId: string;
+  customerLabel: string;
+  stampDelta: number;
+  newStampCount: number;
+  reason: string | null;
+  awardedAt: string;
+};

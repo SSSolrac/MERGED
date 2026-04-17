@@ -4,6 +4,7 @@ import { useActivityLog } from '@/hooks/useActivityLog';
 const toneForType = (type: string) => {
   if (type === 'order') return 'warning' as const;
   if (type === 'import' || type === 'settings') return 'neutral' as const;
+  if (type === 'loyalty') return 'success' as const;
   if (type === 'inventory' || type === 'menu') return 'info' as const;
   if (type === 'system') return 'neutral' as const;
   return 'success' as const;
@@ -15,6 +16,7 @@ const labelForType = (type: string) => {
   if (type === 'inventory') return 'Inventory Action';
   if (type === 'menu') return 'Menu Action';
   if (type === 'settings') return 'Settings Action';
+  if (type === 'loyalty') return 'Loyalty Action';
   if (type === 'system') return 'System Action';
   return 'Login Action';
 };
@@ -26,10 +28,11 @@ export const ActivityLogPage = () => {
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Activity Log</h2>
 
-      <section className="grid md:grid-cols-5 gap-3">
+      <section className="grid md:grid-cols-6 gap-3">
         <div className="border rounded p-3">Activities today: {stats.totalToday}</div>
         <div className="border rounded p-3">Login events: {stats.loginEvents}</div>
         <div className="border rounded p-3">Order actions: {stats.orderEvents}</div>
+        <div className="border rounded p-3">Loyalty actions: {stats.loyaltyEvents}</div>
         <div className="border rounded p-3">Import actions: {stats.importEvents}</div>
         <div className="border rounded p-3">Update actions: {stats.updateEvents}</div>
       </section>
@@ -60,6 +63,7 @@ export const ActivityLogPage = () => {
           <option value="inventory">Inventory activity</option>
           <option value="menu">Menu activity</option>
           <option value="settings">Settings activity</option>
+          <option value="loyalty">Loyalty activity</option>
           <option value="system">System activity</option>
         </select>
         <input className="border rounded px-2 py-1" type="date" value={filters.date} onChange={(event) => setFilters({ ...filters, date: event.target.value, page: 1 })} />

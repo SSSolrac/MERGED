@@ -20,6 +20,8 @@ const DEFAULT_DELIVERY_CONFIG = {
     {
       id: "fallback-purok-1",
       purokName: "Purok Pinagbuklod",
+      lat: 13.94345,
+      lng: 121.61923,
       isActive: true,
       deliveryStatus: "active",
       sortOrder: 1,
@@ -27,6 +29,8 @@ const DEFAULT_DELIVERY_CONFIG = {
     {
       id: "fallback-purok-2",
       purokName: "Purok Carmelita",
+      lat: 13.9409,
+      lng: 121.6278,
       isActive: true,
       deliveryStatus: "active",
       sortOrder: 2,
@@ -34,6 +38,8 @@ const DEFAULT_DELIVERY_CONFIG = {
     {
       id: "fallback-purok-3",
       purokName: "Purok Sampaguita",
+      lat: 13.9368,
+      lng: 121.6262,
       isActive: true,
       deliveryStatus: "active",
       sortOrder: 3,
@@ -96,6 +102,8 @@ function mapPurokRow(row, index = 0) {
   return {
     id: asText(safe.id || `purok-${index + 1}`),
     purokName: asText(safe.purok_name || safe.purokName),
+    lat: asNumber(safe.lat, NaN),
+    lng: asNumber(safe.lng, NaN),
     isActive: asBoolean(safe.is_active ?? safe.isActive, true),
     deliveryStatus: asText(safe.delivery_status || safe.deliveryStatus || "active").toLowerCase(),
     sortOrder: asNumber(safe.sort_order ?? safe.sortOrder, index + 1),

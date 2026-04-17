@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, Polygon, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
@@ -42,6 +42,13 @@ function normalizePolygon(points) {
     .sort((left, right) => left.pointOrder - right.pointOrder);
 }
 
+function getPurokCoordinates(purok) {
+  const lat = asNumber(purok?.lat ?? purok?.latitude);
+  const lng = asNumber(purok?.lng ?? purok?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return [lat, lng];
+}
+
 let hasConfiguredLeafletIcon = false;
 function ensureLeafletMarkerIcon() {
   if (hasConfiguredLeafletIcon) return;
@@ -66,8 +73,9 @@ function MapClickCapture({ onSelectPoint }) {
   return null;
 }
 
-function SyncMapView({ center, markerPosition, polygon, hasPinnedPoint, watchKey }) {
+function SyncMapView({ center, markerPosition, polygon, hasPinnedPoint, selectedPurokPosition, selectedPurokSignature, watchKey }) {
   const map = useMap();
+  const lastSelectedPurokSignatureRef = useRef("");
 
   useEffect(() => {
     const hasWindow = typeof window !== "undefined";
@@ -76,7 +84,21 @@ function SyncMapView({ center, markerPosition, polygon, hasPinnedPoint, watchKey
     const syncView = () => {
       map.invalidateSize({ pan: false });
 
-      if (Array.isArray(polygon) && polygon.length >= 3 && !hasPinnedPoint) {
+      const hasSelectedPurokPosition =
+        Array.isArray(selectedPurokPosition) &&
+        Number.isFinite(asNumber(selectedPurokPosition?.[0])) &&
+        Number.isFinite(asNumber(selectedPurokPosition?.[1]));
+      const purokChanged =
+        Boolean(selectedPurokSignature) && lastSelectedPurokSignatureRef.current !== selectedPurokSignature;
+
+      lastSelectedPurokSignatureRef.current = selectedPurokSignature || "";
+
+      if (purokChanged && hasSelectedPurokPosition) {
+        map.setView(selectedPurokPosition, Math.max(map.getZoom() || 0, 16), { animate: false });
+        return;
+      }
+
+      if (Array.isArray(polygon) && polygon.length >= 3 && !hasPinnedPoint && !hasSelectedPurokPosition) {
         const bounds = L.latLngBounds(polygon);
         if (bounds.isValid()) {
           map.fitBounds(bounds, { padding: [28, 28] });
@@ -85,7 +107,7 @@ function SyncMapView({ center, markerPosition, polygon, hasPinnedPoint, watchKey
       }
 
       const fallbackTarget = Array.isArray(center) ? center : [DEFAULT_DELIVERY_MAP_CENTER.lat, DEFAULT_DELIVERY_MAP_CENTER.lng];
-      const target = hasPinnedPoint ? markerPosition : fallbackTarget;
+      const target = hasPinnedPoint ? markerPosition : hasSelectedPurokPosition ? selectedPurokPosition : fallbackTarget;
       const lat = asNumber(target?.[0]);
       const lng = asNumber(target?.[1]);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -138,7 +160,7 @@ function SyncMapView({ center, markerPosition, polygon, hasPinnedPoint, watchKey
       }
       resizeObserver?.disconnect?.();
     };
-  }, [center, hasPinnedPoint, map, markerPosition, polygon, watchKey]);
+  }, [center, hasPinnedPoint, map, markerPosition, polygon, selectedPurokPosition, selectedPurokSignature, watchKey]);
 
   return null;
 }
@@ -160,21 +182,32 @@ export default function DeliveryAddressForm({
   const latitude = asNumber(value?.latitude);
   const longitude = asNumber(value?.longitude);
   const puroks = Array.isArray(config?.puroks) ? config.puroks : [];
+  const selectedPurok = useMemo(
+    () => puroks.find((purok) => asText(purok?.id) === selectedPurokId) || null,
+    [puroks, selectedPurokId]
+  );
+  const selectedPurokPosition = useMemo(() => getPurokCoordinates(selectedPurok), [selectedPurok]);
   const markerPosition = useMemo(
-    () => (Number.isFinite(latitude) && Number.isFinite(longitude) ? [latitude, longitude] : [center.lat, center.lng]),
-    [center.lat, center.lng, latitude, longitude]
+    () =>
+      Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? [latitude, longitude]
+        : selectedPurokPosition || [center.lat, center.lng],
+    [center.lat, center.lng, latitude, longitude, selectedPurokPosition]
   );
   const polygonPositions = useMemo(
     () => polygon.map((point) => [point.lat, point.lng]),
     [polygon]
   );
   const hasPinnedPoint = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const selectedPurokSignature = Array.isArray(selectedPurokPosition)
+    ? `${selectedPurokId}:${selectedPurokPosition[0]}:${selectedPurokPosition[1]}`
+    : `${selectedPurokId}:missing`;
   const polygonSignature = useMemo(
     () => polygon.map((point) => `${point.pointOrder}:${point.lat}:${point.lng}`).join("|"),
     [polygon]
   );
   const markerSignature = Number.isFinite(latitude) && Number.isFinite(longitude) ? `${latitude}:${longitude}` : "fallback-marker";
-  const mapWatchKey = `${asText(config?.id) || "fallback-area"}:${selectedPurokId}:${markerSignature}:${polygonSignature}`;
+  const mapWatchKey = `${asText(config?.id) || "fallback-area"}:${selectedPurokSignature}:${markerSignature}:${polygonSignature}`;
 
   useEffect(() => {
     if (typeof console === "undefined" || typeof console.debug !== "function") return;
@@ -182,10 +215,12 @@ export default function DeliveryAddressForm({
       deliveryConfig: config,
       center: centerPosition,
       markerPosition,
+      selectedPurok,
+      selectedPurokPosition,
       polygonPoints: polygon,
       polygonPositions,
     });
-  }, [centerPosition, config, markerPosition, polygon, polygonPositions]);
+  }, [centerPosition, config, markerPosition, polygon, polygonPositions, selectedPurok, selectedPurokPosition]);
 
   return (
     <div className="delivery-address-form">
@@ -205,7 +240,17 @@ export default function DeliveryAddressForm({
       </label>
       <select
         value={selectedPurokId}
-        onChange={(event) => onChange({ ...value, selectedPurokId: event.target.value })}
+        onChange={(event) => {
+          const nextSelectedPurokId = event.target.value;
+          const nextSelectedPurok = puroks.find((purok) => asText(purok?.id) === nextSelectedPurokId) || null;
+          const nextCoordinates = getPurokCoordinates(nextSelectedPurok);
+          onChange({
+            ...value,
+            selectedPurokId: nextSelectedPurokId,
+            latitude: nextCoordinates ? nextCoordinates[0] : null,
+            longitude: nextCoordinates ? nextCoordinates[1] : null,
+          });
+        }}
       >
         <option value="">Select a purok</option>
         {puroks.map((purok) => (
@@ -274,6 +319,8 @@ export default function DeliveryAddressForm({
             markerPosition={markerPosition}
             polygon={polygonPositions}
             hasPinnedPoint={hasPinnedPoint}
+            selectedPurokPosition={selectedPurokPosition}
+            selectedPurokSignature={selectedPurokSignature}
             watchKey={mapWatchKey}
           />
         </MapContainer>

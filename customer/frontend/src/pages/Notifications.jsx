@@ -55,7 +55,7 @@ export default function Notifications() {
       <div className="notifications-header">
         <div>
           <h1>Notifications</h1>
-          <p>Order updates, promo alerts, and new menu items are listed here.</p>
+          <p>Order updates, loyalty awards, promo alerts, and new menu items are listed here.</p>
         </div>
         {items.length ? (
           <button type="button" onClick={onMarkAllRead} className="notifications-mark-all">
@@ -67,7 +67,7 @@ export default function Notifications() {
       {!items.length ? (
         <div className="notifications-state">
           <h2>No notifications yet</h2>
-          <p>We will show order updates, promo alerts, and new item notices here.</p>
+          <p>We will show order updates, loyalty awards, promo alerts, and new item notices here.</p>
           <Link to="/order">Start an order</Link>
         </div>
       ) : (

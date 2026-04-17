@@ -24,6 +24,10 @@ function getActiveOrderCtaLabel(order) {
   return "Track My Order";
 }
 
+function formatMoney(value) {
+  return `PHP ${Number(value || 0).toFixed(2)}`;
+}
+
 export default function Cart() {
   const navigate = useNavigate();
   const { cart, changeQty, removeItem, total, clearCart } = useCart();
@@ -47,7 +51,7 @@ export default function Cart() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0 }}>Your Cart</h1>
         <div style={{ display: "flex", gap: 8 }}>
-          <Link to="/order" style={{ textDecoration: "none" }}>← Add more</Link>
+          <Link to="/order" style={{ textDecoration: "none" }}>Add more</Link>
           {cart.length > 0 && <button onClick={clearCart}>Clear</button>}
         </div>
       </div>
@@ -55,14 +59,35 @@ export default function Cart() {
       {cart.length === 0 ? (
         <div style={{ textAlign: "center", marginTop: 40 }}>
           {activeOrder ? (
-            <div style={{ background: "white", padding: "30px", borderRadius: "20px", boxShadow: "0 10px 25px rgba(0,0,0,0.05)", border: "1px solid #eee" }}>
-              <div style={{ fontSize: "40px" }}>🥤</div>
+            <div
+              style={{
+                background: "white",
+                padding: "30px",
+                borderRadius: "20px",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
+                border: "1px solid #eee",
+              }}
+            >
+              <div style={{ fontSize: "40px" }}>Order</div>
               <h2 style={{ marginBottom: 8 }}>{getActiveOrderCardTitle(activeOrder)}</h2>
               <p style={{ color: "#666", marginBottom: 20 }}>
                 Order <strong>#{activeOrder.code || activeOrder.id}</strong> is currently <strong>{activeOrder.statusLabel || activeOrder.status}</strong>.
               </p>
-              <button onClick={() => navigate("/track-order")} style={{ padding: "12px 24px", backgroundColor: "#36d7e8", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", width: "100%", maxWidth: "300px" }}>
-                {getActiveOrderCtaLabel(activeOrder)} 📍
+              <button
+                onClick={() => navigate("/track-order")}
+                style={{
+                  padding: "12px 24px",
+                  backgroundColor: "#36d7e8",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  width: "100%",
+                  maxWidth: "300px",
+                }}
+              >
+                {getActiveOrderCtaLabel(activeOrder)}
               </button>
             </div>
           ) : (
@@ -76,27 +101,51 @@ export default function Cart() {
         <>
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             {cart.map((item) => (
-              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "white", borderRadius: 14, padding: 12, boxShadow: "0 10px 25px rgba(0,0,0,0.06)" }}>
+              <div
+                key={item.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  background: "white",
+                  borderRadius: 14,
+                  padding: 12,
+                  boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
+                }}
+              >
                 <img src={item.image} alt={item.displayName || item.name} style={{ width: 70, height: 70, borderRadius: 12, objectFit: "cover" }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 900 }}>{item.displayName || item.name}</div>
-                  <div style={{ opacity: 0.7 }}>₱{Number(item.price || 0).toFixed(2)}</div>
+                  <div style={{ opacity: 0.7 }}>
+                    {item.isLoyaltyReward ? "Free reward item" : formatMoney(item.price)}
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button onClick={() => changeQty(item.id, -1)}>−</button>
-                  <div style={{ width: 24, textAlign: "center" }}>{item.qty}</div>
-                  <button onClick={() => changeQty(item.id, 1)}>+</button>
+                {item.isLoyaltyReward ? (
+                  <div style={{ minWidth: 110, textAlign: "center", fontSize: 12, fontWeight: 700, color: "#7b4f2b" }}>
+                    1 free drink
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button onClick={() => changeQty(item.id, -1)}>-</button>
+                    <div style={{ width: 24, textAlign: "center" }}>{item.qty}</div>
+                    <button onClick={() => changeQty(item.id, 1)}>+</button>
+                  </div>
+                )}
+                <div style={{ width: 120, textAlign: "right", fontWeight: 900 }}>
+                  {item.isLoyaltyReward ? "FREE" : formatMoney(Number(item.price || 0) * Number(item.qty || 0))}
                 </div>
-                <div style={{ width: 120, textAlign: "right", fontWeight: 900 }}>₱{(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</div>
                 <button onClick={() => removeItem(item.id)}>Remove</button>
               </div>
             ))}
           </div>
 
-          <div style={{ marginTop: 16, textAlign: "right", fontSize: 18, fontWeight: 900 }}>Total: ₱{Number(total || 0).toFixed(2)}</div>
+          <div style={{ marginTop: 16, textAlign: "right", fontSize: 18, fontWeight: 900 }}>Total: {formatMoney(total)}</div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-            <button onClick={() => navigate("/checkout")} style={{ fontWeight: 900, padding: "10px 14px", backgroundColor: "#36d7e8", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+            <button
+              onClick={() => navigate("/checkout")}
+              style={{ fontWeight: 900, padding: "10px 14px", backgroundColor: "#36d7e8", border: "none", borderRadius: "8px", cursor: "pointer" }}
+            >
               Checkout
             </button>
           </div>
@@ -105,4 +154,3 @@ export default function Cart() {
     </div>
   );
 }
-

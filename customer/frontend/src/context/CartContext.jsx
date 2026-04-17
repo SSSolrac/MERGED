@@ -5,6 +5,15 @@ const CartContext = createContext(null);
 
 const STORAGE_KEY = "happyTailsCafeCart_v1";
 
+function isRewardItem(item) {
+  return Boolean(item?.isLoyaltyReward || item?.loyaltyRewardItemId);
+}
+
+function clampQty(item, qty) {
+  const safeQty = Number.isFinite(qty) ? Math.max(1, Math.floor(qty)) : 1;
+  return isRewardItem(item) ? 1 : safeQty;
+}
+
 export function CartProvider({ children }) {
   const [cart, setCart] = useState(() => {
     try {
@@ -22,11 +31,15 @@ export function CartProvider({ children }) {
 
   const addItem = (item, qty = 1) => {
     // item: { id, name, price, image, category }
-    const safeQty = Number.isFinite(qty) ? Math.max(1, Math.floor(qty)) : 1;
+    const safeQty = clampQty(item, qty);
     setCart((prev) => {
       const existing = prev.find((x) => x.id === item.id);
       if (existing) {
-        return prev.map((x) => (x.id === item.id ? { ...x, qty: x.qty + safeQty } : x));
+        return prev.map((x) => {
+          if (x.id !== item.id) return x;
+          const nextQty = isRewardItem(x) ? 1 : x.qty + safeQty;
+          return { ...x, ...item, qty: clampQty({ ...x, ...item }, nextQty) };
+        });
       }
       return [...prev, { ...item, qty: safeQty }];
     });
@@ -40,6 +53,7 @@ export function CartProvider({ children }) {
     setCart((prev) =>
       prev.map((x) => {
         if (x.id !== id) return x;
+        if (isRewardItem(x)) return { ...x, qty: 1 };
         const nextQty = x.qty + delta;
         return { ...x, qty: Math.max(1, nextQty) };
       })
@@ -47,8 +61,12 @@ export function CartProvider({ children }) {
   };
 
   const setQty = (id, qty) => {
-    const safe = Number.isFinite(qty) ? Math.max(1, qty) : 1;
-    setCart((prev) => prev.map((x) => (x.id === id ? { ...x, qty: safe } : x)));
+    setCart((prev) =>
+      prev.map((x) => {
+        if (x.id !== id) return x;
+        return { ...x, qty: clampQty(x, qty) };
+      })
+    );
   };
 
   const clearCart = () => setCart([]);

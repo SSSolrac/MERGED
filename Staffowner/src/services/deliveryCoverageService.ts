@@ -18,6 +18,8 @@ export type DeliveryPurok = {
   id: string;
   deliveryAreaId: string;
   purokName: string;
+  lat: number;
+  lng: number;
   isActive: boolean;
   deliveryStatus: 'active' | 'inactive';
   sortOrder: number;
@@ -65,6 +67,8 @@ const FALLBACK_PUROKS: DeliveryPurok[] = [
     id: '',
     deliveryAreaId: '',
     purokName: 'Purok Pinagbuklod',
+    lat: 13.94345,
+    lng: 121.61923,
     isActive: true,
     deliveryStatus: 'active',
     sortOrder: 1,
@@ -75,6 +79,8 @@ const FALLBACK_PUROKS: DeliveryPurok[] = [
     id: '',
     deliveryAreaId: '',
     purokName: 'Purok Carmelita',
+    lat: 13.9409,
+    lng: 121.6278,
     isActive: true,
     deliveryStatus: 'active',
     sortOrder: 2,
@@ -85,6 +91,8 @@ const FALLBACK_PUROKS: DeliveryPurok[] = [
     id: '',
     deliveryAreaId: '',
     purokName: 'Purok Sampaguita',
+    lat: 13.9368,
+    lng: 121.6262,
     isActive: true,
     deliveryStatus: 'active',
     sortOrder: 3,
@@ -149,6 +157,8 @@ const mapPurokRow = (row: unknown, index = 0): DeliveryPurok => {
     id: asText(safe.id),
     deliveryAreaId: asText(safe.delivery_area_id || safe.deliveryAreaId),
     purokName: asText(safe.purok_name || safe.purokName),
+    lat: asNumber(safe.lat, NaN),
+    lng: asNumber(safe.lng, NaN),
     isActive: asBoolean(safe.is_active ?? safe.isActive, true),
     deliveryStatus: asStatus(safe.delivery_status || safe.deliveryStatus || 'active'),
     sortOrder: asNumber(safe.sort_order ?? safe.sortOrder, index + 1),
@@ -179,11 +189,13 @@ const sanitizePuroks = (puroks: DeliveryCoverageInput['puroks']) =>
     .map((entry, index) => ({
       id: UUID_RE.test(asText(entry?.id)) ? asText(entry?.id) : crypto.randomUUID(),
       purokName: asText(entry?.purokName),
+      lat: asNumber(entry?.lat, NaN),
+      lng: asNumber(entry?.lng, NaN),
       isActive: asBoolean(entry?.isActive, true),
       deliveryStatus: asStatus(entry?.deliveryStatus),
       sortOrder: asNumber(entry?.sortOrder, index + 1),
     }))
-    .filter((entry) => entry.purokName)
+    .filter((entry) => entry.purokName && Number.isFinite(entry.lat) && Number.isFinite(entry.lng))
     .sort((left, right) => left.sortOrder - right.sortOrder);
 
 const sanitizePolygon = (polygon: DeliveryCoverageInput['polygon']) =>
@@ -268,6 +280,8 @@ export const deliveryCoverageService = {
       id: entry.id,
       delivery_area_id: savedArea.id,
       purok_name: entry.purokName,
+      lat: entry.lat,
+      lng: entry.lng,
       is_active: entry.isActive,
       delivery_status: entry.deliveryStatus,
       sort_order: entry.sortOrder,

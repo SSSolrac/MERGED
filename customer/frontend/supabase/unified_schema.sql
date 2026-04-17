@@ -186,6 +186,9 @@ create table if not exists public.profiles (
 );
 
 create index if not exists idx_profiles_role on public.profiles(role);
+create unique index if not exists idx_profiles_email_lower_unique
+  on public.profiles (lower(trim(email)))
+  where nullif(trim(email), '') is not null;
 -- Compatibility cleanup:
 -- profiles.customer_code is already indexed by its UNIQUE constraint.
 -- Keep only one index definition to avoid duplicate write overhead.
@@ -321,6 +324,34 @@ from auth.users au
 left join public.profiles p on p.id = au.id
 where p.id is null
 on conflict (id) do nothing;
+
+create or replace function public.customer_email_exists(p_email text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_email text;
+begin
+  v_email := lower(trim(coalesce(p_email, '')));
+  if v_email = '' then
+    return false;
+  end if;
+
+  return exists (
+    select 1
+    from auth.users au
+    where lower(trim(coalesce(au.email, ''))) = v_email
+  ) or exists (
+    select 1
+    from public.profiles p
+    where lower(trim(coalesce(p.email, ''))) = v_email
+  );
+end;
+$$;
+
+grant execute on function public.customer_email_exists(text) to anon, authenticated;
 
 -- Prevent customers/staff from escalating their own role via profile updates.
 create or replace function public.prevent_profile_privilege_escalation()
@@ -671,11 +702,13 @@ create table if not exists public.menu_categories (
   description text,
   sort_order integer not null default 0,
   is_active boolean not null default true,
+  new_tag_started_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 alter table public.menu_categories add column if not exists description text;
+alter table public.menu_categories add column if not exists new_tag_started_at timestamptz;
 
 drop trigger if exists trg_menu_categories_updated_at on public.menu_categories;
 create trigger trg_menu_categories_updated_at
@@ -690,16 +723,48 @@ create table if not exists public.menu_items (
   description text,
   price numeric(10,2) not null check (price >= 0),
   discount numeric(10,2) not null default 0 check (discount >= 0),
+  discount_starts_at timestamptz,
+  discount_ends_at timestamptz,
+  limited_time_ends_at timestamptz,
   is_available boolean not null default true,
+  new_tag_started_at timestamptz,
   image_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(category_id, name)
 );
 
+alter table public.menu_items add column if not exists discount_starts_at timestamptz;
+alter table public.menu_items add column if not exists discount_ends_at timestamptz;
+alter table public.menu_items add column if not exists limited_time_ends_at timestamptz;
+alter table public.menu_items add column if not exists new_tag_started_at timestamptz;
+
 create index if not exists idx_menu_items_category_id on public.menu_items(category_id);
 create index if not exists idx_menu_items_is_available on public.menu_items(is_available);
 create index if not exists idx_menu_items_name_trgm on public.menu_items using gin (name gin_trgm_ops);
+create index if not exists idx_menu_items_discount_window on public.menu_items(discount_starts_at, discount_ends_at);
+create index if not exists idx_menu_items_limited_time_ends_at on public.menu_items(limited_time_ends_at);
+create index if not exists idx_menu_items_new_tag_started_at on public.menu_items(new_tag_started_at);
+create index if not exists idx_menu_categories_new_tag_started_at on public.menu_categories(new_tag_started_at);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'menu_items_discount_window_chk'
+      and conrelid = 'public.menu_items'::regclass
+  ) then
+    alter table public.menu_items
+      add constraint menu_items_discount_window_chk
+      check (
+        discount_ends_at is null
+        or discount_starts_at is null
+        or discount_ends_at > discount_starts_at
+      );
+  end if;
+end
+$$;
 -- Compatibility cleanup:
 -- menu_items.code already has a UNIQUE index via table constraint.
 do $$
@@ -713,6 +778,93 @@ drop trigger if exists trg_menu_items_updated_at on public.menu_items;
 create trigger trg_menu_items_updated_at
 before update on public.menu_items
 for each row execute procedure public.set_updated_at();
+
+create or replace function public.set_menu_category_new_tag_started_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE'
+    and coalesce(old.is_active, true) = false
+    and coalesce(new.is_active, true) = true
+  then
+    new.new_tag_started_at := now();
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_menu_categories_new_tag_started_at on public.menu_categories;
+create trigger trg_menu_categories_new_tag_started_at
+before update on public.menu_categories
+for each row execute procedure public.set_menu_category_new_tag_started_at();
+
+create or replace function public.set_menu_item_new_tag_started_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE'
+    and coalesce(old.is_available, true) = false
+    and coalesce(new.is_available, true) = true
+  then
+    new.new_tag_started_at := now();
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_menu_items_new_tag_started_at on public.menu_items;
+create trigger trg_menu_items_new_tag_started_at
+before update on public.menu_items
+for each row execute procedure public.set_menu_item_new_tag_started_at();
+
+create or replace function public.menu_tag_is_new(
+  p_new_tag_started_at timestamptz
+)
+returns boolean
+language sql
+stable
+as $$
+  select
+    p_new_tag_started_at is not null
+    and p_new_tag_started_at <= now()
+    and p_new_tag_started_at > now() - interval '7 days';
+$$;
+
+create or replace function public.menu_effective_discount(
+  p_discount numeric,
+  p_discount_starts_at timestamptz,
+  p_discount_ends_at timestamptz,
+  p_price numeric
+)
+returns numeric
+language sql
+stable
+as $$
+  select
+    round(
+      case
+        when coalesce(p_discount, 0) <= 0 then 0::numeric
+        when p_discount_starts_at is not null and p_discount_starts_at > now() then 0::numeric
+        when p_discount_ends_at is not null and p_discount_ends_at <= now() then 0::numeric
+        else least(greatest(coalesce(p_discount, 0), 0), greatest(coalesce(p_price, 0), 0))
+      end,
+      2
+    );
+$$;
+
+create or replace function public.menu_item_is_limited_expired(
+  p_limited_time_ends_at timestamptz
+)
+returns boolean
+language sql
+stable
+as $$
+  select p_limited_time_ends_at is not null and p_limited_time_ends_at <= now();
+$$;
 
 -- =========================================================
 -- LEGACY INGREDIENT-BASED INVENTORY (BACKWARD COMPATIBILITY)
@@ -891,6 +1043,32 @@ create index if not exists idx_loyalty_redemptions_customer_id on public.loyalty
 create index if not exists idx_loyalty_redemptions_customer_redeemed_at on public.loyalty_redemptions(customer_id, redeemed_at desc);
 create index if not exists idx_loyalty_rewards_active_required_stamps on public.loyalty_rewards(is_active, required_stamps);
 
+create or replace function public.loyalty_free_latte_option_for_item_name(p_name text)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  v_name text;
+begin
+  v_name := lower(trim(coalesce(p_name, '')));
+
+  if v_name = 'cafe latte' then
+    return 'Cafe Latte';
+  end if;
+
+  if v_name in ('matcha latte', 'iced matcha latte') then
+    return 'Matcha Latte';
+  end if;
+
+  if v_name = 'spanish latte' then
+    return 'Spanish Latte';
+  end if;
+
+  return null;
+end;
+$$;
+
 create or replace function public.touch_loyalty_account_updated_at()
 returns trigger
 language plpgsql
@@ -962,6 +1140,122 @@ create trigger trg_orders_updated_at
 before update on public.orders
 for each row execute procedure public.set_updated_at();
 
+create table if not exists public.loyalty_reward_items (
+  id uuid primary key default gen_random_uuid(),
+  redemption_id uuid not null unique references public.loyalty_redemptions(id) on delete cascade,
+  customer_id uuid not null references public.profiles(id) on delete cascade,
+  reward_id uuid not null references public.loyalty_rewards(id) on delete restrict,
+  menu_item_id uuid not null references public.menu_items(id) on delete restrict,
+  menu_item_code text not null,
+  item_name text not null,
+  option_label text,
+  status text not null default 'pending' check (status in ('pending', 'claimed')),
+  claimed_order_id uuid references public.orders(id) on delete set null,
+  claimed_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint loyalty_reward_items_claim_state_check check (
+    (status = 'pending' and claimed_order_id is null and claimed_at is null)
+    or (status = 'claimed' and claimed_order_id is not null and claimed_at is not null)
+  )
+);
+
+create index if not exists idx_loyalty_reward_items_customer_status
+  on public.loyalty_reward_items(customer_id, status, created_at desc);
+create index if not exists idx_loyalty_reward_items_claimed_order_id
+  on public.loyalty_reward_items(claimed_order_id)
+  where claimed_order_id is not null;
+create index if not exists idx_loyalty_reward_items_menu_item_id
+  on public.loyalty_reward_items(menu_item_id);
+
+drop trigger if exists trg_loyalty_reward_items_updated_at on public.loyalty_reward_items;
+create trigger trg_loyalty_reward_items_updated_at
+before update on public.loyalty_reward_items
+for each row execute procedure public.set_updated_at();
+
+create or replace function public.claim_loyalty_reward_items_for_order(
+  p_order_id uuid,
+  p_reward_item_ids uuid[],
+  p_claimed_at timestamptz default now()
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_customer_id uuid;
+  v_expected_count integer;
+  v_claimed_count integer;
+begin
+  v_customer_id := auth.uid();
+  if v_customer_id is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  if p_order_id is null then
+    raise exception 'Order ID is required to claim loyalty reward items.';
+  end if;
+
+  if exists (
+    select 1
+    from unnest(coalesce(p_reward_item_ids, '{}'::uuid[])) as reward_item_id
+    group by reward_item_id
+    having count(*) > 1
+  ) then
+    raise exception 'Each loyalty reward item can only be used once per order.';
+  end if;
+
+  select coalesce(count(*), 0)
+  into v_expected_count
+  from (
+    select distinct reward_item_id
+    from unnest(coalesce(p_reward_item_ids, '{}'::uuid[])) as reward_item_id
+    where reward_item_id is not null
+  ) deduped;
+
+  if v_expected_count = 0 then
+    return 0;
+  end if;
+
+  if not exists (
+    select 1
+    from public.orders o
+    where o.id = p_order_id
+      and o.customer_id = v_customer_id
+  ) then
+    raise exception 'Order not found for loyalty reward claim.';
+  end if;
+
+  update public.loyalty_reward_items lri
+  set
+    status = 'claimed',
+    claimed_order_id = p_order_id,
+    claimed_at = coalesce(p_claimed_at, now()),
+    updated_at = now()
+  where lri.id = any(coalesce(p_reward_item_ids, '{}'::uuid[]))
+    and lri.customer_id = v_customer_id
+    and lri.status = 'pending'
+    and lri.claimed_order_id is null
+    and exists (
+      select 1
+      from public.order_items oi
+      where oi.order_id = p_order_id
+        and oi.menu_item_id = lri.menu_item_id
+        and greatest(coalesce(oi.unit_price, 0) - coalesce(oi.discount_amount, 0), 0) = 0
+    );
+
+  get diagnostics v_claimed_count = row_count;
+
+  if v_claimed_count <> v_expected_count then
+    raise exception 'Invalid loyalty reward items payload.';
+  end if;
+
+  return v_claimed_count;
+end;
+$$;
+
 -- Transactional order creation for customers: ensures orders, items, and initial history are written atomically.
 create or replace function public.create_customer_order(
   p_order_type public.order_type,
@@ -994,6 +1288,9 @@ declare
   v_receipt_required boolean;
   v_resolved_items jsonb;
   v_validated_item_count integer;
+  v_reward_item_ids uuid[];
+  v_reward_item_count integer;
+  v_claimed_reward_item_count integer;
 begin
   v_customer_id := auth.uid();
   if v_customer_id is null then
@@ -1033,6 +1330,7 @@ begin
     select 1
     from jsonb_to_recordset(p_items) as x(
       menu_item_id uuid,
+      loyalty_reward_item_id uuid,
       menu_item_code text,
       item_name text,
       unit_price numeric,
@@ -1047,19 +1345,41 @@ begin
       or coalesce(x.discount_amount, 0) < 0
       or coalesce(x.discount_amount, 0) > coalesce(x.unit_price, 0)
       or coalesce(x.line_total, 0) < 0
+      or (x.loyalty_reward_item_id is not null and coalesce(x.quantity, 0) <> 1)
   ) then
     raise exception 'Each order item must include a valid menu item code, name, quantity, and non-negative amounts.';
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_items) as x(
+      menu_item_id uuid,
+      loyalty_reward_item_id uuid,
+      menu_item_code text,
+      item_name text,
+      unit_price numeric,
+      discount_amount numeric,
+      quantity integer,
+      line_total numeric
+    )
+    where x.loyalty_reward_item_id is not null
+    group by x.loyalty_reward_item_id
+    having count(*) > 1
+  ) then
+    raise exception 'Each loyalty reward item can only be used once per order.';
   end if;
 
   with raw_items as (
     select
       row_number() over () as row_no,
       x.menu_item_id,
+      x.loyalty_reward_item_id,
       nullif(trim(coalesce(x.menu_item_code, '')), '') as menu_item_code,
       nullif(trim(coalesce(x.item_name, '')), '') as item_name,
       greatest(coalesce(x.quantity, 1), 1)::integer as quantity
     from jsonb_to_recordset(p_items) as x(
       menu_item_id uuid,
+      loyalty_reward_item_id uuid,
       menu_item_code text,
       item_name text,
       unit_price numeric,
@@ -1072,20 +1392,30 @@ begin
     select
       r.row_no,
       mi.id as menu_item_id,
+      lri.id as loyalty_reward_item_id,
       mi.code as menu_item_code,
       mi.name as item_name,
       round(coalesce(mi.price, 0)::numeric, 2) as unit_price,
-      round(least(greatest(coalesce(mi.discount, 0), 0), coalesce(mi.price, 0))::numeric, 2) as discount_amount,
+      round(
+        case
+          when lri.id is not null then coalesce(mi.price, 0)
+          else coalesce(mi.effective_discount, 0)
+        end::numeric,
+        2
+      ) as discount_amount,
       r.quantity,
       round(
-        greatest(
-          coalesce(mi.price, 0) - least(greatest(coalesce(mi.discount, 0), 0), coalesce(mi.price, 0)),
-          0
-        )::numeric * r.quantity,
+        case
+          when lri.id is not null then 0
+          else greatest(
+            coalesce(mi.price, 0) - coalesce(mi.effective_discount, 0),
+            0
+          )
+        end::numeric * r.quantity,
         2
       ) as line_total
     from raw_items r
-    join public.menu_items mi
+    join public.menu_item_effective_availability mi
       on (
         (r.menu_item_id is not null and mi.id = r.menu_item_id)
         or (r.menu_item_id is null and r.menu_item_code is not null and lower(mi.code) = lower(r.menu_item_code))
@@ -1095,13 +1425,21 @@ begin
         or r.menu_item_code is null
         or lower(mi.code) = lower(r.menu_item_code)
       )
-    where mi.is_available = true
+    left join public.loyalty_reward_items lri
+      on lri.id = r.loyalty_reward_item_id
+      and lri.customer_id = v_customer_id
+      and lri.status = 'pending'
+      and lri.claimed_order_id is null
+      and lri.menu_item_id = mi.id
+    where mi.effective_is_available = true
+      and (r.loyalty_reward_item_id is null or lri.id is not null)
   )
   select
     coalesce(
       jsonb_agg(
         jsonb_build_object(
           'menu_item_id', ri.menu_item_id,
+          'loyalty_reward_item_id', ri.loyalty_reward_item_id,
           'menu_item_code', ri.menu_item_code,
           'item_name', ri.item_name,
           'unit_price', ri.unit_price,
@@ -1147,6 +1485,7 @@ begin
     v_computed_total_amount
   from jsonb_to_recordset(v_resolved_items) as x(
     menu_item_id uuid,
+    loyalty_reward_item_id uuid,
     menu_item_code text,
     item_name text,
     unit_price numeric,
@@ -1213,6 +1552,7 @@ begin
     greatest(coalesce(unit_price, 0) - coalesce(discount_amount, 0), 0) * greatest(quantity, 1)
   from jsonb_to_recordset(v_resolved_items) as x(
     menu_item_id uuid,
+    loyalty_reward_item_id uuid,
     menu_item_code text,
     item_name text,
     unit_price numeric,
@@ -1224,6 +1564,38 @@ begin
 
   if v_inserted_item_count <> v_item_count then
     raise exception 'Invalid order items payload.';
+  end if;
+
+  select
+    coalesce(
+      array_agg(x.loyalty_reward_item_id) filter (where x.loyalty_reward_item_id is not null),
+      '{}'::uuid[]
+    ),
+    coalesce(count(*) filter (where x.loyalty_reward_item_id is not null), 0)
+  into
+    v_reward_item_ids,
+    v_reward_item_count
+  from jsonb_to_recordset(v_resolved_items) as x(
+    menu_item_id uuid,
+    loyalty_reward_item_id uuid,
+    menu_item_code text,
+    item_name text,
+    unit_price numeric,
+    discount_amount numeric,
+    quantity integer,
+    line_total numeric
+  );
+
+  if v_reward_item_count > 0 then
+    v_claimed_reward_item_count := public.claim_loyalty_reward_items_for_order(
+      v_order.id,
+      v_reward_item_ids,
+      coalesce(p_placed_at, now())
+    );
+
+    if coalesce(v_claimed_reward_item_count, 0) <> v_reward_item_count then
+      raise exception 'Invalid loyalty reward items payload.';
+    end if;
   end if;
 
   insert into public.order_status_history (
@@ -1338,15 +1710,55 @@ create index if not exists idx_order_status_history_order_id on public.order_sta
 create index if not exists idx_order_status_history_changed_at on public.order_status_history(changed_at desc);
 create index if not exists idx_order_status_history_order_changed_at on public.order_status_history(order_id, changed_at desc);
 
+create or replace function public.release_loyalty_reward_items_for_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.status is distinct from new.status
+    and new.status in ('cancelled', 'refunded')
+  then
+    update public.loyalty_reward_items
+    set
+      status = 'pending',
+      claimed_order_id = null,
+      claimed_at = null,
+      updated_at = now()
+    where claimed_order_id = new.id
+      and status = 'claimed';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_orders_release_loyalty_reward_items on public.orders;
+create trigger trg_orders_release_loyalty_reward_items
+after update of status on public.orders
+for each row execute procedure public.release_loyalty_reward_items_for_order();
+
 create table if not exists public.loyalty_stamp_events (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references public.profiles(id) on delete cascade,
-  order_id uuid not null unique references public.orders(id) on delete cascade,
-  stamp_delta integer not null default 1 check (stamp_delta = 1),
+  order_id uuid unique references public.orders(id) on delete cascade,
+  stamp_delta integer not null default 1 check (stamp_delta > 0),
   source text not null default 'order_completion',
+  reason text,
   earned_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
+
+alter table public.loyalty_stamp_events alter column order_id drop not null;
+alter table public.loyalty_stamp_events add column if not exists reason text;
+
+do $$
+begin
+  alter table public.loyalty_stamp_events drop constraint if exists loyalty_stamp_events_stamp_delta_check;
+  alter table public.loyalty_stamp_events
+    add constraint loyalty_stamp_events_stamp_delta_check check (stamp_delta > 0);
+end $$;
 
 create index if not exists idx_loyalty_stamp_events_customer_id on public.loyalty_stamp_events(customer_id);
 create index if not exists idx_loyalty_stamp_events_earned_at on public.loyalty_stamp_events(earned_at desc);
@@ -1442,9 +1854,124 @@ on conflict (customer_id) do update
   set stamp_count = public.loyalty_accounts.stamp_count + excluded.stamp_count,
       updated_at = now();
 
+create or replace function public.award_manual_loyalty_stamps(
+  p_customer_id uuid,
+  p_stamp_count integer,
+  p_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor_id uuid := auth.uid();
+  v_actor_role public.app_role;
+  v_customer public.profiles%rowtype;
+  v_stamp_count integer;
+  v_reason text;
+  v_event public.loyalty_stamp_events%rowtype;
+  v_new_stamp_count integer;
+  v_customer_label text;
+begin
+  if v_actor_id is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  select p.role
+  into v_actor_role
+  from public.profiles p
+  where p.id = v_actor_id;
+
+  if coalesce(v_actor_role::text, '') not in ('owner', 'staff') then
+    raise exception 'Only owner or staff can award loyalty stamps.';
+  end if;
+
+  v_stamp_count := coalesce(p_stamp_count, 0);
+  if v_stamp_count < 1 or v_stamp_count > 50 then
+    raise exception 'Stamp count must be between 1 and 50.';
+  end if;
+
+  select *
+  into v_customer
+  from public.profiles
+  where id = p_customer_id
+    and role = 'customer'
+    and is_active = true
+  limit 1;
+
+  if not found then
+    raise exception 'Customer not found.';
+  end if;
+
+  v_reason := nullif(trim(coalesce(p_reason, '')), '');
+  v_customer_label := coalesce(nullif(trim(v_customer.name), ''), nullif(trim(v_customer.email), ''), v_customer.id::text);
+
+  insert into public.loyalty_stamp_events (
+    customer_id,
+    order_id,
+    stamp_delta,
+    source,
+    reason,
+    earned_at
+  )
+  values (
+    v_customer.id,
+    null,
+    v_stamp_count,
+    'manual_staff_award',
+    v_reason,
+    now()
+  )
+  returning * into v_event;
+
+  insert into public.loyalty_accounts (customer_id, stamp_count, updated_at)
+  values (v_customer.id, v_stamp_count, now())
+  on conflict (customer_id) do update
+    set stamp_count = public.loyalty_accounts.stamp_count + excluded.stamp_count,
+        updated_at = now()
+  returning stamp_count into v_new_stamp_count;
+
+  perform public.record_activity_log(
+    'Awarded loyalty stamps',
+    'loyalty_stamp_events',
+    v_event.id::text,
+    v_customer_label,
+    format(
+      'Awarded %s stamp%s to %s%s',
+      v_stamp_count,
+      case when v_stamp_count = 1 then '' else 's' end,
+      v_customer_label,
+      case when v_reason is not null then '. Reason: ' || v_reason else '.' end
+    ),
+    jsonb_build_object(
+      'customer_id', v_customer.id,
+      'stamp_delta', v_stamp_count,
+      'source', 'manual_staff_award',
+      'reason', v_reason,
+      'new_stamp_count', v_new_stamp_count
+    ),
+    v_actor_id
+  );
+
+  return jsonb_build_object(
+    'eventId', v_event.id,
+    'customerId', v_customer.id,
+    'customerLabel', v_customer_label,
+    'stampDelta', v_stamp_count,
+    'newStampCount', v_new_stamp_count,
+    'reason', v_reason,
+    'awardedAt', v_event.earned_at
+  );
+end;
+$$;
+
+grant execute on function public.award_manual_loyalty_stamps(uuid, integer, text) to authenticated;
+
 create or replace function public.redeem_loyalty_reward(
   p_reward_id uuid,
-  p_notes text default null
+  p_notes text default null,
+  p_menu_item_id uuid default null
 )
 returns jsonb
 language plpgsql
@@ -1459,6 +1986,8 @@ declare
   v_is_latte_reward boolean;
   v_is_groom_reward boolean;
   v_last_groom_redeemed_at timestamptz;
+  v_latte_menu_item record;
+  v_reward_item public.loyalty_reward_items%rowtype;
   v_notes text;
 begin
   v_customer_id := auth.uid();
@@ -1482,17 +2011,30 @@ begin
   v_notes := nullif(trim(coalesce(p_notes, '')), '');
 
   if v_is_latte_reward then
-    if v_notes is null then
+    if p_menu_item_id is null then
       raise exception 'Please choose your free latte option.';
     end if;
 
-    if not (
-      v_notes ilike '%cafe latte%'
-      or v_notes ilike '%matcha latte%'
-      or v_notes ilike '%spanish latte%'
-    ) then
-      raise exception 'Invalid latte option. Choose Cafe Latte, Matcha Latte, or Spanish Latte.';
+    select
+      mi.id,
+      mi.code,
+      mi.name,
+      public.loyalty_free_latte_option_for_item_name(mi.name) as option_label
+    into v_latte_menu_item
+    from public.menu_item_effective_availability mi
+    where mi.id = p_menu_item_id
+      and mi.effective_is_available = true
+      and public.loyalty_free_latte_option_for_item_name(mi.name) is not null
+    limit 1;
+
+    if not found then
+      raise exception 'Selected latte is not available. Choose Cafe Latte, Matcha Latte, or Spanish Latte.';
     end if;
+
+    v_notes := coalesce(
+      v_notes,
+      format('Redeemed - %s (free drink pending checkout)', v_latte_menu_item.name)
+    );
   end if;
 
   insert into public.loyalty_accounts (customer_id, stamp_count, updated_at)
@@ -1574,6 +2116,32 @@ begin
   )
   returning * into v_redemption;
 
+  if v_is_latte_reward then
+    insert into public.loyalty_reward_items (
+      redemption_id,
+      customer_id,
+      reward_id,
+      menu_item_id,
+      menu_item_code,
+      item_name,
+      option_label,
+      status,
+      notes
+    )
+    values (
+      v_redemption.id,
+      v_customer_id,
+      v_reward.id,
+      v_latte_menu_item.id,
+      v_latte_menu_item.code,
+      v_latte_menu_item.name,
+      v_latte_menu_item.option_label,
+      'pending',
+      v_notes
+    )
+    returning * into v_reward_item;
+  end if;
+
   return jsonb_build_object(
     'redemptionId', v_redemption.id,
     'customerId', v_customer_id,
@@ -1582,7 +2150,21 @@ begin
     'requiredStamps', v_reward.required_stamps,
     'remainingStamps', v_remaining_stamps,
     'resetsCard', v_is_groom_reward,
-    'redeemedAt', v_redemption.redeemed_at
+    'redeemedAt', v_redemption.redeemed_at,
+    'rewardItem', case
+      when v_reward_item.id is not null then jsonb_build_object(
+        'id', v_reward_item.id,
+        'redemptionId', v_reward_item.redemption_id,
+        'rewardId', v_reward_item.reward_id,
+        'menuItemId', v_reward_item.menu_item_id,
+        'menuItemCode', v_reward_item.menu_item_code,
+        'itemName', v_reward_item.item_name,
+        'optionLabel', v_reward_item.option_label,
+        'status', v_reward_item.status,
+        'createdAt', v_reward_item.created_at
+      )
+      else null
+    end
   );
 end;
 $$;
@@ -1655,8 +2237,30 @@ create table if not exists public.import_errors (
 create index if not exists idx_import_errors_batch_id on public.import_errors(batch_id);
 
 -- =========================================================
+-- HELPER VIEW: MENU CATEGORY EFFECTIVE STATE
+-- Exposes NEW badge state derived from persisted DB timestamps.
+-- =========================================================
+
+create or replace view public.menu_category_effective_state as
+select
+  mc.id,
+  mc.name,
+  mc.description,
+  mc.sort_order,
+  mc.is_active,
+  mc.new_tag_started_at,
+  case
+    when mc.new_tag_started_at is null then null
+    else mc.new_tag_started_at + interval '7 days'
+  end as new_tag_expires_at,
+  public.menu_tag_is_new(mc.new_tag_started_at) as is_new,
+  mc.created_at,
+  mc.updated_at
+from public.menu_categories mc;
+
+-- =========================================================
 -- HELPER VIEW: MENU EFFECTIVE AVAILABILITY
--- Exposes full menu item fields + computed effective availability.
+-- Exposes full menu item fields + computed availability, pricing, and tag states.
 -- =========================================================
 
 create or replace view public.menu_item_effective_availability as
@@ -1669,16 +2273,71 @@ select
   mi.description,
   mi.price,
   mi.discount,
+  public.menu_effective_discount(
+    mi.discount,
+    mi.discount_starts_at,
+    mi.discount_ends_at,
+    mi.price
+  ) as effective_discount,
+  round(
+    greatest(
+      coalesce(mi.price, 0) - public.menu_effective_discount(
+        mi.discount,
+        mi.discount_starts_at,
+        mi.discount_ends_at,
+        mi.price
+      ),
+      0
+    )::numeric,
+    2
+  ) as effective_price,
+  public.menu_effective_discount(
+    mi.discount,
+    mi.discount_starts_at,
+    mi.discount_ends_at,
+    mi.price
+  ) > 0 as is_discount_active,
+  mi.discount_starts_at,
+  mi.discount_ends_at,
   mi.is_available,
   mi.image_url,
+  mi.new_tag_started_at,
+  case
+    when mi.new_tag_started_at is null then null
+    else mi.new_tag_started_at + interval '7 days'
+  end as new_tag_expires_at,
+  public.menu_tag_is_new(mi.new_tag_started_at) as is_new,
+  mi.limited_time_ends_at,
+  mi.limited_time_ends_at is not null and mi.limited_time_ends_at > now() as is_limited,
+  public.menu_item_is_limited_expired(mi.limited_time_ends_at) as is_limited_expired,
+  mc.is_active as category_is_active,
+  mc.new_tag_started_at as category_new_tag_started_at,
+  public.menu_tag_is_new(mc.new_tag_started_at) as category_is_new,
   mi.created_at,
   mi.updated_at,
   case
     when mi.is_available = false then false
+    when mc.is_active = false then false
+    when public.menu_item_is_limited_expired(mi.limited_time_ends_at) then false
     else true
   end as effective_is_available
 from public.menu_items mi
 join public.menu_categories mc on mc.id = mi.category_id;
+
+create or replace view public.loyalty_free_latte_items as
+select
+  mi.id,
+  mi.code,
+  mi.name,
+  mi.category_id,
+  mi.category_name,
+  mi.price,
+  mi.effective_price,
+  mi.image_url,
+  public.loyalty_free_latte_option_for_item_name(mi.name) as option_label
+from public.menu_item_effective_availability mi
+where mi.effective_is_available = true
+  and public.loyalty_free_latte_option_for_item_name(mi.name) is not null;
 
 -- =========================================================
 -- HELPER VIEW: DASHBOARD SALES FEED (LIVE + IMPORTED)
@@ -2052,6 +2711,7 @@ alter table public.daily_menu_items enable row level security;
 alter table public.loyalty_accounts enable row level security;
 alter table public.loyalty_rewards enable row level security;
 alter table public.loyalty_redemptions enable row level security;
+alter table public.loyalty_reward_items enable row level security;
 alter table public.loyalty_stamp_events enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
@@ -2203,6 +2863,19 @@ using (
 drop policy if exists "loyalty_redemptions_manage_owner_staff" on public.loyalty_redemptions;
 create policy "loyalty_redemptions_manage_owner_staff"
 on public.loyalty_redemptions for all
+using (public.is_owner_or_staff())
+with check (public.is_owner_or_staff());
+
+drop policy if exists "loyalty_reward_items_read_own_or_staff" on public.loyalty_reward_items;
+create policy "loyalty_reward_items_read_own_or_staff"
+on public.loyalty_reward_items for select
+using (
+  customer_id = auth.uid() or public.is_owner_or_staff()
+);
+
+drop policy if exists "loyalty_reward_items_manage_owner_staff" on public.loyalty_reward_items;
+create policy "loyalty_reward_items_manage_owner_staff"
+on public.loyalty_reward_items for all
 using (public.is_owner_or_staff())
 with check (public.is_owner_or_staff());
 
@@ -2581,6 +3254,7 @@ grant usage on schema public to anon, authenticated;
 
 -- Read-only tables for anon users (customer app can browse menu without login).
 grant select on table public.menu_categories to anon;
+grant select on table public.menu_category_effective_state to anon;
 grant select on table public.menu_items to anon;
 grant select on table public.daily_menus to anon;
 grant select on table public.daily_menu_items to anon;
@@ -2588,6 +3262,7 @@ grant select on table public.loyalty_rewards to anon;
 grant select on table public.business_settings to anon;
 grant select on table public.campaign_announcements to anon;
 grant select on table public.menu_item_effective_availability to anon;
+grant select on table public.loyalty_free_latte_items to anon;
 grant execute on function public.menu_best_sellers(integer, integer) to anon;
 
 -- Authenticated users can read/write; RLS policies still enforce access rules.
@@ -2596,7 +3271,9 @@ grant usage, select on all sequences in schema public to authenticated;
 grant execute on all functions in schema public to authenticated;
 
 -- Views should be readable by both.
+grant select on table public.menu_category_effective_state to authenticated;
 grant select on table public.menu_item_effective_availability to authenticated;
+grant select on table public.loyalty_free_latte_items to authenticated;
 grant select on table public.dashboard_sales_feed to authenticated;
 
 -- Refresh PostgREST schema cache after schema changes.

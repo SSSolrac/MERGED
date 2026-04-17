@@ -61,21 +61,29 @@ export default function MiniCartPanel({ onClose, onOpenAuth }) {
                 <img className="mini-cart-image" src={item.image} alt={item.displayName || item.name} />
                 <div className="mini-cart-item-body">
                   <h3 className="mini-cart-item-name">{item.displayName || item.name}</h3>
-                  <p className="mini-cart-item-price">{formatCurrency(item.price)}</p>
+                  <p className="mini-cart-item-price">{item.isLoyaltyReward ? "Free reward item" : formatCurrency(item.price)}</p>
 
                   <div className="mini-cart-item-footer">
-                    <div className="mini-cart-qty" aria-label={`Quantity for ${item.displayName || item.name}`}>
-                      <button type="button" onClick={() => changeQty(item.id, -1)} aria-label={`Decrease quantity for ${item.displayName || item.name}`}>
-                        -
-                      </button>
-                      <span className="mini-cart-qty-value">{item.qty}</span>
-                      <button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Increase quantity for ${item.displayName || item.name}`}>
-                        +
-                      </button>
-                    </div>
+                    {item.isLoyaltyReward ? (
+                      <div className="mini-cart-qty" aria-label={`Reward item for ${item.displayName || item.name}`}>
+                        <span className="mini-cart-qty-value">1 free drink</span>
+                      </div>
+                    ) : (
+                      <div className="mini-cart-qty" aria-label={`Quantity for ${item.displayName || item.name}`}>
+                        <button type="button" onClick={() => changeQty(item.id, -1)} aria-label={`Decrease quantity for ${item.displayName || item.name}`}>
+                          -
+                        </button>
+                        <span className="mini-cart-qty-value">{item.qty}</span>
+                        <button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Increase quantity for ${item.displayName || item.name}`}>
+                          +
+                        </button>
+                      </div>
+                    )}
 
                     <div style={{ textAlign: "right" }}>
-                      <p className="mini-cart-item-total">{formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</p>
+                      <p className="mini-cart-item-total">
+                        {item.isLoyaltyReward ? "FREE" : formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}
+                      </p>
                       <button type="button" className="mini-cart-remove" onClick={() => removeItem(item.id)}>
                         Remove
                       </button>

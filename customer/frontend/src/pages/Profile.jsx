@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import LoyaltyCard from "../components/loyalty/LoyaltyCard";
-import { FREE_LATTE_CHOICES, getCustomerLoyaltyData, isLatteReward, redeemLoyaltyReward } from "../services/loyaltyService";
+import {
+  buildLoyaltyRewardCartItem,
+  getCustomerLoyaltyData,
+  getFreeLatteRewardOptions,
+  isLatteReward,
+  redeemLoyaltyReward,
+} from "../services/loyaltyService";
 import { getCustomerProfile, saveCustomerProfile } from "../services/profileService";
 import { getActiveDeliveryConfig } from "../services/deliveryAreaService";
 import { buildDeliveryAddress, parseDeliveryAddress } from "../utils/deliveryAddress";
 import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
 import "./Profile.css";
 
 const blankProfile = {
@@ -23,10 +30,13 @@ const blankAddressFields = {
 
 function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const { user, session } = useAuth();
+  const { addItem, cart, openMiniCart } = useCart();
   const [formData, setFormData] = useState(blankProfile);
   const [addressFields, setAddressFields] = useState(blankAddressFields);
   const [deliveryConfig, setDeliveryConfig] = useState(null);
   const [loyaltyData, setLoyaltyData] = useState(null);
+  const [latteRewardOptions, setLatteRewardOptions] = useState([]);
+  const [selectedLatteItemIds, setSelectedLatteItemIds] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDeliveryConfig, setIsLoadingDeliveryConfig] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -35,10 +45,10 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState({});
 
-  const loadLoyaltyData = async () => {
+  const loadLoyaltyData = useCallback(async () => {
     const data = await getCustomerLoyaltyData();
     setLoyaltyData(data);
-  };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,9 +59,10 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
       setError("");
 
       try {
-        const [profile, config] = await Promise.all([
+        const [profile, config, latteOptions] = await Promise.all([
           getCustomerProfile(),
           getActiveDeliveryConfig({ force: true }),
+          getFreeLatteRewardOptions().catch(() => []),
         ]);
 
         if (cancelled) return;
@@ -70,6 +81,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           houseDetails: parsedAddress.houseDetails || "",
           selectedPurokId: parsedAddress.selectedPurokId || "",
         });
+        setLatteRewardOptions(Array.isArray(latteOptions) ? latteOptions : []);
 
         await loadLoyaltyData();
       } catch (loadError) {
@@ -87,7 +99,47 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.email]);
+  }, [loadLoyaltyData, user?.email]);
+
+  useEffect(() => {
+    if (view !== "loyalty" || !user?.id) return undefined;
+
+    const refreshLoyalty = () => {
+      loadLoyaltyData().catch(() => {
+        // Keep the current card visible if a background refresh fails.
+      });
+    };
+
+    window.addEventListener("focus", refreshLoyalty);
+    const intervalId = window.setInterval(refreshLoyalty, 30000);
+
+    return () => {
+      window.removeEventListener("focus", refreshLoyalty);
+      window.clearInterval(intervalId);
+    };
+  }, [loadLoyaltyData, user?.id, view]);
+
+  useEffect(() => {
+    if (!latteRewardOptions.length) return;
+    const defaultOptionId = String(latteRewardOptions[0]?.menuItemId || "").trim();
+    if (!defaultOptionId) return;
+
+    setSelectedLatteItemIds((prev) => {
+      const rewards = Array.isArray(loyaltyData?.allRewards) ? loyaltyData.allRewards : [];
+      const next = { ...prev };
+      let changed = false;
+
+      rewards.forEach((reward) => {
+        if (!isLatteReward(reward)) return;
+        const rewardId = String(reward?.id || "").trim();
+        if (!rewardId || next[rewardId]) return;
+        next[rewardId] = defaultOptionId;
+        changed = true;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [latteRewardOptions, loyaltyData?.allRewards]);
 
   const activePuroks = useMemo(
     () =>
@@ -95,6 +147,11 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
         (purok) => purok?.isActive !== false && String(purok?.deliveryStatus || "active").toLowerCase() !== "inactive"
       ),
     [deliveryConfig?.puroks]
+  );
+
+  const pendingRewardItems = useMemo(
+    () => (Array.isArray(loyaltyData?.pendingRewardItems) ? loyaltyData.pendingRewardItems : []),
+    [loyaltyData?.pendingRewardItems]
   );
 
   const canEditDeliveryAddress =
@@ -151,6 +208,23 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
       ...addressFields,
       selectedPurokId: event.target.value,
     });
+  };
+
+  const handleLatteSelectionChange = (rewardId, menuItemId) => {
+    setSelectedLatteItemIds((prev) => ({
+      ...prev,
+      [rewardId]: menuItemId,
+    }));
+    setError("");
+    setMessage("");
+  };
+
+  const addRewardItemToBasket = (rewardItem, successMessage) => {
+    if (!rewardItem?.id) return;
+    const alreadyInCart = cart.some((item) => String(item?.loyaltyRewardItemId || "") === String(rewardItem.id));
+    addItem(buildLoyaltyRewardCartItem(rewardItem), 1);
+    if (!alreadyInCart) openMiniCart();
+    setMessage(successMessage || `${rewardItem.itemName || "Free drink"} added to your basket. Place an order to claim it.`);
   };
 
   const handleSave = async (event) => {
@@ -228,16 +302,20 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     const rewardId = String(reward?.id || "").trim();
     if (!rewardId) return;
 
-    let redeemNotes = "";
+    const redeemOptions = {};
     if (isLatteReward(reward)) {
-      const promptText = `Pick your free latte (${FREE_LATTE_CHOICES.join(" / ")}).`;
-      const selected = String(window.prompt(promptText, FREE_LATTE_CHOICES[0]) || "").trim();
-      const matchedChoice = FREE_LATTE_CHOICES.find((choice) => choice.toLowerCase() === selected.toLowerCase());
-      if (!matchedChoice) {
-        setError(`Choose a valid latte: ${FREE_LATTE_CHOICES.join(", ")}.`);
+      const selectedMenuItemId = String(
+        selectedLatteItemIds[rewardId] || latteRewardOptions[0]?.menuItemId || ""
+      ).trim();
+      const selectedOption =
+        latteRewardOptions.find((option) => String(option.menuItemId) === selectedMenuItemId) || null;
+
+      if (!selectedOption) {
+        setError("Choose a valid free drink before redeeming this reward.");
         return;
       }
-      redeemNotes = `Redeemed - ${matchedChoice} (no payment)`;
+
+      redeemOptions.menuItemId = selectedOption.menuItemId;
     }
 
     setError("");
@@ -245,14 +323,25 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     setRedeemingRewardId(rewardId);
 
     try {
-      await redeemLoyaltyReward(rewardId, redeemNotes);
+      const result = await redeemLoyaltyReward(rewardId, redeemOptions);
+      if (result?.rewardItem) {
+        addRewardItemToBasket(
+          result.rewardItem,
+          `${result.rewardItem.itemName || reward?.label || "Free drink"} redeemed and added to your basket.`
+        );
+      } else {
+        setMessage(`${reward?.label || "Reward"} redeemed successfully.`);
+      }
       await loadLoyaltyData();
-      setMessage(redeemNotes ? redeemNotes : `${reward?.label || "Reward"} redeemed successfully.`);
     } catch (redeemError) {
       setError(redeemError?.message || "Unable to redeem reward right now.");
     } finally {
       setRedeemingRewardId("");
     }
+  };
+
+  const handleAddPendingRewardToBasket = (rewardItem) => {
+    addRewardItemToBasket(rewardItem, `${rewardItem.itemName || "Free drink"} added to your basket.`);
   };
 
   if (isLoading) {
@@ -270,14 +359,56 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
       </p>
 
       {error ? <p className="field-error profile-top-error">{error}</p> : null}
+      {message ? <p className="profile-message profile-top-message">{message}</p> : null}
 
       {isLoyaltyView ? (
         <>
           {loyaltyData ? (
-            <LoyaltyCard loyaltyData={loyaltyData} onRedeemReward={handleRedeemReward} redeemingRewardId={redeemingRewardId} />
+            <LoyaltyCard
+              loyaltyData={loyaltyData}
+              onRedeemReward={handleRedeemReward}
+              redeemingRewardId={redeemingRewardId}
+              latteRewardOptions={latteRewardOptions}
+              selectedLatteItemIds={selectedLatteItemIds}
+              onLatteSelectionChange={handleLatteSelectionChange}
+            />
           ) : (
             <p className="loyalty-loading">Loading loyalty card...</p>
           )}
+
+          {pendingRewardItems.length ? (
+            <section className="profile-reward-items">
+              <h2>Ready to Claim</h2>
+              <p>Redeemed drinks stay pending until you include them in an order.</p>
+              <div className="profile-reward-items__list">
+                {pendingRewardItems.map((rewardItem) => {
+                  const isInBasket = cart.some(
+                    (item) => String(item?.loyaltyRewardItemId || "") === String(rewardItem.id || "")
+                  );
+
+                  return (
+                    <div key={rewardItem.id} className="profile-reward-items__row">
+                      <div>
+                        <strong>{rewardItem.itemName || rewardItem.optionLabel || rewardItem.rewardLabel}</strong>
+                        <p>
+                          {rewardItem.rewardLabel}
+                          {rewardItem.optionLabel ? ` • ${rewardItem.optionLabel}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="save-btn profile-reward-items__btn"
+                        disabled={isInBasket}
+                        onClick={() => handleAddPendingRewardToBasket(rewardItem)}
+                      >
+                        {isInBasket ? "In basket" : "Add to basket"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <div className="profile-links">
             <LinkImpl href="/order-history" to="/order-history">
@@ -356,8 +487,6 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           <button type="submit" className="save-btn" disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Information"}
           </button>
-
-          {message ? <p className="profile-message">{message}</p> : null}
         </form>
       )}
     </div>

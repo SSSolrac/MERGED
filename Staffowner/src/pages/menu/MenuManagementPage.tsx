@@ -15,14 +15,37 @@ const createDefaultMenuItemDraft = (): MenuItem => ({
   categoryId: '',
   description: null,
   price: 0,
+  effectivePrice: 0,
   discount: 0,
+  effectiveDiscount: 0,
+  isDiscountActive: false,
+  discountStartsAt: null,
+  discountEndsAt: null,
   isAvailable: true,
   imageUrl: null,
+  limitedTimeEndsAt: null,
+  newTagStartedAt: null,
+  newTagExpiresAt: null,
+  isNew: false,
+  isLimited: false,
+  isLimitedExpired: false,
+  categoryIsNew: false,
   createdAt: '',
   updatedAt: '',
 });
 
-const defaultCategoryDraft: MenuCategory = { id: '', name: '', description: null, sortOrder: 0, isActive: true };
+const defaultCategoryDraft: MenuCategory = {
+  id: '',
+  name: '',
+  description: null,
+  sortOrder: 0,
+  isActive: true,
+  newTagStartedAt: null,
+  newTagExpiresAt: null,
+  isNew: false,
+  createdAt: '',
+  updatedAt: '',
+};
 
 type DiscountMode = 'amount' | 'percent';
 type BulkScope = 'all' | 'specific';
@@ -55,6 +78,42 @@ const sanitizePriceInput = (rawValue: string) => {
   return `${wholePart || '0'}.${decimalPart}`;
 };
 
+const toDateTimeInputValue = (value: string | null | undefined) => {
+  const text = asTrimmed(value);
+  if (!text) return '';
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return '';
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hours = String(parsed.getHours()).padStart(2, '0');
+  const minutes = String(parsed.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const formatDateTime = (value: string | null | undefined) => {
+  const text = asTrimmed(value);
+  if (!text) return 'Not set';
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return parsed.toLocaleString();
+};
+
+const getDiscountScheduleLabel = (item: MenuItem) => {
+  if (!item.discount || item.discount <= 0) return 'No discount';
+
+  const startsAt = asTrimmed(item.discountStartsAt);
+  const endsAt = asTrimmed(item.discountEndsAt);
+  if (!startsAt && !endsAt) return 'Active without schedule';
+  if (item.isDiscountActive) {
+    return endsAt ? `Active until ${formatDateTime(endsAt)}` : startsAt ? `Active since ${formatDateTime(startsAt)}` : 'Active now';
+  }
+  if (startsAt) return `Starts ${formatDateTime(startsAt)}`;
+  if (endsAt) return `Ends ${formatDateTime(endsAt)}`;
+  return 'Scheduled';
+};
+
 const getDiscountFromMode = (price: number, inputValue: number, mode: DiscountMode) => {
   const safePrice = normalizeAmount(price);
   if (safePrice <= 0) return 0;
@@ -85,6 +144,9 @@ const validateMenuItemDraft = (draft: MenuItem) => {
   if (!Number.isFinite(draft.price) || draft.price < 0) return 'Price must be zero or higher.';
   if (!Number.isFinite(draft.discount) || draft.discount < 0) return 'Discount must be zero or higher.';
   if (draft.price > 0 && draft.discount > draft.price) return 'Discount cannot be greater than price.';
+  if (draft.discountStartsAt && draft.discountEndsAt && new Date(draft.discountEndsAt).getTime() <= new Date(draft.discountStartsAt).getTime()) {
+    return 'Discount end time must be after the discount start time.';
+  }
   if (!hasValidImageUrl(draft.imageUrl)) return 'Image URL must be http(s) or a valid image data URL.';
   return '';
 };
@@ -119,6 +181,10 @@ export const MenuManagementPage = () => {
   );
   const bulkTargetCount = bulkScope === 'all' ? items.length : selectedBulkCount;
   const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
+  const discountedItems = useMemo(
+    () => items.filter((item) => item.isDiscountActive && normalizeAmount(item.effectiveDiscount) > 0),
+    [items],
+  );
 
   useEffect(() => {
     setSelectedBulkItemIds((current) => current.filter((id) => items.some((item) => item.id === id)));
@@ -187,10 +253,17 @@ export const MenuManagementPage = () => {
   };
 
   const handleSaveMenuItem = async () => {
+    const normalizedDiscount = Math.min(normalizeAmount(draft.discount), normalizeAmount(draft.price));
     const preparedDraft: MenuItem = {
       ...draft,
       price: normalizeAmount(draft.price),
-      discount: Math.min(normalizeAmount(draft.discount), normalizeAmount(draft.price)),
+      effectivePrice: Math.max(normalizeAmount(draft.price) - normalizedDiscount, 0),
+      discount: normalizedDiscount,
+      effectiveDiscount: normalizedDiscount,
+      isDiscountActive: normalizedDiscount > 0,
+      discountStartsAt: normalizedDiscount > 0 ? (asTrimmed(draft.discountStartsAt) || null) : null,
+      discountEndsAt: normalizedDiscount > 0 ? (asTrimmed(draft.discountEndsAt) || null) : null,
+      limitedTimeEndsAt: asTrimmed(draft.limitedTimeEndsAt) || null,
     };
 
     const validationError = validateMenuItemDraft(preparedDraft);
@@ -322,6 +395,11 @@ export const MenuManagementPage = () => {
         return {
           ...item,
           discount: nextDiscount,
+          effectiveDiscount: nextDiscount,
+          effectivePrice: Math.max(normalizeAmount(item.price) - nextDiscount, 0),
+          isDiscountActive: nextDiscount > 0,
+          discountStartsAt: null,
+          discountEndsAt: null,
           hasChanged: Math.abs(nextDiscount - normalizeAmount(item.discount)) >= 0.005,
         };
       })
@@ -351,7 +429,17 @@ export const MenuManagementPage = () => {
       return;
     }
 
-    const updates = targetItems.filter((item) => normalizeAmount(item.discount) > 0).map((item) => ({ ...item, discount: 0 }));
+    const updates = targetItems
+      .filter((item) => normalizeAmount(item.discount) > 0 || item.discountStartsAt || item.discountEndsAt)
+      .map((item) => ({
+        ...item,
+        discount: 0,
+        effectiveDiscount: 0,
+        effectivePrice: normalizeAmount(item.price),
+        isDiscountActive: false,
+        discountStartsAt: null,
+        discountEndsAt: null,
+      }));
 
     if (!updates.length) {
       toast.info(bulkScope === 'all' ? 'All menu items are already at zero discount.' : 'Selected items already have zero discount.');
@@ -467,6 +555,30 @@ export const MenuManagementPage = () => {
             </button>
           </div>
         </div>
+
+        <div className="rounded border p-3 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="font-medium text-sm">Discounted Items</h4>
+            <StatusChip label={`${discountedItems.length} active`} tone={discountedItems.length ? 'warning' : 'neutral'} />
+          </div>
+          {!discountedItems.length ? <p className="text-sm text-[#6B7280]">No menu items have an active discount right now.</p> : null}
+          <div className="space-y-2">
+            {discountedItems.map((item) => (
+              <div key={`discounted-${item.id}`} className="rounded border p-2 text-sm flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium">
+                    {item.name} - {formatCurrency(item.effectivePrice)}
+                    <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span>
+                  </p>
+                  <p className="text-[#6B7280]">{getDiscountScheduleLabel(item)}</p>
+                </div>
+                <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
+                  Edit schedule
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
@@ -513,6 +625,9 @@ export const MenuManagementPage = () => {
                 <p>
                   {category.sortOrder} - {category.name} {category.isActive ? '' : '(inactive)'}
                 </p>
+                <div className="flex gap-2 mt-1">
+                  {category.isNew ? <StatusChip label="NEW" tone="success" /> : null}
+                </div>
                 {asTrimmed(category.description) ? <p className="text-xs text-[#6B7280]">{category.description}</p> : null}
               </div>
               <div className="flex gap-2">
@@ -538,16 +653,21 @@ export const MenuManagementPage = () => {
             <div key={item.id} className="border rounded p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
               <div className="flex-1 min-w-[260px]">
                 <p className="font-medium">
-                  {item.name} - {formatCurrency(Math.max(item.price - item.discount, 0))}
-                  {item.discount > 0 ? <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span> : null}
+                  {item.name} - {formatCurrency(item.effectivePrice)}
+                  {item.isDiscountActive ? <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span> : null}
                 </p>
                 <p className="text-[#6B7280]">
                   Category: {categoryById.get(item.categoryId) ?? (item.categoryId || 'uncategorized')} - Updated:{' '}
                   {new Date(item.updatedAt).toLocaleString()}
                 </p>
+                {item.limitedTimeEndsAt ? <p className="text-[#6B7280]">Limited until: {formatDateTime(item.limitedTimeEndsAt)}</p> : null}
+                {item.discount > 0 ? <p className="text-[#6B7280]">{getDiscountScheduleLabel(item)}</p> : null}
                 <div className="flex gap-2 mt-1 flex-wrap">
                   <StatusChip label={item.isAvailable ? 'Available' : 'Unavailable'} tone={item.isAvailable ? 'success' : 'warning'} />
-                  <StatusChip label={item.discount > 0 ? `${formatCurrency(item.discount)} off` : 'No discount'} tone={item.discount > 0 ? 'warning' : 'neutral'} />
+                  <StatusChip label={item.isDiscountActive ? `${formatCurrency(item.effectiveDiscount)} off` : item.discount > 0 ? 'Scheduled discount' : 'No discount'} tone={item.discount > 0 ? 'warning' : 'neutral'} />
+                  {item.isNew ? <StatusChip label="NEW" tone="success" /> : null}
+                  {item.isLimited ? <StatusChip label="LIMITED" tone="warning" /> : null}
+                  {item.isLimitedExpired ? <StatusChip label="Expired limited" tone="danger" /> : null}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 items-center">
@@ -613,11 +733,55 @@ export const MenuManagementPage = () => {
                 />
               </label>
               <label className="text-sm">
+                Discount amount
+                <input
+                  type="number"
+                  min={0}
+                  max={draft.price || undefined}
+                  step="0.01"
+                  className="block border rounded mt-1 px-2 py-1 w-full"
+                  value={draft.discount}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      discount: Math.min(normalizeAmount(Number(event.target.value)), normalizeAmount(current.price)),
+                    }))
+                  }
+                />
+              </label>
+              <label className="text-sm">
                 Availability
                 <div className="mt-2 flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={draft.isAvailable} onChange={(event) => setDraft({ ...draft, isAvailable: event.target.checked })} />
                   <span>{draft.isAvailable ? 'Available' : 'Unavailable'}</span>
                 </div>
+              </label>
+              <label className="text-sm">
+                Discount starts at
+                <input
+                  type="datetime-local"
+                  className="block border rounded mt-1 px-2 py-1 w-full"
+                  value={toDateTimeInputValue(draft.discountStartsAt)}
+                  onChange={(event) => setDraft({ ...draft, discountStartsAt: event.target.value || null })}
+                />
+              </label>
+              <label className="text-sm">
+                Discount ends at
+                <input
+                  type="datetime-local"
+                  className="block border rounded mt-1 px-2 py-1 w-full"
+                  value={toDateTimeInputValue(draft.discountEndsAt)}
+                  onChange={(event) => setDraft({ ...draft, discountEndsAt: event.target.value || null })}
+                />
+              </label>
+              <label className="text-sm md:col-span-2">
+                Limited time ends at
+                <input
+                  type="datetime-local"
+                  className="block border rounded mt-1 px-2 py-1 w-full"
+                  value={toDateTimeInputValue(draft.limitedTimeEndsAt)}
+                  onChange={(event) => setDraft({ ...draft, limitedTimeEndsAt: event.target.value || null })}
+                />
               </label>
               <label className="text-sm md:col-span-2">
                 Description

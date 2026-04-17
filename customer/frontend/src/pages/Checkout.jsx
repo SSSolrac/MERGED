@@ -178,11 +178,17 @@ export default function Checkout() {
 
     const parsed = parseDeliveryAddress(savedAddressFromProfileRef.current, deliveryConfig);
     if (!parsed.houseDetails && !parsed.selectedPurokId) return;
+    const matchedPurok =
+      (Array.isArray(deliveryConfig?.puroks) ? deliveryConfig.puroks : []).find(
+        (purok) => String(purok?.id || "") === String(parsed.selectedPurokId || "")
+      ) || null;
 
     setDeliveryInput((prev) => ({
       ...prev,
       houseDetails: parsed.houseDetails || prev.houseDetails,
       selectedPurokId: parsed.selectedPurokId || prev.selectedPurokId,
+      latitude: matchedPurok?.lat ?? prev.latitude,
+      longitude: matchedPurok?.lng ?? prev.longitude,
     }));
     appliedProfileAddressRef.current = true;
   }, [deliveryConfig]);
@@ -671,7 +677,7 @@ export default function Checkout() {
             {cart.map((item) => (
               <div className="summary-row" key={item.id}>
                 <span>{item.displayName || item.name} x {item.qty}</span>
-                <span>PHP {(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</span>
+                <span>{item.isLoyaltyReward ? "FREE" : `PHP ${(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}`}</span>
               </div>
             ))}
           </div>

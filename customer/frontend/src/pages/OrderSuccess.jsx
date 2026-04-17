@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getLatestOrder } from "../services/orderService";
+import { getLatestOrder, getOrderReference } from "../services/orderService";
 
 export default function OrderSuccess({ linkComponent: LinkComponent }) {
   const [latestOrderRef, setLatestOrderRef] = useState("");
@@ -8,7 +8,7 @@ export default function OrderSuccess({ linkComponent: LinkComponent }) {
     const loadLatest = async () => {
       try {
         const latest = await getLatestOrder();
-        if (latest?.id) setLatestOrderRef(latest.code || latest.id);
+        if (latest?.id) setLatestOrderRef(getOrderReference(latest));
       } catch {
         setLatestOrderRef("");
       }

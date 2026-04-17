@@ -35,6 +35,38 @@ function isInvalidSessionError(error) {
   );
 }
 
+function isEmailAlreadyExistsError(error) {
+  const message = asNonEmptyText(error?.message).toLowerCase();
+  const code = asNonEmptyText(error?.code).toLowerCase();
+  return Boolean(
+    code === "user_already_exists" ||
+      message.includes("user already registered") ||
+      message.includes("already registered") ||
+      message.includes("already exists") ||
+      message.includes("duplicate key") ||
+      message.includes("idx_profiles_email_lower_unique")
+  );
+}
+
+async function checkCustomerEmailExists(supabase, email) {
+  const normalizedEmail = asNonEmptyText(email).toLowerCase();
+  if (!normalizedEmail) return false;
+
+  const { data, error } = await supabase.rpc("customer_email_exists", {
+    p_email: normalizedEmail,
+  });
+
+  if (error) {
+    const normalized = asAuthError(error, "Unable to check whether this email already exists.");
+    if (normalized.kind === "missing_rpc" || normalized.kind === "missing_relation" || normalized.kind === "permission_denied") {
+      return false;
+    }
+    throw normalized;
+  }
+
+  return Boolean(data);
+}
+
 async function signOutLocal() {
   const supabase = requireSupabaseClient();
   try {
@@ -63,8 +95,14 @@ export async function login({ email, password } = {}) {
 export async function signup({ name, email, password } = {}) {
   const supabase = requireSupabaseClient();
   const trimmedName = String(name || "").trim();
+  const trimmedEmail = String(email || "").trim();
+
+  if (await checkCustomerEmailExists(supabase, trimmedEmail)) {
+    throw new Error("Email already exists. Please log in or use a different email.");
+  }
+
   const { data, error } = await supabase.auth.signUp({
-    email: String(email || "").trim(),
+    email: trimmedEmail,
     password: String(password || "").trim(),
     options: {
       data: {
@@ -73,13 +111,40 @@ export async function signup({ name, email, password } = {}) {
     },
   });
 
-  if (error) throw asAuthError(error, "Unable to create account.");
+  if (error) {
+    if (isEmailAlreadyExistsError(error)) {
+      throw new Error("Email already exists. Please log in or use a different email.");
+    }
+    throw asAuthError(error, "Unable to create account.");
+  }
+
+  if (Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+    throw new Error("Email already exists. Please log in or use a different email.");
+  }
 
   return {
     user: data?.user || null,
     session: data?.session || null,
     needsEmailVerification: Boolean(data?.user && !data?.session),
   };
+}
+
+export async function requestPasswordReset({ email, redirectTo } = {}) {
+  const supabase = requireSupabaseClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(String(email || "").trim(), {
+    redirectTo: asNonEmptyText(redirectTo) || undefined,
+  });
+
+  if (error) throw asAuthError(error, "Unable to send the password reset email.");
+}
+
+export async function updatePassword({ password } = {}) {
+  const supabase = requireSupabaseClient();
+  const nextPassword = String(password || "").trim();
+  const { data, error } = await supabase.auth.updateUser({ password: nextPassword });
+
+  if (error) throw asAuthError(error, "Unable to update your password.");
+  return data?.user || null;
 }
 
 export async function logout() {

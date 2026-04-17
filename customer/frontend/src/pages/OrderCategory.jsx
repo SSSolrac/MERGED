@@ -152,8 +152,8 @@ export default function OrderCategory() {
     return filtered.map((item) => {
       const safeName = String(item.name || "").trim() || "Item";
       const basePrice = Number(item.price || 0);
-      const discount = Number(item.discount || 0);
-      const discounted = discount > 0 ? Math.max(basePrice - discount, 0) : basePrice;
+      const discount = Number(item.effectiveDiscount ?? item.discount ?? 0);
+      const discounted = Number(item.effectivePrice ?? (discount > 0 ? Math.max(basePrice - discount, 0) : basePrice));
       return {
         id: item.id,
         code: String(item.code || "").trim(),
@@ -166,7 +166,10 @@ export default function OrderCategory() {
         originalPrice: basePrice,
         unitPrice: basePrice,
         discountAmount: discount,
+        isDiscountActive: Boolean(item.isDiscountActive ?? discount > 0),
         isAvailable: item.isAvailable !== false,
+        isNew: Boolean(item.isNew),
+        isLimited: Boolean(item.isLimited),
         categoryId: item.categoryId,
       };
     });
@@ -297,8 +300,14 @@ export default function OrderCategory() {
                   <h3 className="item-name">{item.displayName || item.name}</h3>
                   <span className="price">{formatMoney(item.price)}</span>
                 </div>
-                {item.discountAmount ? <p className="item-discount-badge">Discount: {formatMoney(item.discountAmount)}</p> : null}
-                {item.originalPrice && item.originalPrice !== item.price ? <p className="item-discount-badge">Was {formatMoney(item.originalPrice)}</p> : null}
+                <div className="item-tag-row">
+                  {item.isNew ? <p className="item-status-badge item-status-badge--new">NEW</p> : null}
+                  {item.isDiscountActive ? <p className="item-status-badge item-status-badge--discount">{formatMoney(item.discountAmount)} OFF</p> : null}
+                  {item.isLimited ? <p className="item-status-badge item-status-badge--limited">LIMITED</p> : null}
+                  {item.originalPrice && item.originalPrice !== item.price ? (
+                    <p className="item-status-badge item-status-badge--ghost">Was {formatMoney(item.originalPrice)}</p>
+                  ) : null}
+                </div>
 
                 <button
                   className="add-btn"
@@ -335,10 +344,16 @@ export default function OrderCategory() {
               <div className="item-modal-body">
                 <h3>{selectedItem.displayName || selectedItem.name}</h3>
                 <p className="item-modal-price">{formatMoney(selectedItem.price)}</p>
-                {selectedItem.discountAmount ? <p className="item-discount-badge">Discount: {formatMoney(selectedItem.discountAmount)}</p> : null}
-                {selectedItem.originalPrice && selectedItem.originalPrice !== selectedItem.price ? (
-                  <p className="item-discount-badge">Was {formatMoney(selectedItem.originalPrice)}</p>
-                ) : null}
+                <div className="item-tag-row">
+                  {selectedItem.isNew ? <p className="item-status-badge item-status-badge--new">NEW</p> : null}
+                  {selectedItem.isDiscountActive ? (
+                    <p className="item-status-badge item-status-badge--discount">{formatMoney(selectedItem.discountAmount)} OFF</p>
+                  ) : null}
+                  {selectedItem.isLimited ? <p className="item-status-badge item-status-badge--limited">LIMITED</p> : null}
+                  {selectedItem.originalPrice && selectedItem.originalPrice !== selectedItem.price ? (
+                    <p className="item-status-badge item-status-badge--ghost">Was {formatMoney(selectedItem.originalPrice)}</p>
+                  ) : null}
+                </div>
                 <p className="item-modal-description">{selectedItem.description}</p>
 
                 <button

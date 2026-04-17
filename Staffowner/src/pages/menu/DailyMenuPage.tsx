@@ -32,6 +32,9 @@ export const DailyMenuPage = () => {
   }, [menu, menuDate]);
 
   const byId = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
+  const selectedMenuItemIds = useMemo(() => new Set(draft.items.map((item) => item.menuItemId)), [draft.items]);
+  const selectedMenuItem = menuItemToAdd ? byId.get(menuItemToAdd) : null;
+  const isSelectedItemAlreadyAdded = Boolean(menuItemToAdd && selectedMenuItemIds.has(menuItemToAdd));
 
   if (loading) return <p>Loading daily menu...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
@@ -89,35 +92,50 @@ export const DailyMenuPage = () => {
               <select className="border rounded px-2 py-1 text-sm" value={menuItemToAdd} onChange={(e) => setMenuItemToAdd(e.target.value)}>
                 <option value="">Select menu item</option>
                 {menuItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
+                  <option key={item.id} value={item.id} disabled={selectedMenuItemIds.has(item.id)}>
+                    {item.name}{selectedMenuItemIds.has(item.id) ? ' (already selected)' : ''}
                   </option>
                 ))}
               </select>
-              <button className="border rounded px-2 py-1" onClick={addItem} disabled={!menuItemToAdd}>
-                Add Menu Item
+              <button className="border rounded px-2 py-1" onClick={addItem} disabled={!menuItemToAdd || isSelectedItemAlreadyAdded}>
+                {isSelectedItemAlreadyAdded ? 'Already Added' : 'Add Menu Item'}
               </button>
             </div>
           </div>
 
-          {draft.items.length === 0 ? (
-            <p className="text-sm text-[#6B7280]">No items selected yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {draft.items.map((item) => {
-                const menuItem = byId.get(item.menuItemId);
-                const label = menuItem ? menuItem.name : item.menuItemId;
-                return (
-                  <div key={item.menuItemId} className="border rounded p-3 flex items-center justify-between gap-2 text-sm">
-                    <p>{label}</p>
-                    <button className="border rounded px-2 py-1" onClick={() => removeItem(item.menuItemId)}>
-                      Remove
-                    </button>
-                  </div>
-                );
-              })}
+          {selectedMenuItem && !isSelectedItemAlreadyAdded ? (
+            <p className="text-sm text-[#6B7280]">
+              Ready to add: <strong>{selectedMenuItem.name}</strong>
+            </p>
+          ) : null}
+
+          <div className="rounded-lg border border-dashed p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-medium">Selected Items</h4>
+              <span className="text-xs rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                {draft.items.length} item{draft.items.length === 1 ? '' : 's'}
+              </span>
             </div>
-          )}
+            {draft.items.length ? (
+              <div className="flex flex-wrap gap-2">
+                {draft.items.map((item) => {
+                  const menuItem = byId.get(item.menuItemId);
+                  const label = menuItem ? menuItem.name : item.menuItemId;
+                  return (
+                    <span key={`pill-${item.menuItemId}`} className="inline-flex items-center gap-2 rounded-full bg-[#FFE4E8] px-3 py-1 text-sm text-slate-700">
+                      {label}
+                      <button className="text-xs underline" onClick={() => removeItem(item.menuItemId)} type="button">
+                        Remove
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-[#6B7280]">No items selected yet. Choose an item above, then click Add Menu Item.</p>
+            )}
+          </div>
+
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -173,15 +191,19 @@ export const DailyMenuPage = () => {
         <p className="text-sm">Date: {menuDate}</p>
         <p className="text-sm">State: {draft.isPublished ? 'Live for customers' : 'Not currently visible to customers'}</p>
         <div className="space-y-2">
-          {draft.items.map((item) => {
-            const menuItem = byId.get(item.menuItemId);
-            const label = menuItem ? menuItem.name : item.menuItemId;
-            return (
-              <div key={`preview-${item.menuItemId}`} className="border rounded p-3 text-sm">
-                {label}
-              </div>
-            );
-          })}
+          {draft.items.length ? (
+            draft.items.map((item) => {
+              const menuItem = byId.get(item.menuItemId);
+              const label = menuItem ? menuItem.name : item.menuItemId;
+              return (
+                <div key={`preview-${item.menuItemId}`} className="border rounded p-3 text-sm">
+                  {label}
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-[#6B7280]">No selected items to preview yet.</p>
+          )}
         </div>
       </section>
     </div>

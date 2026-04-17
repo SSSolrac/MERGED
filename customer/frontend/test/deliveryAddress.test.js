@@ -16,8 +16,8 @@ const deliveryConfig = {
   isActive: true,
   deliveryStatus: "active",
   puroks: [
-    { id: "purok-1", purokName: "Purok Sampaguita", isActive: true, deliveryStatus: "active" },
-    { id: "purok-2", purokName: "Purok Carmelita", isActive: true, deliveryStatus: "active" },
+    { id: "purok-1", purokName: "Purok Sampaguita", lat: 13.942, lng: 121.623, isActive: true, deliveryStatus: "active" },
+    { id: "purok-2", purokName: "Purok Carmelita", lat: 13.9424, lng: 121.6234, isActive: true, deliveryStatus: "active" },
   ],
   polygon: [
     { lat: 13.9405, lng: 121.6215, pointOrder: 0 },
@@ -78,4 +78,18 @@ test("validateDeliveryAddress rejects pins outside the configured polygon", () =
 
   assert.equal(result.isValid, false);
   assert.equal(result.errors.mapPin, "Selected pin is outside the delivery area.");
+});
+
+test("validateDeliveryAddress uses selected purok coordinates when the pin is not set yet", () => {
+  const result = validateDeliveryAddress({
+    houseDetails: "Blk 4 Lot 8",
+    selectedPurokId: "purok-1",
+    latitude: null,
+    longitude: null,
+    config: deliveryConfig,
+  });
+
+  assert.equal(result.isValid, true);
+  assert.equal(result.latitude, 13.942);
+  assert.equal(result.longitude, 121.623);
 });

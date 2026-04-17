@@ -1,4 +1,4 @@
-export type ActivityLogType = 'login' | 'order' | 'import' | 'inventory' | 'menu' | 'settings' | 'system';
+export type ActivityLogType = 'login' | 'order' | 'import' | 'inventory' | 'menu' | 'settings' | 'loyalty' | 'system';
 
 export interface ActivityLogEntry {
   id: string;
@@ -25,6 +25,7 @@ export interface ActivityLogStats {
   totalToday: number;
   loginEvents: number;
   orderEvents: number;
+  loyaltyEvents: number;
   importEvents: number;
   updateEvents: number;
 }

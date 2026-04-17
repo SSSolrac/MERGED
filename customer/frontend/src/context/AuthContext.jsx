@@ -1,11 +1,27 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { getSession, login, logout, onAuthStateChange, signup } from "../services/authService";
+import {
+  getSession,
+  login,
+  logout,
+  onAuthStateChange,
+  requestPasswordReset,
+  signup,
+  updatePassword,
+} from "../services/authService";
 import { getCustomerProfile } from "../services/profileService";
 import { clearAllSessionData } from "../services/sessionService";
 import { requireSupabaseClient } from "../lib/supabase";
 
 const AuthContext = createContext(null);
+
+function hasPasswordRecoveryParams() {
+  if (typeof window === "undefined") return false;
+
+  const search = String(window.location.search || "");
+  const hash = String(window.location.hash || "");
+  return search.includes("type=recovery") || hash.includes("type=recovery");
+}
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -13,6 +29,7 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
   const [sessionStatus, setSessionStatus] = useState("loading"); // loading | no_session | authenticated | invalid_session | backend_unavailable
   const [authError, setAuthError] = useState("");
+  const [isRecoveryMode, setIsRecoveryMode] = useState(() => hasPasswordRecoveryParams());
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +49,7 @@ export function AuthProvider({ children }) {
         if (cancelled) return;
 
         setSession(restored);
+        setIsRecoveryMode(hasPasswordRecoveryParams());
         if (restored?.user) {
           setSessionStatus("authenticated");
         } else if (hadLocalSession) {
@@ -62,11 +80,16 @@ export function AuthProvider({ children }) {
     const subscription = onAuthStateChange((event, nextSession) => {
       if (cancelled) return;
 
+      if (event === "PASSWORD_RECOVERY") {
+        setIsRecoveryMode(true);
+      }
+
       if (event === "SIGNED_OUT") {
         setSession(null);
         setProfile(null);
         setAuthError("");
         setSessionStatus("no_session");
+        setIsRecoveryMode(false);
         return;
       }
 
@@ -169,12 +192,26 @@ export function AuthProvider({ children }) {
 
   const signIn = useCallback(async ({ email, password }) => {
     setAuthError("");
+    setIsRecoveryMode(false);
     await login({ email, password });
   }, []);
 
   const signUp = useCallback(async ({ name, email, password }) => {
     setAuthError("");
+    setIsRecoveryMode(false);
     await signup({ name, email, password });
+  }, []);
+
+  const sendPasswordReset = useCallback(async ({ email, redirectTo }) => {
+    setAuthError("");
+    await requestPasswordReset({ email, redirectTo });
+  }, []);
+
+  const confirmPasswordReset = useCallback(async ({ password }) => {
+    setAuthError("");
+    const user = await updatePassword({ password });
+    setIsRecoveryMode(false);
+    return user;
   }, []);
 
   const signOut = useCallback(async () => {
@@ -185,6 +222,7 @@ export function AuthProvider({ children }) {
       clearAllSessionData();
       setProfile(null);
       setSession(null);
+      setIsRecoveryMode(false);
     }
   }, []);
 
@@ -198,12 +236,30 @@ export function AuthProvider({ children }) {
       isLoading,
       sessionStatus,
       error: authError,
+      isRecoveryMode,
       signIn,
       signUp,
+      sendPasswordReset,
+      confirmPasswordReset,
       signOut,
       refreshProfile,
     }),
-    [authError, isAuthenticated, isLoading, profile, refreshProfile, session, sessionStatus, signIn, signOut, signUp, user]
+    [
+      authError,
+      confirmPasswordReset,
+      isAuthenticated,
+      isLoading,
+      isRecoveryMode,
+      profile,
+      refreshProfile,
+      sendPasswordReset,
+      session,
+      sessionStatus,
+      signIn,
+      signOut,
+      signUp,
+      user,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -60,14 +60,16 @@ function formatPrice(value) {
   return `₱${asNumber(value, 0).toFixed(0)}`;
 }
 
-function resolveItemPrice(itemName, fallbackPrice, menuCatalog) {
+function resolveCatalogItem(itemName, menuCatalog) {
   const key = normalizeText(itemName);
-  const match = (Array.isArray(menuCatalog) ? menuCatalog : []).find((entry) => normalizeText(entry?.name) === key);
-  if (!match) return asNumber(fallbackPrice, 0);
+  return (Array.isArray(menuCatalog) ? menuCatalog : []).find((entry) => normalizeText(entry?.name) === key) || null;
+}
 
-  const basePrice = asNumber(match.price, asNumber(fallbackPrice, 0));
-  const discount = asNumber(match.discount, 0);
-  return Math.max(basePrice - discount, 0);
+function resolveItemPrice(itemName, fallbackPrice, menuCatalog) {
+  const match = resolveCatalogItem(itemName, menuCatalog);
+  if (!match || match.isAvailable === false) return asNumber(fallbackPrice, 0);
+
+  return asNumber(match.effectivePrice, Math.max(asNumber(match.price, asNumber(fallbackPrice, 0)) - asNumber(match.effectiveDiscount ?? match.discount, 0), 0));
 }
 
 export default function MenuBelt() {
@@ -97,10 +99,17 @@ export default function MenuBelt() {
 
   // Duplicate items so the loop looks continuous
   const beltItems = useMemo(() => {
-    const pricedItems = items.map((item) => ({
-      ...item,
-      tagRight: formatPrice(resolveItemPrice(item.name, item.fallbackPrice, menuCatalog)),
-    }));
+    const pricedItems = items
+      .map((item) => {
+        const match = resolveCatalogItem(item.name, menuCatalog);
+        if (match && match.isAvailable === false) return null;
+
+        return {
+          ...item,
+          tagRight: formatPrice(resolveItemPrice(item.name, item.fallbackPrice, menuCatalog)),
+        };
+      })
+      .filter(Boolean);
     return [...pricedItems, ...pricedItems];
   }, [menuCatalog]);
 

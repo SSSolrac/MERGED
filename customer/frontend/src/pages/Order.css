@@ -89,11 +89,32 @@
   justify-content: space-between;
 }
 
+.order-category-card__title-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .order-category-card__top h3 {
   margin: 0;
   color: #1f2940;
   font-size: 1.22rem;
   line-height: 1.25;
+}
+
+.order-status-tag {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.order-status-tag--new {
+  background: #dcf6fb;
+  color: #12536b;
 }
 
 .order-category-card__count {

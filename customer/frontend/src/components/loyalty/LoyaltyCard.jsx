@@ -14,7 +14,23 @@ function formatActivityStampDelta(delta) {
   return "0 stamp";
 }
 
-function LoyaltyCard({ loyaltyData, onRedeemReward, redeemingRewardId = "" }) {
+function getRewardActionLabel(reward, isRedeeming, stampsNeeded) {
+  if (isRedeeming) return "Redeeming...";
+  if (reward?.canRedeem) return "Redeem item";
+  if (reward?.isRedeemedThisCycle) {
+    return reward?.pendingRewardItemCount ? "Free drink ready" : "Redeemed this cycle";
+  }
+  return `${stampsNeeded} more stamp${stampsNeeded === 1 ? "" : "s"}`;
+}
+
+function LoyaltyCard({
+  loyaltyData,
+  onRedeemReward,
+  redeemingRewardId = "",
+  latteRewardOptions = [],
+  selectedLatteItemIds = {},
+  onLatteSelectionChange,
+}) {
   const {
     stampCount = 0,
     allRewards = [],
@@ -24,7 +40,7 @@ function LoyaltyCard({ loyaltyData, onRedeemReward, redeemingRewardId = "" }) {
   } = loyaltyData || {};
 
   const earnedStamps = Math.min(stampCount, TOTAL_STAMPS);
-  const availableRewardIds = new Set((Array.isArray(availableRewards) ? availableRewards : []).map((reward) => String(reward.id)));
+  const unlockedRewards = Array.isArray(availableRewards) ? availableRewards : [];
   const rewards = Array.isArray(allRewards) ? allRewards : [];
 
   return (
@@ -37,10 +53,12 @@ function LoyaltyCard({ loyaltyData, onRedeemReward, redeemingRewardId = "" }) {
       {customerName ? <p className="loyalty-card__customer">Hi {customerName}, welcome back.</p> : null}
 
       <div className="loyalty-card__progress-row">
-        <p className="loyalty-card__progress">{earnedStamps} / {TOTAL_STAMPS} stamps</p>
+        <p className="loyalty-card__progress">
+          {earnedStamps} / {TOTAL_STAMPS} stamps
+        </p>
         <p className="loyalty-card__remaining">
-          {availableRewards.length
-            ? `Rewards unlocked: ${availableRewards.map((reward) => reward.label).join(", ")}`
+          {unlockedRewards.length
+            ? `Rewards unlocked: ${unlockedRewards.map((reward) => reward.label).join(", ")}`
             : "Keep ordering to unlock rewards."}
         </p>
       </div>
@@ -50,22 +68,45 @@ function LoyaltyCard({ loyaltyData, onRedeemReward, redeemingRewardId = "" }) {
           rewards.map((reward) => {
             const rewardId = String(reward.id || "");
             const required = asNumber(reward.requiredStamps, 0);
-            const isEligible = availableRewardIds.has(rewardId);
+            const canRedeem = Boolean(reward.canRedeem);
             const stampsNeeded = Math.max(required - asNumber(stampCount, 0), 0);
             const isRedeeming = redeemingRewardId === rewardId;
+            const selectedLatteItemId = String(selectedLatteItemIds?.[rewardId] || latteRewardOptions[0]?.menuItemId || "");
 
             return (
               <div key={rewardId} className="loyalty-reward-row">
-                <p>
-                  {reward.label} (requires {required} stamps)
-                </p>
+                <div className="loyalty-reward-row__info">
+                  <p>
+                    {reward.label} (requires {required} stamps)
+                  </p>
+                  {reward.isLatteReward && canRedeem && latteRewardOptions.length ? (
+                    <div className="loyalty-reward-row__choice">
+                      <label htmlFor={`latte-choice-${rewardId}`}>Free drink choice</label>
+                      <select
+                        id={`latte-choice-${rewardId}`}
+                        value={selectedLatteItemId}
+                        onChange={(event) => onLatteSelectionChange?.(rewardId, event.target.value)}
+                      >
+                        {latteRewardOptions.map((option) => (
+                          <option key={option.menuItemId} value={option.menuItemId}>
+                            {option.displayLabel}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {reward.isRedeemedThisCycle && reward.pendingRewardItemCount ? (
+                    <p className="loyalty-reward-row__hint">Redeemed for this cycle. Add the free drink to your basket below when you’re ready.</p>
+                  ) : null}
+                </div>
+
                 <button
                   type="button"
                   className="loyalty-redeem-btn"
-                  disabled={!isEligible || isRedeeming}
+                  disabled={!canRedeem || isRedeeming}
                   onClick={() => onRedeemReward?.(reward)}
                 >
-                  {isRedeeming ? "Redeeming..." : isEligible ? "Redeem item" : `${stampsNeeded} more stamp${stampsNeeded === 1 ? "" : "s"}`}
+                  {getRewardActionLabel(reward, isRedeeming, stampsNeeded)}
                 </button>
               </div>
             );
@@ -93,4 +134,3 @@ function LoyaltyCard({ loyaltyData, onRedeemReward, redeemingRewardId = "" }) {
 }
 
 export default LoyaltyCard;
-

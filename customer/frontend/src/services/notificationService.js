@@ -1,5 +1,7 @@
 import { getOrderHistory } from "./orderService";
 import { getMenuCategories, getMenuItems } from "./menuService";
+import { getSession } from "./authService";
+import { requireSupabaseClient } from "../lib/supabase";
 import { canonicalStatusToLabel } from "../constants/canonical";
 
 const NOTIFICATION_STORE_KEY = "happyTailsCustomerNotifications_v1";
@@ -34,6 +36,7 @@ const NOTIFICATION_TYPE_LABELS = {
   order_refunded: "Order refunded",
   promo_discount: "Promo discount",
   menu_new_item: "New menu item",
+  loyalty_stamps_awarded: "Loyalty stamps",
 };
 
 function readStore() {
@@ -164,6 +167,59 @@ function buildOrderNotifications(orders) {
   return notifications;
 }
 
+function asNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function asText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function normalizeManualStampEvent(row) {
+  return {
+    id: asText(row?.id),
+    stampDelta: Math.max(1, asNumber(row?.stamp_delta ?? row?.stampDelta ?? 1, 1)),
+    reason: asText(row?.reason),
+    earnedAt: row?.earned_at ?? row?.earnedAt ?? row?.created_at ?? row?.createdAt ?? new Date().toISOString(),
+  };
+}
+
+async function getManualLoyaltyStampEvents() {
+  const session = await getSession().catch(() => null);
+  const userId = session?.user?.id || "";
+  if (!userId) return [];
+
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase
+    .from("loyalty_stamp_events")
+    .select("id, stamp_delta, source, reason, earned_at, created_at")
+    .eq("customer_id", userId)
+    .eq("source", "manual_staff_award")
+    .order("earned_at", { ascending: false })
+    .limit(50);
+
+  if (error) return [];
+  return (Array.isArray(data) ? data : []).map(normalizeManualStampEvent);
+}
+
+function buildLoyaltyStampNotifications(stampEvents) {
+  return (Array.isArray(stampEvents) ? stampEvents : []).map((event) => {
+    const stampLabel = `${event.stampDelta} stamp${event.stampDelta === 1 ? "" : "s"}`;
+    return {
+      id: `loyalty_stamps_awarded:${event.id}:${event.earnedAt}`,
+      type: "loyalty_stamps_awarded",
+      title: "Loyalty stamps awarded",
+      message: event.reason
+        ? `The cafe team awarded you ${stampLabel}. Reason: ${event.reason}`
+        : `The cafe team awarded you ${stampLabel}.`,
+      createdAt: event.earnedAt,
+      isRead: false,
+    };
+  });
+}
+
 async function getMenuNotificationSource() {
   const isCacheFresh = Date.now() - menuSourceCache.ts < MENU_SOURCE_TTL_MS;
   if (isCacheFresh && Array.isArray(menuSourceCache.items) && Array.isArray(menuSourceCache.categories)) {
@@ -196,13 +252,13 @@ function buildPromoNotifications(menuSource) {
   const categoryById = new Map(categories.map((category) => [String(category.id), String(category.name || "")]));
 
   return items
-    .filter((item) => Number(item.discount || 0) > 0)
+    .filter((item) => Boolean(item.isDiscountActive) && Number(item.effectiveDiscount ?? item.discount ?? 0) > 0)
     .filter((item) => item.isAvailable !== false)
     .map((item) => {
       const categoryName = categoryById.get(String(item.categoryId || "")) || "Menu";
-      const discountAmount = Number(item.discount || 0);
+      const discountAmount = Number(item.effectiveDiscount ?? item.discount ?? 0);
       const displayName = item.name || "Item";
-      const createdAt = item.updatedAt || item.createdAt || new Date().toISOString();
+      const createdAt = item.discountStartsAt || item.updatedAt || item.createdAt || new Date().toISOString();
 
       return {
         id: `promo:item:${item.id}:${discountAmount}:${createdAt}`,
@@ -236,12 +292,12 @@ function buildNewItemNotifications(items) {
   const notifications = [];
 
   (Array.isArray(items) ? items : []).forEach((item) => {
-    if (!item || item.isAvailable === false) return;
+    if (!item || item.isAvailable === false || !item.isNew) return;
 
     const itemId = String(item.id || "").trim();
     if (!itemId) return;
 
-    const createdMs = toDateMs(item.createdAt);
+    const createdMs = toDateMs(item.newTagStartedAt || item.createdAt);
     if (!createdMs) return;
     if (createdMs > nowMs + 60_000) return;
     if (nowMs - createdMs > NEW_ITEM_RECENT_WINDOW_MS) return;
@@ -272,16 +328,18 @@ export async function syncCustomerNotifications({ force = false } = {}) {
     const current = readStore();
     const byId = new Map(current.map((item) => [item.id, item]));
 
-    const [orders, menuSource] = await Promise.all([
+    const [orders, menuSource, manualStampEvents] = await Promise.all([
       getOrderHistory().catch(() => []),
       getMenuNotificationSource().catch(() => ({ items: [], categories: [] })),
+      getManualLoyaltyStampEvents().catch(() => []),
     ]);
 
     const derivedOrderNotifications = buildOrderNotifications(orders);
     const promoNotifications = buildPromoNotifications(menuSource);
     const newItemNotifications = buildNewItemNotifications(menuSource.items);
+    const loyaltyStampNotifications = buildLoyaltyStampNotifications(manualStampEvents);
 
-    [...derivedOrderNotifications, ...promoNotifications, ...newItemNotifications].forEach((notification) => {
+    [...derivedOrderNotifications, ...promoNotifications, ...newItemNotifications, ...loyaltyStampNotifications].forEach((notification) => {
       const existing = byId.get(notification.id);
       byId.set(notification.id, {
         ...notification,

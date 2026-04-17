@@ -80,6 +80,7 @@ const activityTypeFromEntity = (entityType: unknown, action: unknown): ActivityL
   if (combined.includes('inventory')) return 'inventory';
   if (combined.includes('menu')) return 'menu';
   if (combined.includes('setting') || combined.includes('business_settings')) return 'settings';
+  if (combined.includes('loyalty') || combined.includes('stamp')) return 'loyalty';
   if (combined.includes('login')) return 'login';
   if (combined.includes('order')) return 'order';
   if (combined.includes('import')) return 'import';
@@ -381,6 +382,7 @@ export const activityLogService = {
         totalToday: entries.filter((entry) => new Date(entry.occurredAt).getTime() >= todayStart).length,
         loginEvents: entries.filter((entry) => entry.type === 'login').length,
         orderEvents: entries.filter((entry) => entry.type === 'order').length,
+        loyaltyEvents: entries.filter((entry) => entry.type === 'loyalty').length,
         importEvents: entries.filter((entry) => entry.type === 'import').length,
         updateEvents: entries.filter((entry) => entry.type === 'inventory' || entry.type === 'menu' || entry.type === 'settings').length,
       };

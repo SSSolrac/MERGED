@@ -44,6 +44,8 @@ function Navbar({ onSignOut, onOpenModal }) {
     };
 
     loadNotifications();
+    const intervalId = window.setInterval(loadNotifications, 30000);
+    return () => window.clearInterval(intervalId);
   }, [isAuthenticated]);
 
   useEffect(() => {

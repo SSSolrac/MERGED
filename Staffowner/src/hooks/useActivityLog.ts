@@ -16,6 +16,7 @@ const initialStats: ActivityLogStats = {
   totalToday: 0,
   loginEvents: 0,
   orderEvents: 0,
+  loyaltyEvents: 0,
   importEvents: 0,
   updateEvents: 0,
 };
