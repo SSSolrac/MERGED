@@ -121,6 +121,55 @@ test("auth: getSession validates with getUser and clears invalid local auth", as
   assert.ok(src.includes('signOut({ scope: "local" })'), "authService should prefer local-only signOut to clear stale auth");
 });
 
+test("unified auth: staff/owner role profile is not overwritten by customer-only refresh", async () => {
+  const src = await readSource("src/context/AuthContext.jsx");
+  assert.ok(src.includes("getProfileForUser"), "AuthContext should use the canonical profile/role loader.");
+  assert.ok(!src.includes("getCustomerProfile"), "AuthContext must not run a second customer-only profile refresh after staff/owner login.");
+
+  const roleHelper = await readSource("src/services/auth/getCurrentUserRole.js");
+  assert.ok(roleHelper.includes("normalizeAppRole(value, fallback"), "Role normalization should support null/unknown fallbacks.");
+  assert.ok(roleHelper.includes("normalizeAppRole(row.role, null)"), "Canonical profile mapper should preserve unresolved roles as null.");
+});
+
+test("unified app: old Staffowner login/router boot files are not active", async () => {
+  const activeSrcRoot = path.join(__dirname, "..", "src");
+  const sourceFiles = (await listFiles(activeSrcRoot)).filter((filePath) => /\.(js|jsx|ts|tsx)$/i.test(filePath));
+
+  const offenders = [];
+  for (const filePath of sourceFiles) {
+    const relative = path.relative(path.join(__dirname, ".."), filePath).replace(/\\/g, "/");
+    const contents = await readFile(filePath, "utf8");
+    if (
+      /LoginPage|createBrowserRouter|RouterProvider|path:\s*['"]\/login['"]/.test(contents) &&
+      !relative.includes("loginAuditService") &&
+      !relative.includes("loginHistoryService") &&
+      !relative.includes("useLoginHistory")
+    ) {
+      offenders.push(relative);
+    }
+  }
+
+  assert.deepEqual(offenders, [], "Unified app must not keep the old Staffowner login/router in active source.");
+});
+
+test("staffowner merge: original staff persistence services are preserved", async () => {
+  const originalRoot = path.join(__dirname, "..", "..", "..", "Staffowner", "src", "services");
+  const migratedRoot = path.join(__dirname, "..", "src", "staff", "services");
+  const originalFiles = (await readdir(originalRoot)).filter((name) => name.endsWith(".ts") && name !== "authService.ts").sort();
+  const migratedFiles = (await readdir(migratedRoot)).filter((name) => name.endsWith(".ts") && name !== "authService.ts").sort();
+
+  assert.deepEqual(migratedFiles, originalFiles, "Migrated staff services should include the same service files as Staffowner.");
+
+  const changed = [];
+  for (const fileName of originalFiles) {
+    const original = (await readFile(path.join(originalRoot, fileName), "utf8")).replace(/\r\n/g, "\n");
+    const migrated = (await readFile(path.join(migratedRoot, fileName), "utf8")).replace(/\r\n/g, "\n");
+    if (original !== migrated) changed.push(fileName);
+  }
+
+  assert.deepEqual(changed, [], "Staff persistence service implementations should match the original Staffowner app.");
+});
+
 test("error mapper: classifies missing column", () => {
   const err = {
     message: 'column "total_amount" of relation "public.orders" does not exist',

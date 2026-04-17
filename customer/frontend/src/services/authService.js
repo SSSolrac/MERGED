@@ -1,5 +1,7 @@
 import { getSupabaseClient, requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError } from "../lib/supabaseErrors";
+import { getProfileForUser } from "./auth/getCurrentUserRole";
+import { recordStaffOwnerLogin } from "./auth/loginAuditService";
 
 function asAuthError(error, fallback = "Authentication failed.") {
   return asSupabaseError(error, { fallbackMessage: fallback });
@@ -89,7 +91,16 @@ export async function login({ email, password } = {}) {
   });
 
   if (error) throw asAuthError(error, "Invalid email or password.");
-  return data?.user || null;
+  const user = data?.user || null;
+  const profile = user ? await getProfileForUser(user) : null;
+  if (profile) await recordStaffOwnerLogin(profile);
+
+  return {
+    user,
+    session: data?.session || null,
+    profile,
+    role: profile?.role || "customer",
+  };
 }
 
 export async function signup({ name, email, password } = {}) {

@@ -1,6 +1,6 @@
-# Happy Tails Customer Frontend
+# Happy Tails Unified Frontend
 
-This customer app runs on Vite + React and talks directly to Supabase for auth, menu data, checkout, and delivery-area validation.
+This is the single active Vite + React frontend for Happy Tails Pet Cafe. It serves customer, staff, and owner users from one deployable app, with the customer auth modal as the universal login UI.
 
 ## Local Setup
 
@@ -29,6 +29,27 @@ supabase/delivery_area_schema.sql
 ```bash
 npm run dev
 ```
+
+The app binds to `127.0.0.1:5173` with `--strictPort`. If that port is already in use, stop the stale Vite/Node process instead of starting a second frontend.
+
+## Auth And Roles
+
+- Public signup creates customer accounts only.
+- Staff and owner users log in through the same customer auth UI.
+- Staff/owner access is granted by updating `public.profiles.role` in Supabase.
+- The old `Staffowner` Vite app is retired; do not run or deploy it separately.
+
+## Vercel Deployment
+
+Use `customer/frontend` as the Vercel project root.
+
+```text
+Build command: npm run build
+Output directory: dist
+Required env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+```
+
+The included `vercel.json` rewrites all routes to `index.html` so direct refreshes on `/staff/...`, `/owner/...`, and protected customer routes work as SPA routes.
 
 ## Delivery Notes
 

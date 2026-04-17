@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import "./AuthModal.css";
 
 function AuthModal({
@@ -9,22 +9,14 @@ function AuthModal({
   onUpdatePassword,
   isRecoveryMode = false,
 }) {
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState(() => (isRecoveryMode ? "reset" : "login"));
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setMode(isRecoveryMode ? "reset" : "login");
-    setError("");
-    setMessage("");
-    setPassword("");
-    setConfirmPassword("");
-  }, [isOpen, isRecoveryMode]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -36,8 +28,10 @@ function AuthModal({
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isSubmitting) return;
     setError("");
     setMessage("");
+    setIsSubmitting(true);
 
     try {
       if (isForgotPassword) {
@@ -66,6 +60,8 @@ function AuthModal({
       onClose();
     } catch (submitError) {
       setError(submitError?.message || "Authentication failed.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -86,7 +82,7 @@ function AuthModal({
 
         <h2>{modalTitle}</h2>
         {isResetPassword ? <p className="auth-helper">Choose a new password for your Supabase account.</p> : null}
-        {isForgotPassword ? <p className="auth-helper">Enter the email linked to your account and we’ll send a reset link.</p> : null}
+        {isForgotPassword ? <p className="auth-helper">Enter the email linked to your account and we'll send a reset link.</p> : null}
 
         <form onSubmit={handleSubmit}>
           {isSignup ? <input type="text" placeholder="Full Name" value={name} onChange={(event) => setName(event.target.value)} required /> : null}
@@ -112,8 +108,8 @@ function AuthModal({
             />
           ) : null}
 
-          <button type="submit" className="login-btn">
-            {submitLabel}
+          <button type="submit" className="login-btn" disabled={isSubmitting}>
+            {isSubmitting ? "Please wait..." : submitLabel}
           </button>
         </form>
 

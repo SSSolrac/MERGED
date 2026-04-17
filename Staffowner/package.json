@@ -4,9 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite",
-    "test": "node --experimental-strip-types --loader ./test/alias-loader.mjs test/run-tests.ts"
+    "build": "node -e \"console.error('Staffowner is retired. Build the unified app from customer/frontend instead.'); process.exit(1)\"",
+    "dev": "node -e \"console.error('Staffowner is retired. Run the unified app from customer/frontend instead.'); process.exit(1)\"",
+    "test": "node -e \"console.log('Staffowner standalone tests are retired with the unified app. Run tests from customer/frontend.');\""
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

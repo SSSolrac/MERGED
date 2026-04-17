@@ -9,7 +9,8 @@ import {
   signup,
   updatePassword,
 } from "../services/authService";
-import { getCustomerProfile } from "../services/profileService";
+import { getProfileForUser, normalizeAppRole } from "../services/auth/getCurrentUserRole";
+import { recordStaffOwnerLogout } from "../services/auth/loginAuditService";
 import { clearAllSessionData } from "../services/sessionService";
 import { requireSupabaseClient } from "../lib/supabase";
 
@@ -21,6 +22,11 @@ function hasPasswordRecoveryParams() {
   const search = String(window.location.search || "");
   const hash = String(window.location.hash || "");
   return search.includes("type=recovery") || hash.includes("type=recovery");
+}
+
+async function getProfileForSession(session) {
+  if (!session?.user) return null;
+  return getProfileForUser(session.user);
 }
 
 export function AuthProvider({ children }) {
@@ -48,7 +54,11 @@ export function AuthProvider({ children }) {
         const restored = await getSession();
         if (cancelled) return;
 
+        const restoredProfile = restored?.user ? await getProfileForSession(restored) : null;
+        if (cancelled) return;
+
         setSession(restored);
+        setProfile(restoredProfile);
         setIsRecoveryMode(hasPasswordRecoveryParams());
         if (restored?.user) {
           setSessionStatus("authenticated");
@@ -105,7 +115,11 @@ export function AuthProvider({ children }) {
         try {
           const validated = await getSession();
           if (cancelled) return;
+          const nextProfile = validated?.user ? await getProfileForSession(validated) : null;
+          if (cancelled) return;
+
           setSession(validated);
+          setProfile(nextProfile);
           if (validated?.user) {
             setAuthError("");
             setSessionStatus("authenticated");
@@ -142,37 +156,13 @@ export function AuthProvider({ children }) {
       return null;
     }
 
-    const next = await getCustomerProfile();
+    const next = await getProfileForSession(session);
     setProfile(next);
     return next;
-  }, [session?.user]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const userId = session?.user?.id || "";
-
-    const loadProfile = async () => {
-      if (!userId) {
-        setProfile(null);
-        return;
-      }
-
-      try {
-        const next = await getCustomerProfile();
-        if (!cancelled) setProfile(next);
-      } catch {
-        if (!cancelled) setProfile(null);
-      }
-    };
-
-    loadProfile();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user?.id]);
+  }, [session]);
 
   const isAuthenticated = Boolean(session?.user);
+  const role = profile ? normalizeAppRole(profile.role, null) : null;
 
   const user = useMemo(() => {
     if (!session?.user) return null;
@@ -185,7 +175,7 @@ export function AuthProvider({ children }) {
       id: authUser.id,
       email: authUser.email || "",
       name,
-      role: "customer",
+      role: profile ? normalizeAppRole(profile.role, null) : null,
       customerCode: profile?.customerCode ?? null,
     };
   }, [profile, session?.user]);
@@ -193,7 +183,10 @@ export function AuthProvider({ children }) {
   const signIn = useCallback(async ({ email, password }) => {
     setAuthError("");
     setIsRecoveryMode(false);
-    await login({ email, password });
+    const result = await login({ email, password });
+    if (result?.session) setSession(result.session);
+    if (result?.profile) setProfile(result.profile);
+    return result;
   }, []);
 
   const signUp = useCallback(async ({ name, email, password }) => {
@@ -217,6 +210,7 @@ export function AuthProvider({ children }) {
   const signOut = useCallback(async () => {
     setAuthError("");
     try {
+      await recordStaffOwnerLogout(profile);
       await logout();
     } finally {
       clearAllSessionData();
@@ -224,19 +218,24 @@ export function AuthProvider({ children }) {
       setSession(null);
       setIsRecoveryMode(false);
     }
-  }, []);
+  }, [profile]);
 
   const value = useMemo(
     () => ({
       session,
       user,
       profile,
+      role,
       isAuthenticated,
       canAccessAccount: isAuthenticated,
       isLoading,
+      loading: isLoading,
       sessionStatus,
       error: authError,
       isRecoveryMode,
+      login: signIn,
+      logout: signOut,
+      signup: signUp,
       signIn,
       signUp,
       sendPasswordReset,
@@ -251,6 +250,7 @@ export function AuthProvider({ children }) {
       isLoading,
       isRecoveryMode,
       profile,
+      role,
       refreshProfile,
       sendPasswordReset,
       session,

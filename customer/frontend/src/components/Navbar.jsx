@@ -16,7 +16,7 @@ function Navbar({ onSignOut, onOpenModal }) {
   const notificationMenuRef = useRef(null);
   const profileMenuRef = useRef(null);
   const { cartCount, isMiniCartOpen, toggleMiniCart, closeMiniCart } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, role } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -107,6 +107,7 @@ function Navbar({ onSignOut, onOpenModal }) {
   };
 
   const visibleUnreadCount = isAuthenticated ? unreadCount : 0;
+  const dashboardPath = role === "owner" ? "/owner/dashboard" : role === "staff" ? "/staff/dashboard" : "";
 
   return (
     <nav className="navbar" style={{ backgroundColor: "#ffffff" }}>
@@ -177,9 +178,15 @@ function Navbar({ onSignOut, onOpenModal }) {
               {isProfileMenuOpen ? (
                 <div className="profile-dropdown" role="menu" aria-label="Account">
                   <p className="profile-dropdown-title">Account</p>
-                  <Link to="/profile/info" role="menuitem">Profile Info</Link>
-                  <Link to="/profile/loyalty" role="menuitem">Loyalty and Perks</Link>
-                  <Link to="/order-history" role="menuitem">Order History</Link>
+                  {dashboardPath ? (
+                    <Link to={dashboardPath} role="menuitem">Dashboard</Link>
+                  ) : (
+                    <>
+                      <Link to="/profile/info" role="menuitem">Profile Info</Link>
+                      <Link to="/profile/loyalty" role="menuitem">Loyalty and Perks</Link>
+                      <Link to="/order-history" role="menuitem">Order History</Link>
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>

@@ -181,7 +181,8 @@ export default function DeliveryAddressForm({
   const houseDetails = asText(value?.houseDetails);
   const latitude = asNumber(value?.latitude);
   const longitude = asNumber(value?.longitude);
-  const puroks = Array.isArray(config?.puroks) ? config.puroks : [];
+  const configPuroks = config?.puroks;
+  const puroks = useMemo(() => (Array.isArray(configPuroks) ? configPuroks : []), [configPuroks]);
   const selectedPurok = useMemo(
     () => puroks.find((purok) => asText(purok?.id) === selectedPurokId) || null,
     [puroks, selectedPurokId]

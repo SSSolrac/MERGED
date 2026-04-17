@@ -1,6 +1,7 @@
 import { requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError, isSupabaseNoRowsError } from "../lib/supabaseErrors";
 import { getSession } from "./authService";
+import { normalizeAppRole } from "./auth/getCurrentUserRole";
 
 function asDbError(error, fallback, options) {
   return asSupabaseError(error, {
@@ -14,6 +15,7 @@ function mapProfileRow(row) {
 
   return {
     id: String(row.id),
+    role: normalizeAppRole(row.role),
     customerCode: row.customer_code ?? null,
     name: row.name ?? "",
     email: row.email ?? "",

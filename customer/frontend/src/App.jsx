@@ -20,43 +20,74 @@ import TrackOrder from "./pages/TrackOrder";
 import Notifications from "./pages/Notifications";
 import pattern from "./assets/pattern.png";
 import { useAuth } from "./context/AuthContext";
+import RequireRole from "./auth/RequireRole";
+import { getSafeRouteForRole } from "./auth/roleRoutes";
 
-function ProtectedRoute({ children }) {
-  const { canAccessAccount, isLoading, error, sessionStatus } = useAuth();
-  if (isLoading) return <div style={{ padding: 24 }}>Loading session...</div>;
-  if (!canAccessAccount) {
-    if (sessionStatus === "backend_unavailable") {
-      return <div style={{ padding: 24, color: "#a11" }}>{error || "Supabase is unavailable. Please try again later."}</div>;
-    }
-    if (sessionStatus === "invalid_session") {
-      return <div style={{ padding: 24, color: "#a11" }}>{error || "Your session expired. Please sign in again."}</div>;
-    }
-    return <Navigate to="/" replace />;
-  }
-  return children;
+import { DashboardLayout as StaffDashboardLayout } from "@/components/dashboard/DashboardLayout";
+import { DashboardPage } from "@/pages/DashboardPage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import { ActivityLogPage } from "@/pages/admin/ActivityLogPage";
+import { DeliveryCoveragePage } from "@/pages/admin/DeliveryCoveragePage";
+import { OrdersPage as StaffOrdersPage } from "@/pages/orders/OrdersPage";
+import { DailyMenuPage } from "@/pages/menu/DailyMenuPage";
+import { MenuManagementPage } from "@/pages/menu/MenuManagementPage";
+import { InventoryManagementPage } from "@/pages/menu/InventoryManagementPage";
+import { CustomersLoyaltyPage } from "@/pages/customers/CustomersLoyaltyPage";
+import { ImportsReportsPage } from "@/pages/imports/ImportsReportsPage";
+
+function CustomerRoute({ children }) {
+  return <RequireRole roles={["customer"]}>{children}</RequireRole>;
+}
+
+function StaffRoute({ children }) {
+  return <RequireRole roles={["staff", "owner"]}>{children}</RequireRole>;
+}
+
+function OwnerRoute({ children }) {
+  return <RequireRole roles={["owner"]}>{children}</RequireRole>;
+}
+
+function staffOwnerChildRoutes(basePath) {
+  return (
+    <>
+      <Route index element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      <Route path="dashboard" element={<DashboardPage />} />
+      <Route path="orders" element={<StaffOrdersPage />} />
+      <Route path="daily-menu" element={<DailyMenuPage />} />
+      <Route path="menu" element={<MenuManagementPage />} />
+      <Route path="inventory" element={<InventoryManagementPage />} />
+      <Route path="customers" element={<CustomersLoyaltyPage />} />
+      <Route path="imports" element={<OwnerRoute><ImportsReportsPage /></OwnerRoute>} />
+      <Route path="settings" element={<OwnerRoute><SettingsPage /></OwnerRoute>} />
+      <Route path="admin/delivery-coverage" element={<OwnerRoute><DeliveryCoveragePage /></OwnerRoute>} />
+      <Route path="admin/activity-log" element={<OwnerRoute><ActivityLogPage /></OwnerRoute>} />
+      <Route path="admin/login-history" element={<Navigate to={`${basePath}/admin/activity-log`} replace />} />
+    </>
+  );
 }
 
 function App() {
-  const { isAuthenticated, isRecoveryMode, signIn, signOut, signUp, sendPasswordReset, confirmPasswordReset } = useAuth();
-  const [showModal, setShowModal] = useState(false);
+  const { isAuthenticated, isRecoveryMode, role, signIn, signOut, signUp, sendPasswordReset, confirmPasswordReset } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isRecoveryDismissed, setIsRecoveryDismissed] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
+  const isStaffWorkspace = location.pathname.startsWith("/staff") || location.pathname.startsWith("/owner");
+  const isRouteAuthRequest = Boolean(location.state?.openAuth);
+  const isAuthModalOpen = showAuthModal || isRouteAuthRequest || (isRecoveryMode && !isRecoveryDismissed);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
 
   useEffect(() => {
-    if (isRecoveryMode) {
-      setShowModal(true);
-    }
-  }, [isRecoveryMode]);
-
-  useEffect(() => {
     const isLanding = location.pathname === "/";
 
-    if (!isLanding) {
+    if (isStaffWorkspace) {
+      document.body.style.backgroundColor = "#FFF7F9";
+      document.body.style.backgroundImage = "none";
+    } else if (!isLanding) {
       document.body.style.backgroundColor = "#f2f2f2";
       document.body.style.backgroundImage = `url(${pattern})`;
       document.body.style.backgroundRepeat = "repeat";
@@ -70,16 +101,18 @@ function App() {
     return () => {
       document.body.style.backgroundImage = "none";
     };
-  }, [location.pathname]);
+  }, [isStaffWorkspace, location.pathname]);
 
   const handleLogin = async (credentials) => {
     if (credentials.isSignup) {
       await signUp({ name: credentials.name, email: credentials.email, password: credentials.password });
+      navigate("/");
       return;
     }
 
-    await signIn({ email: credentials.email, password: credentials.password });
-    setShowModal(false);
+    const result = await signIn({ email: credentials.email, password: credentials.password });
+    setShowAuthModal(false);
+    navigate(getSafeRouteForRole(result?.role || role), { replace: true });
   };
 
   const handleSignOut = async () => {
@@ -94,16 +127,25 @@ function App() {
 
   const handlePasswordResetConfirm = async ({ password }) => {
     await confirmPasswordReset({ password });
-    setShowModal(false);
+    setShowAuthModal(false);
+    setIsRecoveryDismissed(false);
   };
 
   const handleOrderClick = () => {
     navigate("/order");
   };
 
+  const handleCloseAuthModal = () => {
+    setShowAuthModal(false);
+    if (isRecoveryMode) setIsRecoveryDismissed(true);
+    if (isRouteAuthRequest) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  };
+
   return (
     <div className="app-shell">
-      <Navbar onSignOut={handleSignOut} onOpenModal={() => setShowModal(true)} />
+      {!isStaffWorkspace ? <Navbar onSignOut={handleSignOut} onOpenModal={() => setShowAuthModal(true)} /> : null}
 
       <main className="app-main">
         <Routes>
@@ -118,22 +160,30 @@ function App() {
           <Route path="/cart" element={<Navigate to="/order" replace />} />
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
-          <Route path="/profile/info" element={<ProtectedRoute><Profile view="info" /></ProtectedRoute>} />
-          <Route path="/profile/loyalty" element={<ProtectedRoute><Profile view="loyalty" /></ProtectedRoute>} />
-          <Route path="/order-history" element={<ProtectedRoute><OrderHistory /></ProtectedRoute>} />
+          <Route path="/profile/info" element={<CustomerRoute><Profile view="info" /></CustomerRoute>} />
+          <Route path="/profile/loyalty" element={<CustomerRoute><Profile view="loyalty" /></CustomerRoute>} />
+          <Route path="/order-history" element={<CustomerRoute><OrderHistory /></CustomerRoute>} />
+          <Route path="/staff" element={<StaffRoute><StaffDashboardLayout /></StaffRoute>}>
+            {staffOwnerChildRoutes("/staff")}
+          </Route>
+          <Route path="/owner" element={<OwnerRoute><StaffDashboardLayout /></OwnerRoute>}>
+            {staffOwnerChildRoutes("/owner")}
+          </Route>
         </Routes>
       </main>
 
-      <Footer />
+      {!isStaffWorkspace ? <Footer /> : null}
 
-      <AuthModal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        onLogin={handleLogin}
-        onRequestPasswordReset={handlePasswordResetRequest}
-        onUpdatePassword={handlePasswordResetConfirm}
-        isRecoveryMode={isRecoveryMode}
-      />
+      {isAuthModalOpen ? (
+        <AuthModal
+          isOpen
+          onClose={handleCloseAuthModal}
+          onLogin={handleLogin}
+          onRequestPasswordReset={handlePasswordResetRequest}
+          onUpdatePassword={handlePasswordResetConfirm}
+          isRecoveryMode={isRecoveryMode}
+        />
+      ) : null}
     </div>
   );
 }
