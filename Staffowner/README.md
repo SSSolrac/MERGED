@@ -1,70 +1,22 @@
-# Staffowner Dashboard
+# Staffowner Dashboard (Retired)
 
-A React + TypeScript dashboard built with Vite and TailwindCSS. This app connects directly to the shared Supabase backend (Auth + Postgres public schema) used by both Staffowner and Customer.
+This standalone app is no longer an active deployment target.
 
-## Tech Stack
-
-- React
-- TypeScript
-- Vite
-- TailwindCSS
-- React Router
-- Sonner (toast notifications)
-
-## Installation
-
-```bash
-npm install
-```
-
-## Development Commands
-
-```bash
-npm run dev
-npm run build
-```
-
-## Folder Structure
+Use the unified frontend instead:
 
 ```text
-src/
-  app/
-    App.tsx
-    router.tsx
-  auth/
-    AuthProvider.tsx
-    LoginPage.tsx
-  components/
-    dashboard/
-    navigation/
-    ui/
-  pages/
-    DashboardPage.tsx
-    ProfilePage.tsx
-    SettingsPage.tsx
-    admin/
-  hooks/
-  services/
-  utils/
-  types/
-  assets/
+customer/frontend
 ```
 
-## Demo Accounts
+Vercel should build only the unified frontend root. Do not point Vercel at `Staffowner/`.
 
-- `owner@happytails.com` (role: owner)
-- `staff@happytails.com` (role: staff)
-- Use the password configured in Supabase Auth
+Current deployment settings:
 
-## Supabase Configuration
+```text
+Root Directory: customer/frontend
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+```
 
-Set these env vars (see `.env`):
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY` (or `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY`)
-
-## Troubleshooting
-
-### Orders page: "stack depth limit exceeded"
-
-If loading `/orders` fails and you see a Supabase/Postgres error like `54001: stack depth limit exceeded`, the issue is in the Supabase database (not the React app). This typically happens when Row Level Security (RLS) policies on `orders` and `order_items` reference each other (creating a recursion loop). Rewrite the RLS policies to remove circular references, then reload the app.
+Historical Staffowner source remains in this folder only for reference while the merged app continues to reuse pieces of it.

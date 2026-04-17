@@ -30,7 +30,13 @@ supabase/delivery_area_schema.sql
 npm run dev
 ```
 
-The app binds to `127.0.0.1:5173` with `--strictPort`. If that port is already in use, stop the stale Vite/Node process instead of starting a second frontend.
+If you want to pin local development to `127.0.0.1:5173`, use:
+
+```bash
+npm run dev:strict
+```
+
+If that port is already in use, stop the stale Vite/Node process instead of starting a second frontend.
 
 ## Auth And Roles
 
@@ -41,15 +47,25 @@ The app binds to `127.0.0.1:5173` with `--strictPort`. If that port is already i
 
 ## Vercel Deployment
 
-Use `customer/frontend` as the Vercel project root.
+Use the unified frontend only. Do not point Vercel at `Staffowner/`.
+
+If your Git repository root contains `customer/` and `Staffowner/`, set:
 
 ```text
-Build command: npm run build
-Output directory: dist
+Root Directory: customer/frontend
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
 Required env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 ```
 
-The included `vercel.json` rewrites all routes to `index.html` so direct refreshes on `/staff/...`, `/owner/...`, and protected customer routes work as SPA routes.
+If your Vercel project was imported from a parent wrapper folder that contains `CAFE_SYSTEM/`, use:
+
+```text
+Root Directory: CAFE_SYSTEM/customer/frontend
+```
+
+The included `vercel.json` rewrites all routes to `index.html` so direct refreshes on `/staff/...`, `/owner/...`, and protected customer routes resolve as SPA routes instead of returning `404: NOT_FOUND`.
 
 ## Delivery Notes
 

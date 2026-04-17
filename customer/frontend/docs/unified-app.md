@@ -50,11 +50,17 @@ cd customer/frontend
 npm run dev
 ```
 
-The dev script binds to `127.0.0.1:5173` with `--strictPort` so stale Staffowner/customer dev servers cannot silently move the active app to another port. If port `5173` is already in use, stop the old Node/Vite process and rerun the command.
+If you need the old fixed-port behavior locally, run:
+
+```bash
+npm run dev:strict
+```
+
+That command binds to `127.0.0.1:5173` with `--strictPort` so stale Staffowner/customer dev servers cannot silently move the active app to another port. If port `5173` is already in use, stop the old Node/Vite process and rerun the command.
 
 ## Vercel
 
-Deploy with `customer/frontend` as the Vercel project root.
+Deploy with `customer/frontend` as the Vercel project root. Do not deploy `Staffowner/`.
 
 Required environment variables:
 
@@ -74,3 +80,17 @@ Output directory:
 ```text
 dist
 ```
+
+Framework preset:
+
+```text
+Vite
+```
+
+If the repository was imported from a parent wrapper folder that contains `CAFE_SYSTEM/`, set the Vercel Root Directory to:
+
+```text
+CAFE_SYSTEM/customer/frontend
+```
+
+The `vercel.json` file must live in the same directory Vercel is building. In this repo that means the active frontend root above, not the retired `Staffowner/` folder.
