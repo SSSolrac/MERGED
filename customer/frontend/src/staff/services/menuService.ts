@@ -7,7 +7,7 @@ const MENU_IMAGE_BUCKET = 'menu-images';
 const MAX_MENU_IMAGE_BYTES = 5 * 1024 * 1024;
 const MENU_CATEGORY_VIEW_SELECT = '*';
 const MENU_ITEM_VIEW_SELECT =
-  'id, code, category_id, name, description, price, discount, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at';
+  'id, code, category_id, name, description, price, discount, discount_type, discount_value, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at';
 
 const sanitizeImageFileName = (fileName: string) => {
   const trimmed = fileName.trim().toLowerCase();
@@ -28,6 +28,35 @@ const getImageExtension = (fileName: string) => {
 const normalizeTimestamp = (value: string | null | undefined) => {
   const text = String(value || '').trim();
   return text || null;
+};
+
+const uploadImageAsset = async (file: File, folder: string, fallbackName: string): Promise<string> => {
+  if (!file) throw new Error('Select an image file before uploading.');
+  if (!file.type || !file.type.startsWith('image/')) throw new Error('Only image files can be uploaded.');
+  if (file.size > MAX_MENU_IMAGE_BYTES) throw new Error('Image must be 5 MB or smaller.');
+
+  const supabase = requireSupabaseClient();
+  const safeName = sanitizeImageFileName(file.name || fallbackName);
+  const extension = getImageExtension(safeName);
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  const path = `${folder}/${Date.now()}-${randomSuffix}.${extension}`;
+
+  const { error } = await supabase.storage.from(MENU_IMAGE_BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+  });
+
+  if (error) {
+    const message = String(error.message || '').toLowerCase();
+    if (message.includes('bucket') && message.includes('not found')) {
+      throw new Error('Storage bucket "menu-images" is missing. Create it in Supabase before uploading images.');
+    }
+    throw normalizeError(error, { fallbackMessage: 'Unable to upload image.' });
+  }
+
+  const { data } = supabase.storage.from(MENU_IMAGE_BUCKET).getPublicUrl(path);
+  if (!data?.publicUrl) throw new Error('Image uploaded, but public URL could not be generated.');
+  return data.publicUrl;
 };
 
 const fetchMenuCategoryById = async (supabase: ReturnType<typeof requireSupabaseClient>, categoryId: string) => {
@@ -64,6 +93,7 @@ export const menuService = {
     const payload = {
       name: category.name,
       description: category.description == null ? null : category.description.trim() || null,
+      image_url: category.imageUrl || null,
       sort_order: category.sortOrder,
       is_active: category.isActive,
     };
@@ -113,6 +143,8 @@ export const menuService = {
       description: item.description || null,
       price: item.price,
       discount: item.discount,
+      discount_type: item.discountType,
+      discount_value: item.discountValue,
       discount_starts_at: normalizeTimestamp(item.discountStartsAt),
       discount_ends_at: normalizeTimestamp(item.discountEndsAt),
       limited_time_ends_at: normalizeTimestamp(item.limitedTimeEndsAt),
@@ -139,32 +171,11 @@ export const menuService = {
   },
 
   async uploadMenuItemImage(file: File): Promise<string> {
-    if (!file) throw new Error('Select an image file before uploading.');
-    if (!file.type || !file.type.startsWith('image/')) throw new Error('Only image files can be uploaded.');
-    if (file.size > MAX_MENU_IMAGE_BYTES) throw new Error('Image must be 5 MB or smaller.');
+    return uploadImageAsset(file, 'menu-items', 'menu-item-image');
+  },
 
-    const supabase = requireSupabaseClient();
-    const safeName = sanitizeImageFileName(file.name || 'menu-item-image');
-    const extension = getImageExtension(safeName);
-    const randomSuffix = Math.random().toString(36).slice(2, 10);
-    const path = `menu-items/${Date.now()}-${randomSuffix}.${extension}`;
-
-    const { error } = await supabase.storage.from(MENU_IMAGE_BUCKET).upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
-    });
-
-    if (error) {
-      const message = String(error.message || '').toLowerCase();
-      if (message.includes('bucket') && message.includes('not found')) {
-        throw new Error('Storage bucket "menu-images" is missing. Create it in Supabase or use an image URL instead.');
-      }
-      throw normalizeError(error, { fallbackMessage: 'Unable to upload menu image.' });
-    }
-
-    const { data } = supabase.storage.from(MENU_IMAGE_BUCKET).getPublicUrl(path);
-    if (!data?.publicUrl) throw new Error('Image uploaded, but public URL could not be generated.');
-    return data.publicUrl;
+  async uploadMenuCategoryImage(file: File): Promise<string> {
+    return uploadImageAsset(file, 'menu-categories', 'menu-category-image');
   },
 
   async deleteMenuItem(itemId: string): Promise<void> {

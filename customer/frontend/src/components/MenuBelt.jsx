@@ -60,16 +60,30 @@ function formatPrice(value) {
   return `₱${asNumber(value, 0).toFixed(0)}`;
 }
 
-function resolveCatalogItem(itemName, menuCatalog) {
-  const key = normalizeText(itemName);
-  return (Array.isArray(menuCatalog) ? menuCatalog : []).find((entry) => normalizeText(entry?.name) === key) || null;
+function formatPriceCompact(value) {
+  const amount = asNumber(value, 0);
+  return `₱${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
 }
 
-function resolveItemPrice(itemName, fallbackPrice, menuCatalog) {
-  const match = resolveCatalogItem(itemName, menuCatalog);
-  if (!match || match.isAvailable === false) return asNumber(fallbackPrice, 0);
+function buildDiscountLabel(item, discountAmount) {
+  const storedLabel = String(item?.discountLabel || "").trim();
+  if (storedLabel) return storedLabel;
 
-  return asNumber(match.effectivePrice, Math.max(asNumber(match.price, asNumber(fallbackPrice, 0)) - asNumber(match.effectiveDiscount ?? match.discount, 0), 0));
+  const discountType = String(item?.discountType || "amount").toLowerCase();
+  const discountValue = asNumber(item?.discountValue ?? discountAmount, 0);
+  if (discountType === "percent" && discountValue > 0) return `${discountValue}% off`;
+  return `${formatPriceCompact(discountAmount)} off`;
+}
+
+function resolveCatalogItem(itemName, menuCatalog) {
+  const key = normalizeText(itemName);
+  const catalog = Array.isArray(menuCatalog) ? menuCatalog : [];
+  const exactMatch = catalog.find((entry) => normalizeText(entry?.name) === key);
+  if (exactMatch) return exactMatch;
+  return catalog.find((entry) => {
+    const entryName = normalizeText(entry?.name);
+    return entryName.includes(key) || key.includes(entryName);
+  }) || null;
 }
 
 export default function MenuBelt() {
@@ -103,10 +117,18 @@ export default function MenuBelt() {
       .map((item) => {
         const match = resolveCatalogItem(item.name, menuCatalog);
         if (match && match.isAvailable === false) return null;
+        const basePrice = asNumber(match?.price, item.fallbackPrice);
+        const discountAmount = asNumber(match?.effectiveDiscount ?? match?.discount, 0);
+        const effectivePrice = asNumber(match?.effectivePrice, Math.max(basePrice - discountAmount, 0));
+        const isDiscountActive = Boolean(match?.isDiscountActive ?? discountAmount > 0);
 
         return {
           ...item,
-          tagRight: formatPrice(resolveItemPrice(item.name, item.fallbackPrice, menuCatalog)),
+          tagRight: formatPrice(effectivePrice),
+          originalPrice: basePrice,
+          effectivePrice,
+          isDiscountActive,
+          discountLabel: isDiscountActive ? buildDiscountLabel(match, discountAmount) : "",
         };
       })
       .filter(Boolean);
@@ -144,6 +166,7 @@ export default function MenuBelt() {
             >
               <div className="belt-imgWrap">
                 <img src={it.img} alt={it.name} className="belt-img" />
+                {it.isDiscountActive ? <span className="belt-card-tag belt-card-tag--discounted">DISCOUNTED</span> : null}
               </div>
 
               <h3 className="belt-name">{it.name}</h3>
@@ -152,6 +175,14 @@ export default function MenuBelt() {
                 <span className="tag-category">{it.tagLeft}</span>
                 <span className="tag-price">{it.tagRight}</span>
               </div>
+              {it.isDiscountActive ? (
+                <div className="belt-promo-row">
+                  <span className="belt-promo-pill">{it.discountLabel}</span>
+                  {it.originalPrice && it.originalPrice !== it.effectivePrice ? (
+                    <span className="belt-was-price">Was {formatPrice(it.originalPrice)}</span>
+                  ) : null}
+                </div>
+              ) : null}
             </button>
           ))}
         </div>

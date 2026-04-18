@@ -49,13 +49,15 @@ function normalizeReward(reward) {
 function normalizeRedemption(row, rewardsById) {
   const rewardId = String(row?.reward_id || row?.rewardId || "");
   const reward = rewardsById.get(rewardId) || null;
+  const rewardLabel = asText(row?.reward_label ?? row?.rewardLabel) || reward?.label || "Reward";
   return {
     id: String(row?.id || ""),
     rewardId,
-    rewardLabel: asText(row?.reward_label ?? row?.rewardLabel) || reward?.label || "Reward",
+    rewardLabel,
     requiredStamps: reward?.requiredStamps ?? asNumber(row?.required_stamps ?? row?.requiredStamps ?? 0),
     redeemedAt: row?.redeemed_at ?? row?.redeemedAt ?? "",
     notes: row?.notes ?? null,
+    isGroomReward: /groom/i.test(rewardLabel),
   };
 }
 
@@ -223,6 +225,33 @@ function decorateRewards(allRewards, stampCount, redemptions, pendingRewardItems
   });
 }
 
+function buildInStoreRewardBalances(redemptions) {
+  const balances = new Map();
+
+  (Array.isArray(redemptions) ? redemptions : []).forEach((entry) => {
+    if (!entry?.isGroomReward && !/groom/i.test(String(entry?.rewardLabel || ""))) return;
+
+    const rewardId = asText(entry.rewardId) || asText(entry.id);
+    const label = asText(entry.rewardLabel) || "Free Groom";
+    const key = rewardId || label.toLowerCase();
+    const current = balances.get(key) || {
+      rewardId,
+      label,
+      count: 0,
+      latestRedeemedAt: "",
+    };
+    const redeemedAt = entry.redeemedAt || "";
+
+    balances.set(key, {
+      ...current,
+      count: current.count + 1,
+      latestRedeemedAt: toMs(redeemedAt) > toMs(current.latestRedeemedAt) ? redeemedAt : current.latestRedeemedAt,
+    });
+  });
+
+  return Array.from(balances.values()).sort((a, b) => toMs(b.latestRedeemedAt) - toMs(a.latestRedeemedAt));
+}
+
 export function buildLoyaltyRewardCartItem(rewardItem) {
   const itemName = asText(rewardItem?.itemName) || asText(rewardItem?.optionLabel) || "Free Drink";
   const categoryName = asNullableText(rewardItem?.categoryName);
@@ -370,6 +399,7 @@ export async function getCustomerLoyaltyData() {
     stampCount,
     allRewards,
     availableRewards,
+    inStoreRewardBalances: buildInStoreRewardBalances(redemptions),
     pendingRewardItems,
     redeemedRewards: redemptions,
     recentActivity,

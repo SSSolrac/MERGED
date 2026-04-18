@@ -24,7 +24,7 @@ import happyTailsLogo from '@/assets/branding/logo.png';
 
 export const DashboardLayout = () => {
   const { user, logout } = useAuth();
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { unreadNotifications, readNotifications, unreadCount, markRead, markAllRead } = useNotifications();
   const navigate = useNavigate();
   const isOwner = user?.role === 'owner';
   const location = useLocation();
@@ -143,16 +143,34 @@ export const DashboardLayout = () => {
                 </button>
                 <div className="hidden group-focus-within:block group-hover:block absolute right-0 mt-1 w-80 rounded-xl border bg-white text-[#1F2937] shadow-lg z-20 p-2">
                   <div className="flex items-center justify-between mb-1">
-                    <p className="text-sm font-medium">Notifications</p>
-                    <button className="text-xs underline" onClick={markAllRead}>Mark all as read</button>
+                    <div>
+                      <p className="text-sm font-medium">Notifications</p>
+                      <p className="text-[11px] text-[#6B7280]">{unreadCount ? `${unreadCount} unread` : 'All caught up'}</p>
+                    </div>
+                    {unreadCount > 0 ? (
+                      <button type="button" className="text-xs underline" onClick={markAllRead}>Mark all as read</button>
+                    ) : null}
                   </div>
                   <div className="max-h-80 overflow-auto space-y-1">
-                    {notifications.length === 0 ? <p className="text-xs text-[#6B7280] p-2">No notifications yet.</p> : notifications.slice(0, 20).map((row) => (
-                      <button key={row.id} className={`w-full text-left rounded p-2 border ${row.isRead ? 'bg-white' : 'bg-[#FFF3F5]'}`} onClick={() => markRead(row.id)}>
+                    {unreadNotifications.length === 0 ? <p className="text-xs text-[#6B7280] p-2">No unread notifications.</p> : unreadNotifications.slice(0, 10).map((row) => (
+                      <button key={row.id} type="button" className="w-full text-left rounded p-2 border bg-[#FFF3F5]" onClick={() => markRead(row.id)}>
                         <p className="text-xs font-medium">{row.title}</p>
                         <p className="text-xs text-[#6B7280]">{row.message}</p>
                       </button>
                     ))}
+                    {readNotifications.length ? (
+                      <details className="mt-2 border-t pt-2">
+                        <summary className="cursor-pointer px-2 text-xs font-medium text-[#8B5E6A]">View read notifications</summary>
+                        <div className="mt-2 space-y-1">
+                          {readNotifications.slice(0, 10).map((row) => (
+                            <div key={row.id} className="rounded border bg-white p-2 text-left">
+                              <p className="text-xs font-medium">{row.title}</p>
+                              <p className="text-xs text-[#6B7280]">{row.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ) : null}
                   </div>
                 </div>
               </div>

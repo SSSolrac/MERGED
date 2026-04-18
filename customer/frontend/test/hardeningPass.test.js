@@ -152,6 +152,192 @@ test("unified app: old Staffowner login/router boot files are not active", async
   assert.deepEqual(offenders, [], "Unified app must not keep the old Staffowner login/router in active source.");
 });
 
+test("auth modal: successful login redirect is parent-controlled", async () => {
+  const modalSrc = await readSource("src/components/AuthModal.jsx");
+  assert.ok(modalSrc.includes("await onLogin({ name, email, password, isSignup });"), "AuthModal should delegate credential handling to App.");
+  assert.ok(
+    !modalSrc.includes("await onLogin({ name, email, password, isSignup });\n      onClose();"),
+    "AuthModal must not close itself after login because App owns the role redirect."
+  );
+
+  const appSrc = await readSource("src/App.jsx");
+  assert.ok(appSrc.includes("setShowAuthModal(false);\n      navigate(\"/\", { replace: true });"), "App should close signup modal and clear route-auth state.");
+  assert.ok(
+    appSrc.includes("navigate(getSafeRouteForRole(result?.role || role), { replace: true });"),
+    "App should route staff/owner logins directly to their workspace."
+  );
+});
+
+test("staff settings and menu management use image uploads instead of raw URL fields", async () => {
+  const settingsSrc = await readSource("src/staff/pages/SettingsPage.tsx");
+  assert.ok(settingsSrc.includes("uploadBrandingAsset"), "Business settings should upload branding images.");
+  assert.ok(settingsSrc.includes("Logo / Branding picture"), "Business settings should expose picture upload copy.");
+  assert.ok(!settingsSrc.includes("Logo URL / Branding asset"), "Business settings should not expose the old raw logo URL field.");
+
+  const menuManagementSrc = await readSource("src/staff/pages/menu/MenuManagementPage.tsx");
+  assert.ok(menuManagementSrc.includes("Upload category picture"), "Category editor should upload category pictures.");
+  assert.ok(menuManagementSrc.includes("groupedMenuItems"), "Menu items should be grouped by category.");
+  assert.ok(menuManagementSrc.includes("Mark as limited item"), "Menu item editor should expose a simple limited item toggle.");
+  assert.ok(!menuManagementSrc.includes("Image URL (optional)"), "Menu item editor should not expose raw image URL input.");
+  assert.ok(!menuManagementSrc.includes("Discount amount"), "Menu item editor should not expose the old raw discount amount field.");
+  assert.ok(!menuManagementSrc.includes("Discount starts at"), "Menu item editor should not expose discount schedule fields.");
+  assert.ok(!menuManagementSrc.includes("Discount ends at"), "Menu item editor should not expose discount schedule fields.");
+  assert.ok(!menuManagementSrc.includes("Limited time ends at"), "Menu item editor should not expose raw limited-end datetime field.");
+});
+
+test("menu: schema and customer cards preserve discount mode and category images", async () => {
+  const schema = await readSchema();
+  assert.ok(schema.includes("alter table public.menu_categories add column if not exists image_url text"), "Schema should add category image URLs.");
+  assert.ok(schema.includes("discount_type text not null default 'amount'"), "Schema should store discount type.");
+  assert.ok(schema.includes("discount_value numeric(10,2) not null default 0"), "Schema should store the entered discount value.");
+  assert.ok(schema.includes("mi.discount_type"), "Availability view should expose discount type.");
+  assert.ok(schema.includes("mi.discount_value"), "Availability view should expose discount value.");
+
+  const menuServiceSrc = await readSource("src/services/menuService.js");
+  assert.ok(menuServiceSrc.includes("discount_type"), "Customer menu service should read discount type.");
+  assert.ok(menuServiceSrc.includes("discount_value"), "Customer menu service should read discount value.");
+  assert.ok(menuServiceSrc.includes("image_url ?? row.imageUrl"), "Customer menu service should map category image URLs.");
+
+  const orderSrc = await readSource("src/pages/Order.jsx");
+  assert.ok(orderSrc.includes("category.imageUrl || getCategoryImage"), "Category cards should prefer uploaded category images.");
+
+  const orderCategorySrc = await readSource("src/pages/OrderCategory.jsx");
+  assert.ok(orderCategorySrc.includes("buildDiscountLabel"), "Customer item cards should format discount labels from saved mode.");
+  assert.ok(orderCategorySrc.includes("DISCOUNTED"), "Customer item cards should show a discounted overlay tag.");
+});
+
+test("loyalty: free groom is saved as an in-store profile reward", async () => {
+  const loyaltyServiceSrc = await readSource("src/services/loyaltyService.js");
+  assert.ok(loyaltyServiceSrc.includes("buildInStoreRewardBalances"), "Customer loyalty data should derive saved in-store rewards.");
+  assert.ok(loyaltyServiceSrc.includes("inStoreRewardBalances"), "Customer loyalty payload should include in-store reward balances.");
+
+  const profileSrc = await readSource("src/pages/Profile.jsx");
+  assert.ok(profileSrc.includes("Saved In-Store Rewards"), "Profile should show saved in-store rewards.");
+  assert.ok(
+    profileSrc.includes("can only be redeemed in store"),
+    "Free Groom redemption should tell customers it is redeemed in store."
+  );
+
+  const cardSrc = await readSource("src/components/loyalty/LoyaltyCard.jsx");
+  assert.ok(cardSrc.includes("Save in-store reward"), "Free Groom action should clearly save an in-store reward.");
+});
+
+test("loyalty: staff can reset customer loyalty cards through audited RPC", async () => {
+  const schema = await readSchema();
+  assert.ok(schema.includes("create or replace function public.reset_customer_loyalty_card"), "Schema should define reset_customer_loyalty_card RPC.");
+  assert.ok(schema.includes("Only owner or staff can reset loyalty cards."), "Reset RPC should enforce staff/owner access.");
+  assert.ok(schema.includes("'Reset loyalty card'"), "Reset RPC should record an activity log entry.");
+
+  const serviceSrc = await readSource("src/staff/services/loyaltyService.ts");
+  assert.ok(serviceSrc.includes("reset_customer_loyalty_card"), "Staff loyalty service should call the reset RPC.");
+
+  const pageSrc = await readSource("src/staff/pages/customers/CustomersLoyaltyPage.tsx");
+  assert.ok(pageSrc.includes("Reset Loyalty Card"), "Staff customer loyalty page should expose a reset-card action.");
+});
+
+test("loyalty: activity events render only through notifications", async () => {
+  const cardSrc = await readSource("src/components/loyalty/LoyaltyCard.jsx");
+  assert.ok(!cardSrc.includes("recentActivity"), "Loyalty card should not render the loyalty activity feed.");
+  assert.ok(!cardSrc.includes("loyalty-card__meta"), "Loyalty card should not keep the old activity-feed container.");
+
+  const notificationSrc = await readSource("src/services/notificationService.js");
+  assert.ok(notificationSrc.includes("buildLoyaltyStampNotifications"), "Loyalty stamp events should still surface as notifications.");
+});
+
+test("notifications: read state hides customer items and preserves staff history", async () => {
+  const customerNotificationSrc = await readSource("src/services/notificationService.js");
+  assert.ok(
+    customerNotificationSrc.includes("readStore().filter((item) => !item.isRead)"),
+    "Customer notification lists should hide read notifications."
+  );
+  assert.ok(
+    customerNotificationSrc.includes("return getCustomerNotifications();"),
+    "Customer notification sync should return the visible unread list."
+  );
+
+  const staffHookSrc = await readSource("src/staff/hooks/useNotifications.ts");
+  assert.ok(staffHookSrc.includes("unreadNotifications"), "Staff hook should expose unread notifications for the popup queue.");
+  assert.ok(staffHookSrc.includes("readNotifications"), "Staff hook should expose read notifications for history.");
+
+  const staffLayoutSrc = await readSource("src/staff/components/dashboard/DashboardLayout.tsx");
+  assert.ok(staffLayoutSrc.includes("unreadNotifications.slice"), "Staff popup should render unread notifications first.");
+  assert.ok(staffLayoutSrc.includes("View read notifications"), "Staff popup should retain a read-notification history section.");
+});
+
+test("checkout: zero-total orders use a receipt-free payment path", async () => {
+  const checkoutSrc = await readSource("src/pages/Checkout.jsx");
+  assert.ok(checkoutSrc.includes("const isFreeOrder = Number(total || 0) <= 0;"), "Checkout should detect zero-total orders.");
+  assert.ok(
+    checkoutSrc.includes('const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;'),
+    "Free orders should use a receipt-free payment path."
+  );
+  assert.ok(
+    checkoutSrc.includes("No payment needed for this free reward checkout."),
+    "Checkout should explain why free reward orders skip payment proof."
+  );
+});
+
+test("menu belt: carousel cards show discount treatment like menu item cards", async () => {
+  const beltSrc = await readSource("src/components/MenuBelt.jsx");
+  assert.ok(beltSrc.includes("buildDiscountLabel"), "Menu carousel should format discount labels.");
+  assert.ok(beltSrc.includes("DISCOUNTED"), "Menu carousel should show discounted tags.");
+  assert.ok(beltSrc.includes("entryName.includes(key)"), "Menu carousel should resolve featured items with partial menu-name matches.");
+
+  const beltCss = await readSource("src/components/MenuBelt.css");
+  assert.ok(beltCss.includes(".belt-card-tag--discounted"), "Menu carousel should style discounted tags.");
+  assert.ok(beltCss.includes(".belt-promo-pill"), "Menu carousel should style discount amount pills.");
+});
+
+test("order history: customer history is paginated to five orders per page", async () => {
+  const historySrc = await readSource("src/pages/OrderHistory.jsx");
+  assert.ok(historySrc.includes("const ORDERS_PER_PAGE = 5;"), "Order history should limit each page to five orders.");
+  assert.ok(historySrc.includes("visibleOrders"), "Order history should render only the current page slice.");
+  assert.ok(historySrc.includes("Page {safePageIndex + 1} of {totalPages}"), "Order history should expose next-page navigation.");
+
+  const historyCss = await readSource("src/pages/OrderHistory.css");
+  assert.ok(historyCss.includes(".history-pagination"), "Order history should style pagination controls.");
+});
+
+test("loyalty: free latte claims require a regular pickup dine-in or takeout order", async () => {
+  const profileSrc = await readSource("src/pages/Profile.jsx");
+  assert.ok(profileSrc.includes("hasClaimableOrderCart"), "Profile should require an order cart before adding a free latte reward.");
+  assert.ok(profileSrc.includes("Start a pickup, dine-in, or takeout order"), "Profile should explain the free latte ordering rule.");
+
+  const checkoutSrc = await readSource("src/pages/Checkout.jsx");
+  assert.ok(checkoutSrc.includes("hasOrderForLoyaltyReward"), "Checkout should block reward-only carts.");
+  assert.ok(checkoutSrc.includes("canClaimLoyaltyRewardsWithOrderType"), "Checkout should block delivery orders containing free latte rewards.");
+
+  const schema = await readSchema();
+  assert.ok(
+    schema.includes("Free latte rewards can only be claimed with pickup, dine-in, or takeout orders."),
+    "Order RPC should reject delivery claims for free latte rewards."
+  );
+  assert.ok(
+    schema.includes("Free latte rewards must be claimed with a regular menu order."),
+    "Order RPC should reject reward-only orders."
+  );
+});
+
+test("cart: reward item images fall back instead of rendering broken pictures", async () => {
+  const menuImagesSrc = await readSource("src/utils/menuImages.js");
+  assert.ok(menuImagesSrc.includes('["Cafe Latte", coffeeIcon]'), "Cafe Latte reward items should resolve to a local image.");
+
+  const miniCartSrc = await readSource("src/components/MiniCartPanel.jsx");
+  assert.ok(miniCartSrc.includes("coffeeFallback"), "Mini cart should use a fallback image for missing cart item images.");
+  assert.ok(miniCartSrc.includes("onError={handleFallbackImage}"), "Mini cart should recover from broken image URLs.");
+
+  const cartSrc = await readSource("src/pages/Cart.jsx");
+  assert.ok(cartSrc.includes("coffeeFallback"), "Full cart should use a fallback image for missing cart item images.");
+  assert.ok(cartSrc.includes("onError={handleFallbackImage}"), "Full cart should recover from broken image URLs.");
+});
+
+test("profile: profile info form is shown inside a card shell", async () => {
+  const profileCss = await readSource("src/pages/Profile.css");
+  assert.ok(profileCss.includes(".profile-form"), "Profile CSS should style the profile form.");
+  assert.ok(profileCss.includes("background: rgba(255, 255, 255, 0.92);"), "Profile form should have a white card background.");
+  assert.ok(profileCss.includes("box-shadow: 0 16px 38px"), "Profile form should have card depth like the loyalty card.");
+});
+
 test("staffowner merge: original staff persistence services are preserved", async () => {
   const originalRoot = path.join(__dirname, "..", "..", "..", "Staffowner", "src", "services");
   const migratedRoot = path.join(__dirname, "..", "src", "staff", "services");

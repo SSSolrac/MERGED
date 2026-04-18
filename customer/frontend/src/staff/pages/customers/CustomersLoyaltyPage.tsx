@@ -17,6 +17,11 @@ const rewardReadiness = (customer: Customer): RewardFilter => {
 };
 
 const rewardLabels = (labels: Customer['loyalty']['availableRewards']) => labels.map((reward) => reward.label).join(', ');
+const rewardCountLabels = (customer: Customer) => {
+  const counts = customer.loyalty.rewardRedemptionCounts ?? [];
+  if (!counts.length) return rewardLabels(customer.loyalty.redeemedRewards);
+  return counts.map((reward) => `${reward.label} x ${reward.count}`).join(', ');
+};
 
 export const CustomersLoyaltyPage = () => {
   const { customers, loading, error, refresh } = useCustomers();
@@ -27,6 +32,9 @@ export const CustomersLoyaltyPage = () => {
   const [awardReason, setAwardReason] = useState('');
   const [awardError, setAwardError] = useState('');
   const [isAwarding, setIsAwarding] = useState(false);
+  const [resetReason, setResetReason] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const filtered = useMemo(() => customers.filter((customer) => {
     const byQuery = customer.name.toLowerCase().includes(query.toLowerCase()) || customer.email.toLowerCase().includes(query.toLowerCase());
@@ -46,6 +54,8 @@ export const CustomersLoyaltyPage = () => {
     setAwardStampCount('1');
     setAwardReason('');
     setAwardError('');
+    setResetReason('');
+    setResetError('');
   };
 
   const handleAwardStamps = async (event: FormEvent<HTMLFormElement>) => {
@@ -84,6 +94,39 @@ export const CustomersLoyaltyPage = () => {
     }
   };
 
+  const handleResetCard = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selected) return;
+
+    const confirmed = window.confirm(`Reset ${selected.name || selected.email || 'this customer'}'s loyalty card to 0 stamps?`);
+    if (!confirmed) return;
+
+    setIsResetting(true);
+    setResetError('');
+    try {
+      const result = await loyaltyService.resetCustomerCard(selected.id, resetReason);
+      const refreshedCustomers = await refresh();
+      const updatedCustomer = refreshedCustomers.find((customer) => customer.id === selected.id);
+      setSelected(updatedCustomer ?? {
+        ...selected,
+        loyalty: {
+          ...selected.loyalty,
+          stampCount: result.newStampCount,
+          availableRewards: selected.loyalty.availableRewards.filter((reward) => reward.requiredStamps <= result.newStampCount),
+          updatedAt: result.resetAt,
+        },
+      });
+      setResetReason('');
+      toast.success(`Reset ${result.customerLabel}'s loyalty card.`);
+    } catch (resetError) {
+      const message = resetError instanceof Error ? resetError.message : 'Unable to reset loyalty card right now.';
+      setResetError(message);
+      toast.error(message);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (loading) return <p>Loading customers...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
 
@@ -110,7 +153,7 @@ export const CustomersLoyaltyPage = () => {
       <section className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 rounded-lg border bg-white dark:bg-slate-800 p-4 overflow-auto">
           <table className="w-full text-sm min-w-[920px]"><thead><tr className="text-left"><th>Name</th><th>Email</th><th>Stamps</th><th>Available Rewards</th><th>Redeemed</th><th>Status</th><th>Action</th></tr></thead><tbody>
-            {filtered.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardLabels(customer.loyalty.redeemedRewards) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
+            {filtered.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardCountLabels(customer) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
           </tbody></table>
         </div>
         <aside className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3"><h3 className="font-medium">Customer Loyalty Snapshot</h3></aside>
@@ -118,7 +161,7 @@ export const CustomersLoyaltyPage = () => {
 
       {selected && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-20">
-          <div className="w-full max-w-xl rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-4" role="dialog" aria-modal="true" aria-labelledby="loyalty-award-title">
+          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-4" role="dialog" aria-modal="true" aria-labelledby="loyalty-award-title">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-semibold" id="loyalty-award-title">{selected.name || 'Customer'}</h3>
@@ -131,6 +174,7 @@ export const CustomersLoyaltyPage = () => {
               <p>Stamp count: <strong>{selected.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</strong></p>
               <p>Status: <strong>{rewardReadiness(selected)}</strong></p>
               <p className="sm:col-span-2">Available rewards: {rewardLabels(selected.loyalty.availableRewards) || 'None'}</p>
+              <p className="sm:col-span-2">Saved rewards: {rewardCountLabels(selected) || 'None'}</p>
             </div>
 
             <form className="border-t pt-4 space-y-3" onSubmit={handleAwardStamps}>
@@ -165,6 +209,27 @@ export const CustomersLoyaltyPage = () => {
               {awardError ? <p className="text-sm text-red-600">{awardError}</p> : null}
               <button className="border rounded px-3 py-1" disabled={isAwarding} type="submit">
                 {isAwarding ? 'Awarding...' : 'Award Stamps'}
+              </button>
+            </form>
+
+            <form className="border-t pt-4 space-y-3" onSubmit={handleResetCard}>
+              <div>
+                <h4 className="font-medium">Reset Loyalty Card</h4>
+                <p className="text-sm text-[#6B7280]">Sets this customer's stamp count back to 0 and records the reset in the activity log.</p>
+              </div>
+              <label className="text-sm block">
+                Reason or note
+                <input
+                  className="block border rounded mt-1 px-2 py-1 w-full"
+                  placeholder="Example: Card corrected in store"
+                  value={resetReason}
+                  onChange={(event) => setResetReason(event.target.value)}
+                  disabled={isResetting}
+                />
+              </label>
+              {resetError ? <p className="text-sm text-red-600">{resetError}</p> : null}
+              <button className="border border-red-300 rounded px-3 py-1 text-red-700" disabled={isResetting} type="submit">
+                {isResetting ? 'Resetting...' : 'Reset Loyalty Card'}
               </button>
             </form>
           </div>

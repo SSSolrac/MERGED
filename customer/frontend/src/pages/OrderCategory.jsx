@@ -30,6 +30,25 @@ function formatMoney(value) {
   return `${PESO_SYMBOL}${Number(value || 0).toFixed(2)}`;
 }
 
+function formatMoneyCompact(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return `${PESO_SYMBOL}0`;
+  return `${PESO_SYMBOL}${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
+function buildDiscountLabel(item, discountAmount) {
+  const storedLabel = String(item.discountLabel || "").trim();
+  if (storedLabel) return storedLabel;
+
+  const discountType = String(item.discountType || "amount").toLowerCase();
+  const discountValue = Number(item.discountValue ?? discountAmount ?? 0);
+  if (discountType === "percent" && Number.isFinite(discountValue) && discountValue > 0) {
+    return `${discountValue}% off`;
+  }
+
+  return `${formatMoneyCompact(discountAmount)} off`;
+}
+
 function formatCategoryDisplayName(name) {
   return String(name || "")
     .replace(/\s*\(\s*\d+\s*oz\s*\)\s*$/i, "")
@@ -154,6 +173,7 @@ export default function OrderCategory() {
       const basePrice = Number(item.price || 0);
       const discount = Number(item.effectiveDiscount ?? item.discount ?? 0);
       const discounted = Number(item.effectivePrice ?? (discount > 0 ? Math.max(basePrice - discount, 0) : basePrice));
+      const isDiscountActive = Boolean(item.isDiscountActive ?? discount > 0);
       return {
         id: item.id,
         code: String(item.code || "").trim(),
@@ -166,7 +186,8 @@ export default function OrderCategory() {
         originalPrice: basePrice,
         unitPrice: basePrice,
         discountAmount: discount,
-        isDiscountActive: Boolean(item.isDiscountActive ?? discount > 0),
+        discountLabel: isDiscountActive ? buildDiscountLabel(item, discount) : "",
+        isDiscountActive,
         isAvailable: item.isAvailable !== false,
         isNew: Boolean(item.isNew),
         isLimited: Boolean(item.isLimited),
@@ -293,6 +314,15 @@ export default function OrderCategory() {
             >
               <div className="item-imgWrap">
                 <img className="item-img" src={item.image} alt={item.displayName || item.name} />
+                <div className="item-card-tags item-card-tags--left">
+                  {item.isNew ? <span className="item-card-tag item-card-tag--new">NEW</span> : null}
+                  {item.isLimited ? <span className="item-card-tag item-card-tag--limited">LIMITED</span> : null}
+                </div>
+                {item.isDiscountActive ? (
+                  <div className="item-card-tags item-card-tags--right">
+                    <span className="item-card-tag item-card-tag--discounted">DISCOUNTED</span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="item-body">
@@ -301,9 +331,7 @@ export default function OrderCategory() {
                   <span className="price">{formatMoney(item.price)}</span>
                 </div>
                 <div className="item-tag-row">
-                  {item.isNew ? <p className="item-status-badge item-status-badge--new">NEW</p> : null}
-                  {item.isDiscountActive ? <p className="item-status-badge item-status-badge--discount">{formatMoney(item.discountAmount)} OFF</p> : null}
-                  {item.isLimited ? <p className="item-status-badge item-status-badge--limited">LIMITED</p> : null}
+                  {item.isDiscountActive ? <p className="item-status-badge item-status-badge--discount">{item.discountLabel}</p> : null}
                   {item.originalPrice && item.originalPrice !== item.price ? (
                     <p className="item-status-badge item-status-badge--ghost">Was {formatMoney(item.originalPrice)}</p>
                   ) : null}
@@ -347,7 +375,7 @@ export default function OrderCategory() {
                 <div className="item-tag-row">
                   {selectedItem.isNew ? <p className="item-status-badge item-status-badge--new">NEW</p> : null}
                   {selectedItem.isDiscountActive ? (
-                    <p className="item-status-badge item-status-badge--discount">{formatMoney(selectedItem.discountAmount)} OFF</p>
+                    <p className="item-status-badge item-status-badge--discount">{selectedItem.discountLabel}</p>
                   ) : null}
                   {selectedItem.isLimited ? <p className="item-status-badge item-status-badge--limited">LIMITED</p> : null}
                   {selectedItem.originalPrice && selectedItem.originalPrice !== selectedItem.price ? (

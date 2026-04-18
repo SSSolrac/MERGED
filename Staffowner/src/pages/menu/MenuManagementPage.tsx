@@ -17,6 +17,9 @@ const createDefaultMenuItemDraft = (): MenuItem => ({
   price: 0,
   effectivePrice: 0,
   discount: 0,
+  discountType: 'amount',
+  discountValue: 0,
+  discountLabel: null,
   effectiveDiscount: 0,
   isDiscountActive: false,
   discountStartsAt: null,
@@ -38,6 +41,7 @@ const defaultCategoryDraft: MenuCategory = {
   id: '',
   name: '',
   description: null,
+  imageUrl: null,
   sortOrder: 0,
   isActive: true,
   newTagStartedAt: null,
@@ -48,8 +52,15 @@ const defaultCategoryDraft: MenuCategory = {
 };
 
 type DiscountMode = 'amount' | 'percent';
+type DraftDiscountMode = DiscountMode | 'none';
 type BulkScope = 'all' | 'specific';
+type MenuItemGroup = {
+  id: string;
+  name: string;
+  items: MenuItem[];
+};
 
+const LIMITED_ITEM_SENTINEL = '9999-12-31T23:59:00.000Z';
 const asTrimmed = (value: string | null | undefined) => String(value || '').trim();
 const asNumberOrZero = (value: string | number | null | undefined) => {
   const next = Number(value);
@@ -78,26 +89,20 @@ const sanitizePriceInput = (rawValue: string) => {
   return `${wholePart || '0'}.${decimalPart}`;
 };
 
-const toDateTimeInputValue = (value: string | null | undefined) => {
-  const text = asTrimmed(value);
-  if (!text) return '';
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return '';
-
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  const day = String(parsed.getDate()).padStart(2, '0');
-  const hours = String(parsed.getHours()).padStart(2, '0');
-  const minutes = String(parsed.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-};
-
 const formatDateTime = (value: string | null | undefined) => {
   const text = asTrimmed(value);
   if (!text) return 'Not set';
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return text;
   return parsed.toLocaleString();
+};
+
+const isLimitedSentinel = (value: string | null | undefined) => asTrimmed(value).startsWith('9999-12-31');
+
+const getLimitedDisplayLabel = (value: string | null | undefined) => {
+  if (!asTrimmed(value)) return '';
+  if (isLimitedSentinel(value)) return 'Limited item';
+  return `Limited until: ${formatDateTime(value)}`;
 };
 
 const getDiscountScheduleLabel = (item: MenuItem) => {
@@ -126,16 +131,22 @@ const getDiscountFromMode = (price: number, inputValue: number, mode: DiscountMo
   return roundCurrency(Math.min(safePrice, normalizeAmount(inputValue)));
 };
 
-const hasValidImageUrl = (value: string | null | undefined) => {
-  const text = asTrimmed(value);
-  if (!text) return true;
-  if (text.startsWith('data:image/')) return true;
-  try {
-    const parsed = new URL(text);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
+const getNormalizedDiscountValue = (value: number, mode: DiscountMode) => {
+  if (mode === 'percent') return normalizePercent(value);
+  return normalizeAmount(value);
+};
+
+const getDiscountDisplayLabel = (mode: DiscountMode, value: number) => {
+  const normalized = getNormalizedDiscountValue(value, mode);
+  if (normalized <= 0) return 'No discount';
+  return mode === 'percent' ? `${normalized}% off` : `${formatCurrency(normalized)} off`;
+};
+
+const getMenuItemDiscountLabel = (item: MenuItem) => {
+  if (normalizeAmount(item.effectiveDiscount || item.discount) <= 0) return 'No discount';
+  const storedLabel = asTrimmed(item.discountLabel);
+  if (storedLabel) return storedLabel;
+  return getDiscountDisplayLabel(item.discountType, item.discountValue || item.discount);
 };
 
 const validateMenuItemDraft = (draft: MenuItem) => {
@@ -144,10 +155,7 @@ const validateMenuItemDraft = (draft: MenuItem) => {
   if (!Number.isFinite(draft.price) || draft.price < 0) return 'Price must be zero or higher.';
   if (!Number.isFinite(draft.discount) || draft.discount < 0) return 'Discount must be zero or higher.';
   if (draft.price > 0 && draft.discount > draft.price) return 'Discount cannot be greater than price.';
-  if (draft.discountStartsAt && draft.discountEndsAt && new Date(draft.discountEndsAt).getTime() <= new Date(draft.discountStartsAt).getTime()) {
-    return 'Discount end time must be after the discount start time.';
-  }
-  if (!hasValidImageUrl(draft.imageUrl)) return 'Image URL must be http(s) or a valid image data URL.';
+  if (draft.discountType === 'percent' && draft.discountValue > 100) return 'Percent discount cannot exceed 100%.';
   return '';
 };
 
@@ -156,10 +164,12 @@ export const MenuManagementPage = () => {
   const { items, loading: itemsLoading, error: itemsError, saveItem, deleteItem } = useMenuItems();
   const [categoryDraft, setCategoryDraft] = useState<MenuCategory>(defaultCategoryDraft);
   const [draft, setDraft] = useState<MenuItem>(() => createDefaultMenuItemDraft());
+  const [draftDiscountMode, setDraftDiscountMode] = useState<DraftDiscountMode>('none');
   const [draftPriceInput, setDraftPriceInput] = useState('');
   const [query, setQuery] = useState('');
   const [menuItemError, setMenuItemError] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingCategoryImage, setIsUploadingCategoryImage] = useState(false);
   const [isMenuItemModalOpen, setIsMenuItemModalOpen] = useState(false);
   const [bulkDiscountMode, setBulkDiscountMode] = useState<DiscountMode>('amount');
   const [bulkDiscountInput, setBulkDiscountInput] = useState('0');
@@ -169,6 +179,19 @@ export const MenuManagementPage = () => {
   const [isApplyingBulkDiscount, setIsApplyingBulkDiscount] = useState(false);
 
   const filtered = useMemo(() => items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())), [items, query]);
+  const groupedMenuItems = useMemo<MenuItemGroup[]>(() => {
+    const categoryIds = new Set(categories.map((category) => category.id));
+    const categoryGroups = categories
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        items: filtered.filter((item) => item.categoryId === category.id),
+      }))
+      .filter((group) => group.items.length > 0);
+    const uncategorizedItems = filtered.filter((item) => !categoryIds.has(item.categoryId));
+    if (!uncategorizedItems.length) return categoryGroups;
+    return [...categoryGroups, { id: 'uncategorized', name: 'Uncategorized', items: uncategorizedItems }];
+  }, [categories, filtered]);
   const bulkSelectableItems = useMemo(() => {
     const needle = asTrimmed(bulkItemQuery).toLowerCase();
     if (!needle) return items;
@@ -180,7 +203,7 @@ export const MenuManagementPage = () => {
     [items, selectedBulkSet],
   );
   const bulkTargetCount = bulkScope === 'all' ? items.length : selectedBulkCount;
-  const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
+  const categoryNameById = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
   const discountedItems = useMemo(
     () => items.filter((item) => item.isDiscountActive && normalizeAmount(item.effectiveDiscount) > 0),
     [items],
@@ -208,6 +231,7 @@ export const MenuManagementPage = () => {
 
   const resetMenuItemDraft = () => {
     setDraft(createDefaultMenuItemDraft());
+    setDraftDiscountMode('none');
     setDraftPriceInput('');
     setMenuItemError('');
   };
@@ -229,7 +253,7 @@ export const MenuManagementPage = () => {
     setDraft((current) => ({
       ...current,
       price: nextPrice,
-      discount: Math.min(normalizeAmount(current.discount), nextPrice),
+      discount: getDiscountFromMode(nextPrice, current.discountValue, current.discountType),
     }));
   };
 
@@ -238,7 +262,7 @@ export const MenuManagementPage = () => {
       setDraft((current) => ({
         ...current,
         price: 0,
-        discount: Math.min(normalizeAmount(current.discount), 0),
+        discount: 0,
       }));
       return;
     }
@@ -248,21 +272,27 @@ export const MenuManagementPage = () => {
     setDraft((current) => ({
       ...current,
       price: normalized,
-      discount: Math.min(normalizeAmount(current.discount), normalized),
+      discount: getDiscountFromMode(normalized, current.discountValue, current.discountType),
     }));
   };
 
   const handleSaveMenuItem = async () => {
-    const normalizedDiscount = Math.min(normalizeAmount(draft.discount), normalizeAmount(draft.price));
+    const normalizedPrice = normalizeAmount(draft.price);
+    const activeDiscountMode: DiscountMode = draftDiscountMode === 'none' ? 'amount' : draft.discountType;
+    const normalizedDiscountValue = draftDiscountMode === 'none' ? 0 : getNormalizedDiscountValue(draft.discountValue, activeDiscountMode);
+    const normalizedDiscount = getDiscountFromMode(normalizedPrice, normalizedDiscountValue, activeDiscountMode);
     const preparedDraft: MenuItem = {
       ...draft,
-      price: normalizeAmount(draft.price),
-      effectivePrice: Math.max(normalizeAmount(draft.price) - normalizedDiscount, 0),
+      price: normalizedPrice,
+      effectivePrice: Math.max(normalizedPrice - normalizedDiscount, 0),
       discount: normalizedDiscount,
+      discountType: normalizedDiscount > 0 ? activeDiscountMode : 'amount',
+      discountValue: normalizedDiscount > 0 ? normalizedDiscountValue : 0,
+      discountLabel: normalizedDiscount > 0 ? getDiscountDisplayLabel(activeDiscountMode, normalizedDiscountValue) : null,
       effectiveDiscount: normalizedDiscount,
       isDiscountActive: normalizedDiscount > 0,
-      discountStartsAt: normalizedDiscount > 0 ? (asTrimmed(draft.discountStartsAt) || null) : null,
-      discountEndsAt: normalizedDiscount > 0 ? (asTrimmed(draft.discountEndsAt) || null) : null,
+      discountStartsAt: null,
+      discountEndsAt: null,
       limitedTimeEndsAt: asTrimmed(draft.limitedTimeEndsAt) || null,
     };
 
@@ -312,6 +342,23 @@ export const MenuManagementPage = () => {
     }
   };
 
+  const handleCategoryImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      setIsUploadingCategoryImage(true);
+      const uploadedUrl = await menuService.uploadMenuCategoryImage(file);
+      setCategoryDraft((current) => ({ ...current, imageUrl: uploadedUrl }));
+      toast.success('Category image uploaded.');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to upload category image.'));
+    } finally {
+      setIsUploadingCategoryImage(false);
+    }
+  };
+
   const handleSaveCategory = async () => {
     const name = asTrimmed(categoryDraft.name);
     const description = asTrimmed(categoryDraft.description) || null;
@@ -321,7 +368,12 @@ export const MenuManagementPage = () => {
     }
 
     try {
-      const saved = await saveCategory({ ...categoryDraft, name, description });
+      const saved = await saveCategory({
+        ...categoryDraft,
+        name,
+        description,
+        imageUrl: asTrimmed(categoryDraft.imageUrl) || null,
+      });
       setCategoryDraft(defaultCategoryDraft);
       toast.success(`Category saved (${saved.name}).`);
     } catch (error) {
@@ -351,6 +403,7 @@ export const MenuManagementPage = () => {
   const handleEditMenuItem = (item: MenuItem) => {
     const normalizedPrice = normalizeAmount(item.price);
     setDraft({ ...item, price: normalizedPrice });
+    setDraftDiscountMode(normalizeAmount(item.discount) > 0 ? item.discountType : 'none');
     setDraftPriceInput(formatPriceInput(normalizedPrice));
     setMenuItemError('');
     setIsMenuItemModalOpen(true);
@@ -389,18 +442,26 @@ export const MenuManagementPage = () => {
       return;
     }
 
+    const normalizedDiscountValue = getNormalizedDiscountValue(inputValue, bulkDiscountMode);
     const updates = targetItems
       .map((item) => {
-        const nextDiscount = getDiscountFromMode(item.price, inputValue, bulkDiscountMode);
+        const nextDiscount = getDiscountFromMode(item.price, normalizedDiscountValue, bulkDiscountMode);
         return {
           ...item,
           discount: nextDiscount,
+          discountType: nextDiscount > 0 ? bulkDiscountMode : 'amount',
+          discountValue: nextDiscount > 0 ? normalizedDiscountValue : 0,
+          discountLabel: nextDiscount > 0 ? getDiscountDisplayLabel(bulkDiscountMode, normalizedDiscountValue) : null,
           effectiveDiscount: nextDiscount,
           effectivePrice: Math.max(normalizeAmount(item.price) - nextDiscount, 0),
           isDiscountActive: nextDiscount > 0,
           discountStartsAt: null,
           discountEndsAt: null,
-          hasChanged: Math.abs(nextDiscount - normalizeAmount(item.discount)) >= 0.005,
+          hasChanged:
+            Math.abs(nextDiscount - normalizeAmount(item.discount)) >= 0.005 ||
+            item.discountType !== (nextDiscount > 0 ? bulkDiscountMode : 'amount') ||
+            Math.abs(normalizeAmount(item.discountValue) - (nextDiscount > 0 ? normalizedDiscountValue : 0)) >= 0.005 ||
+            Boolean(item.discountStartsAt || item.discountEndsAt),
         };
       })
       .filter((item) => item.hasChanged)
@@ -434,6 +495,9 @@ export const MenuManagementPage = () => {
       .map((item) => ({
         ...item,
         discount: 0,
+        discountType: 'amount' as const,
+        discountValue: 0,
+        discountLabel: null,
         effectiveDiscount: 0,
         effectivePrice: normalizeAmount(item.price),
         isDiscountActive: false,
@@ -457,10 +521,7 @@ export const MenuManagementPage = () => {
     }
   };
 
-  const bulkPreviewLabel =
-    bulkDiscountMode === 'percent'
-      ? `${normalizePercent(asNumberOrZero(bulkDiscountInput))}% off`
-      : `${formatCurrency(normalizeAmount(asNumberOrZero(bulkDiscountInput)))} off`;
+  const bulkPreviewLabel = getDiscountDisplayLabel(bulkDiscountMode, asNumberOrZero(bulkDiscountInput));
 
   return (
     <div className="space-y-4">
@@ -570,10 +631,10 @@ export const MenuManagementPage = () => {
                     {item.name} - {formatCurrency(item.effectivePrice)}
                     <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span>
                   </p>
-                  <p className="text-[#6B7280]">{getDiscountScheduleLabel(item)}</p>
+                  <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p>
                 </div>
                 <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
-                  Edit schedule
+                  Edit discount
                 </button>
               </div>
             ))}
@@ -607,6 +668,22 @@ export const MenuManagementPage = () => {
             value={categoryDraft.description ?? ''}
             onChange={(event) => setCategoryDraft({ ...categoryDraft, description: event.target.value })}
           />
+          <div className="md:col-span-3 rounded border p-3 flex flex-wrap items-center gap-3 text-sm">
+            <label>
+              Upload category picture
+              <input
+                type="file"
+                accept="image/*"
+                className="block border rounded mt-1 px-2 py-1 w-full text-sm"
+                onChange={handleCategoryImageUpload}
+                disabled={isUploadingCategoryImage}
+              />
+            </label>
+            <span className="text-xs text-[#6B7280]">
+              {isUploadingCategoryImage ? 'Uploading category image...' : 'Shown on the customer category cards.'}
+            </span>
+            {categoryDraft.imageUrl ? <Image src={categoryDraft.imageUrl} alt={categoryDraft.name || 'category image'} className="h-14 w-14 rounded object-cover border" /> : null}
+          </div>
         </div>
         <div className="flex gap-2">
           <button className="border rounded px-3 py-1" onClick={handleSaveCategory}>
@@ -621,7 +698,9 @@ export const MenuManagementPage = () => {
         <div className="space-y-2">
           {categories.map((category) => (
             <div key={category.id} className="border rounded p-2 text-sm flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-3">
+                {category.imageUrl ? <Image src={category.imageUrl} alt={category.name} className="h-12 w-12 rounded object-cover border" /> : null}
+                <div>
                 <p>
                   {category.sortOrder} - {category.name} {category.isActive ? '' : '(inactive)'}
                 </p>
@@ -629,6 +708,7 @@ export const MenuManagementPage = () => {
                   {category.isNew ? <StatusChip label="NEW" tone="success" /> : null}
                 </div>
                 {asTrimmed(category.description) ? <p className="text-xs text-[#6B7280]">{category.description}</p> : null}
+                </div>
               </div>
               <div className="flex gap-2">
                 <button className="border rounded px-2 py-1" onClick={() => setCategoryDraft(category)}>
@@ -648,36 +728,45 @@ export const MenuManagementPage = () => {
           <h3 className="font-medium">Manage Menu Items</h3>
           <input className="border rounded px-2 py-1 text-sm" placeholder="Search item name" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
-        <div className="space-y-2">
-          {filtered.map((item) => (
-            <div key={item.id} className="border rounded p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
-              <div className="flex-1 min-w-[260px]">
-                <p className="font-medium">
-                  {item.name} - {formatCurrency(item.effectivePrice)}
-                  {item.isDiscountActive ? <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span> : null}
-                </p>
-                <p className="text-[#6B7280]">
-                  Category: {categoryById.get(item.categoryId) ?? (item.categoryId || 'uncategorized')} - Updated:{' '}
-                  {new Date(item.updatedAt).toLocaleString()}
-                </p>
-                {item.limitedTimeEndsAt ? <p className="text-[#6B7280]">Limited until: {formatDateTime(item.limitedTimeEndsAt)}</p> : null}
-                {item.discount > 0 ? <p className="text-[#6B7280]">{getDiscountScheduleLabel(item)}</p> : null}
-                <div className="flex gap-2 mt-1 flex-wrap">
-                  <StatusChip label={item.isAvailable ? 'Available' : 'Unavailable'} tone={item.isAvailable ? 'success' : 'warning'} />
-                  <StatusChip label={item.isDiscountActive ? `${formatCurrency(item.effectiveDiscount)} off` : item.discount > 0 ? 'Scheduled discount' : 'No discount'} tone={item.discount > 0 ? 'warning' : 'neutral'} />
-                  {item.isNew ? <StatusChip label="NEW" tone="success" /> : null}
-                  {item.isLimited ? <StatusChip label="LIMITED" tone="warning" /> : null}
-                  {item.isLimitedExpired ? <StatusChip label="Expired limited" tone="danger" /> : null}
+        <div className="space-y-4">
+          {!filtered.length ? <p className="text-sm text-[#6B7280]">No menu items match your search.</p> : null}
+          {groupedMenuItems.map((group) => (
+            <div key={group.id} className="rounded border border-dashed p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-semibold text-sm">{group.name}</h4>
+                <StatusChip label={`${group.items.length} item${group.items.length === 1 ? '' : 's'}`} tone="neutral" />
+              </div>
+              {group.items.map((item) => (
+                <div key={item.id} className="border rounded p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <div className="flex-1 min-w-[260px]">
+                    <p className="font-medium">
+                      {item.name} - {formatCurrency(item.effectivePrice)}
+                      {item.isDiscountActive ? <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span> : null}
+                    </p>
+                    <p className="text-[#6B7280]">
+                      Category: {categoryNameById.get(item.categoryId) ?? (item.categoryId || 'uncategorized')} - Updated:{' '}
+                      {new Date(item.updatedAt).toLocaleString()}
+                    </p>
+                    {item.limitedTimeEndsAt ? <p className="text-[#6B7280]">{getLimitedDisplayLabel(item.limitedTimeEndsAt)}</p> : null}
+                    {item.discount > 0 ? <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p> : null}
+                    <div className="flex gap-2 mt-1 flex-wrap">
+                      <StatusChip label={item.isAvailable ? 'Available' : 'Unavailable'} tone={item.isAvailable ? 'success' : 'warning'} />
+                      <StatusChip label={item.isDiscountActive ? getMenuItemDiscountLabel(item) : item.discount > 0 ? 'Scheduled discount' : 'No discount'} tone={item.discount > 0 ? 'warning' : 'neutral'} />
+                      {item.isNew ? <StatusChip label="NEW" tone="success" /> : null}
+                      {item.isLimited ? <StatusChip label="LIMITED" tone="warning" /> : null}
+                      {item.isLimitedExpired ? <StatusChip label="Expired limited" tone="danger" /> : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
+                      Edit
+                    </button>
+                    <button className="border rounded px-2 py-1" onClick={() => handleDeleteMenuItem(item.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-2 items-center">
-                <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
-                  Edit
-                </button>
-                <button className="border rounded px-2 py-1" onClick={() => handleDeleteMenuItem(item.id)}>
-                  Delete
-                </button>
-              </div>
+              ))}
             </div>
           ))}
         </div>
@@ -732,23 +821,76 @@ export const MenuManagementPage = () => {
                   onBlur={handleDraftPriceBlur}
                 />
               </label>
-              <label className="text-sm">
-                Discount amount
-                <input
-                  type="number"
-                  min={0}
-                  max={draft.price || undefined}
-                  step="0.01"
-                  className="block border rounded mt-1 px-2 py-1 w-full"
-                  value={draft.discount}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      discount: Math.min(normalizeAmount(Number(event.target.value)), normalizeAmount(current.price)),
-                    }))
-                  }
-                />
-              </label>
+              <div className="text-sm">
+                <span className="block">Discount</span>
+                <div className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(120px,160px)] gap-2">
+                  <select
+                    className="border rounded px-2 py-1 w-full"
+                    value={draftDiscountMode}
+                    onChange={(event) => {
+                      const nextMode = event.target.value as DraftDiscountMode;
+                      setDraftDiscountMode(nextMode);
+                      setDraft((current) => {
+                        if (nextMode === 'none') {
+                          return {
+                            ...current,
+                            discount: 0,
+                            discountType: 'amount',
+                            discountValue: 0,
+                            discountLabel: null,
+                            effectiveDiscount: 0,
+                            effectivePrice: normalizeAmount(current.price),
+                            isDiscountActive: false,
+                          };
+                        }
+                        const nextValue = nextMode === current.discountType ? current.discountValue : 0;
+                        const nextDiscount = getDiscountFromMode(current.price, nextValue, nextMode);
+                        return {
+                          ...current,
+                          discountType: nextMode,
+                          discountValue: nextValue,
+                          discount: nextDiscount,
+                          discountLabel: nextDiscount > 0 ? getDiscountDisplayLabel(nextMode, nextValue) : null,
+                          effectiveDiscount: nextDiscount,
+                          effectivePrice: Math.max(normalizeAmount(current.price) - nextDiscount, 0),
+                          isDiscountActive: nextDiscount > 0,
+                        };
+                      });
+                    }}
+                  >
+                    <option value="none">No discount</option>
+                    <option value="amount">Fixed amount</option>
+                    <option value="percent">Percent off</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    max={draftDiscountMode === 'percent' ? 100 : draft.price || undefined}
+                    step="0.01"
+                    className="border rounded px-2 py-1 w-full"
+                    value={draft.discountValue}
+                    disabled={draftDiscountMode === 'none'}
+                    onChange={(event) =>
+                      setDraft((current) => {
+                        const nextValue = getNormalizedDiscountValue(Number(event.target.value), current.discountType);
+                        const nextDiscount = getDiscountFromMode(current.price, nextValue, current.discountType);
+                        return {
+                          ...current,
+                          discountValue: nextValue,
+                          discount: nextDiscount,
+                          discountLabel: nextDiscount > 0 ? getDiscountDisplayLabel(current.discountType, nextValue) : null,
+                          effectiveDiscount: nextDiscount,
+                          effectivePrice: Math.max(normalizeAmount(current.price) - nextDiscount, 0),
+                          isDiscountActive: nextDiscount > 0,
+                        };
+                      })
+                    }
+                  />
+                </div>
+                <p className="mt-1 text-xs text-[#6B7280]">
+                  Customer label: {draftDiscountMode !== 'none' && draft.discountValue > 0 ? getDiscountDisplayLabel(draft.discountType, draft.discountValue) : 'No discount'}
+                </p>
+              </div>
               <label className="text-sm">
                 Availability
                 <div className="mt-2 flex items-center gap-2 text-sm">
@@ -756,32 +898,16 @@ export const MenuManagementPage = () => {
                   <span>{draft.isAvailable ? 'Available' : 'Unavailable'}</span>
                 </div>
               </label>
-              <label className="text-sm">
-                Discount starts at
-                <input
-                  type="datetime-local"
-                  className="block border rounded mt-1 px-2 py-1 w-full"
-                  value={toDateTimeInputValue(draft.discountStartsAt)}
-                  onChange={(event) => setDraft({ ...draft, discountStartsAt: event.target.value || null })}
-                />
-              </label>
-              <label className="text-sm">
-                Discount ends at
-                <input
-                  type="datetime-local"
-                  className="block border rounded mt-1 px-2 py-1 w-full"
-                  value={toDateTimeInputValue(draft.discountEndsAt)}
-                  onChange={(event) => setDraft({ ...draft, discountEndsAt: event.target.value || null })}
-                />
-              </label>
-              <label className="text-sm md:col-span-2">
-                Limited time ends at
-                <input
-                  type="datetime-local"
-                  className="block border rounded mt-1 px-2 py-1 w-full"
-                  value={toDateTimeInputValue(draft.limitedTimeEndsAt)}
-                  onChange={(event) => setDraft({ ...draft, limitedTimeEndsAt: event.target.value || null })}
-                />
+              <label className="text-sm md:col-span-2 rounded border p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(asTrimmed(draft.limitedTimeEndsAt))}
+                    onChange={(event) => setDraft({ ...draft, limitedTimeEndsAt: event.target.checked ? LIMITED_ITEM_SENTINEL : null })}
+                  />
+                  <span>Mark as limited item</span>
+                </div>
+                <p className="mt-1 text-xs text-[#6B7280]">Limited items show a LIMITED tag on the customer menu card.</p>
               </label>
               <label className="text-sm md:col-span-2">
                 Description
@@ -789,15 +915,6 @@ export const MenuManagementPage = () => {
                   className="block border rounded mt-1 px-2 py-1 w-full"
                   value={draft.description ?? ''}
                   onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-                />
-              </label>
-              <label className="text-sm md:col-span-2">
-                Image URL (optional)
-                <input
-                  className="block border rounded mt-1 px-2 py-1 w-full"
-                  placeholder="https://..."
-                  value={draft.imageUrl ?? ''}
-                  onChange={(event) => setDraft({ ...draft, imageUrl: event.target.value })}
                 />
               </label>
             </div>

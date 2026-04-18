@@ -9,6 +9,9 @@ export type MenuItem = {
   isAvailable: boolean;
   imageUrl: string | null;
   discount: number;
+  discountType: 'amount' | 'percent';
+  discountValue: number;
+  discountLabel: string | null;
   effectiveDiscount: number;
   isDiscountActive: boolean;
   discountStartsAt: string | null;
@@ -28,6 +31,7 @@ export type MenuCategory = {
   id: string;
   name: string;
   description: string | null;
+  imageUrl: string | null;
   sortOrder: number;
   isActive: boolean;
   newTagStartedAt: string | null;

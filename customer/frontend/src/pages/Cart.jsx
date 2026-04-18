@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { getLatestOrder } from "../services/orderService";
+import coffeeFallback from "../assets/coffee.png";
 
 function normalizeStatus(value) {
   return String(value || "pending").trim().toLowerCase();
@@ -26,6 +27,15 @@ function getActiveOrderCtaLabel(order) {
 
 function formatMoney(value) {
   return `PHP ${Number(value || 0).toFixed(2)}`;
+}
+
+function getCartItemImage(item) {
+  return item?.image || coffeeFallback;
+}
+
+function handleFallbackImage(event) {
+  if (event.currentTarget.src === coffeeFallback) return;
+  event.currentTarget.src = coffeeFallback;
 }
 
 export default function Cart() {
@@ -113,7 +123,12 @@ export default function Cart() {
                   boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
                 }}
               >
-                <img src={item.image} alt={item.displayName || item.name} style={{ width: 70, height: 70, borderRadius: 12, objectFit: "cover" }} />
+                <img
+                  src={getCartItemImage(item)}
+                  alt={item.displayName || item.name}
+                  onError={handleFallbackImage}
+                  style={{ width: 70, height: 70, borderRadius: 12, objectFit: "cover" }}
+                />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 900 }}>{item.displayName || item.name}</div>
                   <div style={{ opacity: 0.7 }}>

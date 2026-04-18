@@ -139,6 +139,7 @@
 }
 
 .item-imgWrap {
+  position: relative;
   height: 180px;
   background: #eef2f6;
 }
@@ -148,6 +149,53 @@
   height: 100%;
   object-fit: cover;
   object-position: center;
+}
+
+.item-card-tags {
+  position: absolute;
+  top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.item-card-tags--left {
+  left: 12px;
+  max-width: calc(100% - 96px);
+}
+
+.item-card-tags--right {
+  right: 12px;
+  justify-content: flex-end;
+  max-width: 48%;
+}
+
+.item-card-tag {
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-family: "Poppins", sans-serif;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 18px rgba(22, 24, 35, 0.14);
+}
+
+.item-card-tag--new {
+  color: #12536b;
+  background: #dcf6fb;
+}
+
+.item-card-tag--limited {
+  color: #8a4b06;
+  background: #fff1d8;
+}
+
+.item-card-tag--discounted {
+  color: #9c2155;
+  background: #ffe5ef;
 }
 
 .item-body {

@@ -28,6 +28,7 @@ export const customerService = {
         stampCount: 0,
         availableRewards: [],
         redeemedRewards: [],
+        rewardRedemptionCounts: [],
         updatedAt: new Date().toISOString(),
       },
     }));

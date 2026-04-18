@@ -7,16 +7,9 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function formatActivityStampDelta(delta) {
-  const safe = asNumber(delta, 0);
-  if (safe > 0) return `+${safe} stamp${safe === 1 ? "" : "s"}`;
-  if (safe < 0) return `${safe} stamp${Math.abs(safe) === 1 ? "" : "s"}`;
-  return "0 stamp";
-}
-
 function getRewardActionLabel(reward, isRedeeming, stampsNeeded) {
   if (isRedeeming) return "Redeeming...";
-  if (reward?.canRedeem) return "Redeem item";
+  if (reward?.canRedeem) return reward?.isGroomReward ? "Save in-store reward" : "Redeem item";
   if (reward?.isRedeemedThisCycle) {
     return reward?.pendingRewardItemCount ? "Free drink ready" : "Redeemed this cycle";
   }
@@ -36,7 +29,6 @@ function LoyaltyCard({
     allRewards = [],
     availableRewards = [],
     customerName,
-    recentActivity = [],
   } = loyaltyData || {};
 
   const earnedStamps = Math.min(stampCount, TOTAL_STAMPS);
@@ -98,6 +90,9 @@ function LoyaltyCard({
                   {reward.isRedeemedThisCycle && reward.pendingRewardItemCount ? (
                     <p className="loyalty-reward-row__hint">Redeemed for this cycle. Add the free drink to your basket below when you’re ready.</p>
                   ) : null}
+                  {reward.isGroomReward && canRedeem ? (
+                    <p className="loyalty-reward-row__hint">Free Groom can only be claimed in store. Redeem here to save it to your profile.</p>
+                  ) : null}
                 </div>
 
                 <button
@@ -116,19 +111,6 @@ function LoyaltyCard({
         )}
       </div>
 
-      <div className="loyalty-card__meta">
-        {recentActivity.length ? (
-          <ul>
-            {recentActivity.map((entry) => (
-              <li key={entry.id}>
-                {new Date(entry.earnedAt).toLocaleDateString()} - {entry.status} - {entry.description} - {formatActivityStampDelta(entry.stampDelta)}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>Your recent loyalty activity will appear here.</p>
-        )}
-      </div>
     </section>
   );
 }

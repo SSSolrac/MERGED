@@ -21,6 +21,10 @@ const asNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const asBoolean = (value: unknown, fallback = false) => (typeof value === 'boolean' ? value : value == null ? fallback : Boolean(value));
+const asDiscountType = (value: unknown): MenuItem['discountType'] => {
+  const text = asString(value, '').trim().toLowerCase();
+  return text === 'percent' ? 'percent' : 'amount';
+};
 
 const asIsoString = (value: unknown, fallback: string) => {
   const v = asString(value, '');
@@ -59,6 +63,7 @@ export const mapMenuCategoryRow = (row: unknown): MenuCategory => {
     id: asString(r.id, ''),
     name: asString(r.name, ''),
     description: r.description == null ? null : asString(r.description, ''),
+    imageUrl: r.image_url == null ? null : asString(r.image_url, ''),
     sortOrder: asNumber(r.sort_order, 0),
     isActive: asBoolean(r.is_active, true),
     newTagStartedAt: r.new_tag_started_at == null ? null : asString(r.new_tag_started_at, ''),
@@ -87,6 +92,9 @@ export const mapMenuItemRow = (row: unknown): MenuItem => {
     price: asNumber(r.price, 0),
     effectivePrice: asNumber(r.effective_price, Math.max(asNumber(r.price, 0) - asNumber(r.effective_discount ?? r.discount, 0), 0)),
     discount: asNumber(r.discount, 0),
+    discountType: asDiscountType(r.discount_type ?? r.discountType),
+    discountValue: asNumber(r.discount_value ?? r.discountValue, asNumber(r.discount, 0)),
+    discountLabel: r.discount_label == null ? null : asString(r.discount_label, ''),
     effectiveDiscount: asNumber(r.effective_discount, asNumber(r.discount, 0)),
     isDiscountActive: asBoolean(r.is_discount_active, asNumber(r.effective_discount ?? r.discount, 0) > 0),
     discountStartsAt: r.discount_starts_at == null ? null : asString(r.discount_starts_at, ''),

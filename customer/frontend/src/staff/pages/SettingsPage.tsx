@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { getErrorMessage } from '@/lib/errors';
@@ -38,6 +38,7 @@ export const SettingsPage = () => {
   const [logoUrl, setLogoUrl] = useState('');
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   const [enableQrph, setEnableQrph] = useState(false);
   const [enableGcash, setEnableGcash] = useState(false);
@@ -278,6 +279,23 @@ export const SettingsPage = () => {
     }
   };
 
+  const handleLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      setIsUploadingLogo(true);
+      const uploadedUrl = await businessSettingsService.uploadBrandingAsset(file);
+      setLogoUrl(uploadedUrl);
+      toast.success('Branding image uploaded.');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to upload branding image.'));
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   const handleAnnouncementChange = <K extends keyof CampaignAnnouncement>(
     id: string,
     key: K,
@@ -322,7 +340,7 @@ export const SettingsPage = () => {
     }
   };
 
-  const isBusinessSettingsBusy = isLoadingSettings || isSavingSettings;
+  const isBusinessSettingsBusy = isLoadingSettings || isSavingSettings || isUploadingLogo;
   const isAnnouncementsBusy = isLoadingAnnouncements || isSavingAnnouncements;
   const announcementSourceLabel =
     announcementSource === 'campaign_table'
@@ -403,15 +421,24 @@ export const SettingsPage = () => {
               disabled={isBusinessSettingsBusy}
             />
           </label>
-          <label className="block text-sm md:col-span-2">
-            Logo URL / Branding asset
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
+          <div className="block text-sm md:col-span-2">
+            <span className="block">Logo / Branding picture</span>
+            <div className="mt-1 flex flex-wrap items-center gap-3 rounded border p-3">
+              <input
+                type="file"
+                accept="image/*"
+                className="block text-sm"
+                onChange={handleLogoUpload}
+                disabled={isBusinessSettingsBusy}
+              />
+              <span className="text-xs text-[#6B7280]">
+                {isUploadingLogo ? 'Uploading...' : 'Upload a logo or branding image for the customer storefront.'}
+              </span>
+              {logoUrl ? (
+                <img src={logoUrl} alt="Current cafe branding" className="h-16 w-16 rounded border object-cover" />
+              ) : null}
+            </div>
+          </div>
         </div>
       </section>
 

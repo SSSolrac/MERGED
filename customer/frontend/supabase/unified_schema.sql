@@ -700,6 +700,7 @@ create table if not exists public.menu_categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   description text,
+  image_url text,
   sort_order integer not null default 0,
   is_active boolean not null default true,
   new_tag_started_at timestamptz,
@@ -708,6 +709,7 @@ create table if not exists public.menu_categories (
 );
 
 alter table public.menu_categories add column if not exists description text;
+alter table public.menu_categories add column if not exists image_url text;
 alter table public.menu_categories add column if not exists new_tag_started_at timestamptz;
 
 drop trigger if exists trg_menu_categories_updated_at on public.menu_categories;
@@ -723,6 +725,8 @@ create table if not exists public.menu_items (
   description text,
   price numeric(10,2) not null check (price >= 0),
   discount numeric(10,2) not null default 0 check (discount >= 0),
+  discount_type text not null default 'amount' check (discount_type in ('amount', 'percent')),
+  discount_value numeric(10,2) not null default 0 check (discount_value >= 0),
   discount_starts_at timestamptz,
   discount_ends_at timestamptz,
   limited_time_ends_at timestamptz,
@@ -734,10 +738,35 @@ create table if not exists public.menu_items (
   unique(category_id, name)
 );
 
+alter table public.menu_items add column if not exists discount_type text not null default 'amount';
+alter table public.menu_items add column if not exists discount_value numeric(10,2) not null default 0;
 alter table public.menu_items add column if not exists discount_starts_at timestamptz;
 alter table public.menu_items add column if not exists discount_ends_at timestamptz;
 alter table public.menu_items add column if not exists limited_time_ends_at timestamptz;
 alter table public.menu_items add column if not exists new_tag_started_at timestamptz;
+
+alter table public.menu_items alter column discount_type set default 'amount';
+alter table public.menu_items alter column discount_value set default 0;
+
+update public.menu_items
+set
+  discount_type = 'amount',
+  discount_value = coalesce(discount, 0)
+where coalesce(discount, 0) > 0
+  and coalesce(discount_value, 0) = 0;
+
+update public.menu_items
+set discount_type = 'amount'
+where discount_type is null
+  or discount_type not in ('amount', 'percent');
+
+update public.menu_items
+set discount_value = 0
+where discount_value is null
+  or discount_value < 0;
+
+alter table public.menu_items alter column discount_type set not null;
+alter table public.menu_items alter column discount_value set not null;
 
 create index if not exists idx_menu_items_category_id on public.menu_items(category_id);
 create index if not exists idx_menu_items_is_available on public.menu_items(is_available);
@@ -749,6 +778,28 @@ create index if not exists idx_menu_categories_new_tag_started_at on public.menu
 
 do $$
 begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'menu_items_discount_type_chk'
+      and conrelid = 'public.menu_items'::regclass
+  ) then
+    alter table public.menu_items
+      add constraint menu_items_discount_type_chk
+      check (discount_type in ('amount', 'percent'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'menu_items_discount_value_chk'
+      and conrelid = 'public.menu_items'::regclass
+  ) then
+    alter table public.menu_items
+      add constraint menu_items_discount_value_chk
+      check (discount_value >= 0);
+  end if;
+
   if not exists (
     select 1
     from pg_constraint
@@ -1369,6 +1420,42 @@ begin
     raise exception 'Each loyalty reward item can only be used once per order.';
   end if;
 
+  if exists (
+    select 1
+    from jsonb_to_recordset(p_items) as x(
+      menu_item_id uuid,
+      loyalty_reward_item_id uuid,
+      menu_item_code text,
+      item_name text,
+      unit_price numeric,
+      discount_amount numeric,
+      quantity integer,
+      line_total numeric
+    )
+    where x.loyalty_reward_item_id is not null
+  ) then
+    if p_order_type not in ('dine_in', 'pickup', 'takeout') then
+      raise exception 'Free latte rewards can only be claimed with pickup, dine-in, or takeout orders.';
+    end if;
+
+    if not exists (
+      select 1
+      from jsonb_to_recordset(p_items) as x(
+        menu_item_id uuid,
+        loyalty_reward_item_id uuid,
+        menu_item_code text,
+        item_name text,
+        unit_price numeric,
+        discount_amount numeric,
+        quantity integer,
+        line_total numeric
+      )
+      where x.loyalty_reward_item_id is null
+    ) then
+      raise exception 'Free latte rewards must be claimed with a regular menu order.';
+    end if;
+  end if;
+
   with raw_items as (
     select
       row_number() over () as row_no,
@@ -1968,6 +2055,100 @@ $$;
 
 grant execute on function public.award_manual_loyalty_stamps(uuid, integer, text) to authenticated;
 
+create or replace function public.reset_customer_loyalty_card(
+  p_customer_id uuid,
+  p_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor_id uuid := auth.uid();
+  v_actor_role public.app_role;
+  v_customer public.profiles%rowtype;
+  v_previous_stamp_count integer;
+  v_new_stamp_count integer;
+  v_reason text;
+  v_customer_label text;
+begin
+  if v_actor_id is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  select p.role
+  into v_actor_role
+  from public.profiles p
+  where p.id = v_actor_id;
+
+  if coalesce(v_actor_role::text, '') not in ('owner', 'staff') then
+    raise exception 'Only owner or staff can reset loyalty cards.';
+  end if;
+
+  select *
+  into v_customer
+  from public.profiles
+  where id = p_customer_id
+    and role = 'customer'
+    and is_active = true
+  limit 1;
+
+  if not found then
+    raise exception 'Customer not found.';
+  end if;
+
+  select coalesce((
+    select la.stamp_count
+    from public.loyalty_accounts la
+    where la.customer_id = v_customer.id
+  ), 0)
+  into v_previous_stamp_count;
+
+  v_reason := nullif(trim(coalesce(p_reason, '')), '');
+  v_customer_label := coalesce(nullif(trim(v_customer.name), ''), nullif(trim(v_customer.email), ''), v_customer.id::text);
+
+  insert into public.loyalty_accounts (customer_id, stamp_count, updated_at)
+  values (v_customer.id, 0, now())
+  on conflict (customer_id) do update
+    set stamp_count = 0,
+        updated_at = now()
+  returning stamp_count into v_new_stamp_count;
+
+  perform public.record_activity_log(
+    'Reset loyalty card',
+    'loyalty_accounts',
+    v_customer.id::text,
+    v_customer_label,
+    format(
+      'Reset loyalty card for %s from %s stamp%s to 0%s',
+      v_customer_label,
+      v_previous_stamp_count,
+      case when v_previous_stamp_count = 1 then '' else 's' end,
+      case when v_reason is not null then '. Reason: ' || v_reason else '.' end
+    ),
+    jsonb_build_object(
+      'customer_id', v_customer.id,
+      'previous_stamp_count', v_previous_stamp_count,
+      'new_stamp_count', v_new_stamp_count,
+      'reason', v_reason
+    ),
+    v_actor_id
+  );
+
+  return jsonb_build_object(
+    'customerId', v_customer.id,
+    'customerLabel', v_customer_label,
+    'previousStampCount', v_previous_stamp_count,
+    'newStampCount', v_new_stamp_count,
+    'reason', v_reason,
+    'resetAt', now()
+  );
+end;
+$$;
+
+grant execute on function public.reset_customer_loyalty_card(uuid, text) to authenticated;
+
 create or replace function public.redeem_loyalty_reward(
   p_reward_id uuid,
   p_notes text default null,
@@ -2246,6 +2427,7 @@ select
   mc.id,
   mc.name,
   mc.description,
+  mc.image_url,
   mc.sort_order,
   mc.is_active,
   mc.new_tag_started_at,
@@ -2273,6 +2455,8 @@ select
   mi.description,
   mi.price,
   mi.discount,
+  mi.discount_type,
+  mi.discount_value,
   public.menu_effective_discount(
     mi.discount,
     mi.discount_starts_at,
@@ -2976,7 +3160,8 @@ on public.order_status_history for update
 using (public.is_owner_or_staff())
 with check (public.is_owner_or_staff());
 
--- imports are owner-only (imports page is owner-only in staffowner app)
+-- imports remain owner-managed, but staff may read imported sales rows so
+-- the shared dashboard can show the same historical analytics as owner.
 drop policy if exists "sales_import_batches_owner_only" on public.sales_import_batches;
 create policy "sales_import_batches_owner_only"
 on public.sales_import_batches for all
@@ -2984,7 +3169,13 @@ using (public.is_owner())
 with check (public.is_owner());
 
 drop policy if exists "imported_sales_rows_owner_only" on public.imported_sales_rows;
-create policy "imported_sales_rows_owner_only"
+drop policy if exists "imported_sales_rows_read_owner_staff" on public.imported_sales_rows;
+drop policy if exists "imported_sales_rows_manage_owner_only" on public.imported_sales_rows;
+create policy "imported_sales_rows_read_owner_staff"
+on public.imported_sales_rows for select
+using (public.is_owner_or_staff());
+
+create policy "imported_sales_rows_manage_owner_only"
 on public.imported_sales_rows for all
 using (public.is_owner())
 with check (public.is_owner());

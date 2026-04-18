@@ -52,6 +52,7 @@ function mapMenuCategoryRow(row) {
   const description = asNonEmptyText(row.description);
   const createdAt = row.created_at ?? row.createdAt ?? "";
   const updatedAt = row.updated_at ?? row.updatedAt ?? createdAt;
+  const imageUrl = normalizeMenuImageUrl(row.image_url ?? row.imageUrl);
   const newTagStartedAt = row.new_tag_started_at ?? row.newTagStartedAt ?? null;
   const newTagExpiresAt = row.new_tag_expires_at ?? row.newTagExpiresAt ?? null;
   const isNew = Boolean(row.is_new ?? row.isNew ?? false);
@@ -59,6 +60,7 @@ function mapMenuCategoryRow(row) {
     id: String(row.id),
     name: row.name ?? "",
     description: description || null,
+    imageUrl,
     sortOrder: Number(sortOrder ?? 0),
     isActive,
     newTagStartedAt,
@@ -87,6 +89,9 @@ function mapMenuItemRow(row) {
   const createdAt = row.created_at ?? row.createdAt ?? "";
   const updatedAt = row.updated_at ?? row.updatedAt ?? "";
   const rawDiscount = Number(row.discount ?? 0);
+  const discountType = String(row.discount_type ?? row.discountType ?? "amount").toLowerCase() === "percent" ? "percent" : "amount";
+  const discountValue = Number(row.discount_value ?? row.discountValue ?? rawDiscount);
+  const discountLabel = asNonEmptyText(row.discount_label ?? row.discountLabel) || null;
   const effectiveDiscount = Number(row.effective_discount ?? row.effectiveDiscount ?? rawDiscount);
   const effectivePrice = Number(row.effective_price ?? row.effectivePrice ?? Math.max(Number(row.price ?? 0) - effectiveDiscount, 0));
   const discountStartsAt = row.discount_starts_at ?? row.discountStartsAt ?? null;
@@ -103,6 +108,9 @@ function mapMenuItemRow(row) {
     description: row.description ?? null,
     price: Number(row.price ?? 0),
     discount: rawDiscount,
+    discountType,
+    discountValue: Number.isFinite(discountValue) ? discountValue : rawDiscount,
+    discountLabel,
     effectiveDiscount,
     effectivePrice,
     isDiscountActive: Boolean(row.is_discount_active ?? row.isDiscountActive ?? effectiveDiscount > 0),
@@ -145,7 +153,7 @@ async function listMenuItemsFromAvailabilityView() {
   const { data, error } = await supabase
     .from("menu_item_effective_availability")
     .select(
-      "id, code, category_id, name, description, price, discount, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at"
+      "id, code, category_id, name, description, price, discount, discount_type, discount_value, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at"
     )
     .order("name", { ascending: true });
 

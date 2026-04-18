@@ -57,7 +57,6 @@ function AuthModal({
       }
 
       await onLogin({ name, email, password, isSignup });
-      onClose();
     } catch (submitError) {
       setError(submitError?.message || "Authentication failed.");
     } finally {

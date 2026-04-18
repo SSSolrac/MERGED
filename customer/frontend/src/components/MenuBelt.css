@@ -70,6 +70,7 @@
 }
 
 .belt-imgWrap {
+  position: relative;
   height: 220px;
   display: flex;
   align-items: center;
@@ -81,6 +82,24 @@
   max-height: 220px;
   max-width: 100%;
   object-fit: contain;
+}
+
+.belt-card-tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  box-shadow: 0 8px 18px rgba(22, 24, 35, 0.14);
+}
+
+.belt-card-tag--discounted {
+  color: #9c2155;
+  background: #ffe5ef;
 }
 
 .belt-name {
@@ -102,6 +121,31 @@
   opacity: 0.85;
   /* Pushes this row to the bottom of the card */
   margin-top: auto; 
+}
+
+.belt-promo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.belt-promo-pill,
+.belt-was-price {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.belt-promo-pill {
+  color: #9c2155;
+  background: #ffe5ef;
+}
+
+.belt-was-price {
+  color: #5f6170;
+  background: #f4f5f7;
 }
 
 .belt-ctaRow {

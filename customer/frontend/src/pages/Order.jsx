@@ -92,14 +92,16 @@ function Order({ navigateOverride }) {
         const items = menuItems.filter(
           (item) => String(item.categoryId || "") === categoryId && item.isAvailable !== false
         );
-        const prices = items.map((item) => Number(item.price || 0) - Number(item.discount || 0)).filter((price) => Number.isFinite(price));
+        const prices = items
+          .map((item) => Number(item.effectivePrice ?? Math.max(Number(item.price || 0) - Number(item.discount || 0), 0)))
+          .filter((price) => Number.isFinite(price));
         const startingPrice = prices.length ? Math.min(...prices.map((price) => Math.max(price, 0))) : null;
 
         return {
           id: categoryId,
           title,
           displayTitle,
-          image: getCategoryImage(category.name),
+          image: category.imageUrl || getCategoryImage(category.name),
           description: getResolvedCategoryDescription(category),
           itemCount: items.length,
           startingPrice,
@@ -149,13 +151,13 @@ function Order({ navigateOverride }) {
             >
               <div className="order-category-card__image-wrap">
                 <img src={category.image} alt={category.title} />
+                {category.isNew ? <span className="order-card-corner-tag order-card-corner-tag--new">NEW</span> : null}
               </div>
 
               <div className="order-category-card__body">
                 <div className="order-category-card__top">
                   <div className="order-category-card__title-stack">
                     <h3>{category.displayTitle}</h3>
-                    {category.isNew ? <span className="order-status-tag order-status-tag--new">NEW</span> : null}
                   </div>
                   <span className="order-category-card__count">
                     {category.itemCount ? `${category.itemCount} items` : "Updating soon"}

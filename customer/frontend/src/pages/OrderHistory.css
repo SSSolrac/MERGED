@@ -12,5 +12,9 @@
 .history-actions button, .history-actions a { border:0; padding:8px 12px; border-radius:8px; background:#36d7e8; color:#fff; text-decoration:none; cursor:pointer; }
 .history-actions .ghost-btn { background:#fff; color:#444; border:1px solid #ccc; }
 .history-card ul { margin:10px 0 0; padding-left:18px; color:#444; }
+.history-pagination { margin-top: 18px; display:flex; justify-content:center; align-items:center; gap:12px; flex-wrap:wrap; }
+.history-pagination button { border:0; padding:9px 14px; border-radius:999px; background:#36d7e8; color:#fff; font-weight:700; cursor:pointer; }
+.history-pagination button:disabled { opacity:.45; cursor:not-allowed; }
+.history-pagination span { color:#666; font-weight:700; }
 .history-state { max-width:700px; margin:120px auto 40px; text-align:center; background:#fff; border-radius:14px; padding:24px; }
 .history-error { color:#bf2456; }

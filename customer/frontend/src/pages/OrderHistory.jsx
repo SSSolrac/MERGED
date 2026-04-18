@@ -9,6 +9,8 @@ import {
 } from "../services/orderService";
 import "./OrderHistory.css";
 
+const ORDERS_PER_PAGE = 5;
+
 function formatMoney(value) {
   return `PHP ${Number(value || 0).toFixed(2)}`;
 }
@@ -21,6 +23,7 @@ function formatDateTime(value) {
 export default function OrderHistory() {
   const [orders, setOrders] = useState([]);
   const [expandedId, setExpandedId] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -31,6 +34,8 @@ export default function OrderHistory() {
       try {
         const result = await getOrderHistory();
         setOrders(result);
+        setPageIndex(0);
+        setExpandedId("");
       } catch (loadError) {
         setError(loadError?.message || "Unable to load your order history right now. Please try again shortly.");
       } finally {
@@ -54,12 +59,19 @@ export default function OrderHistory() {
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(orders.length / ORDERS_PER_PAGE));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = safePageIndex * ORDERS_PER_PAGE;
+  const visibleOrders = orders.slice(pageStart, pageStart + ORDERS_PER_PAGE);
+
   return (
     <div className="history-page">
       <h1>Order History</h1>
-      <p className="history-subtitle">Your account-specific order activity is listed below.</p>
+      <p className="history-subtitle">
+        Showing {orders.length > ORDERS_PER_PAGE ? `orders ${pageStart + 1}-${Math.min(pageStart + ORDERS_PER_PAGE, orders.length)} of ${orders.length}` : "your latest order activity"}.
+      </p>
       <div className="history-list">
-        {orders.map((order) => {
+        {visibleOrders.map((order) => {
           const isExpanded = expandedId === order.id;
           const orderItems = Array.isArray(order.items) ? order.items : [];
           const totalItemQuantity = orderItems.reduce((sum, item) => {
@@ -116,6 +128,32 @@ export default function OrderHistory() {
           );
         })}
       </div>
+
+      {orders.length > ORDERS_PER_PAGE ? (
+        <div className="history-pagination" aria-label="Order history pagination">
+          <button
+            type="button"
+            disabled={safePageIndex === 0}
+            onClick={() => {
+              setExpandedId("");
+              setPageIndex((prev) => Math.max(prev - 1, 0));
+            }}
+          >
+            Previous
+          </button>
+          <span>Page {safePageIndex + 1} of {totalPages}</span>
+          <button
+            type="button"
+            disabled={safePageIndex >= totalPages - 1}
+            onClick={() => {
+              setExpandedId("");
+              setPageIndex((prev) => Math.min(prev + 1, totalPages - 1));
+            }}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

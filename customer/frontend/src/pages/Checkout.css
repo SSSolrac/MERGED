@@ -232,6 +232,17 @@
   background: #f7fcfd;
 }
 
+.checkout-free-payment {
+  margin-top: 7px;
+  padding: 12px;
+  border: 1px dashed #f3b8cf;
+  border-radius: 8px;
+  background: #fff3f8;
+  color: #88415f;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
 .receipt-preview {
   margin-top: 10px;
   border: 1px solid #e8e8e8;

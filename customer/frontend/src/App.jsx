@@ -106,7 +106,8 @@ function App() {
   const handleLogin = async (credentials) => {
     if (credentials.isSignup) {
       await signUp({ name: credentials.name, email: credentials.email, password: credentials.password });
-      navigate("/");
+      setShowAuthModal(false);
+      navigate("/", { replace: true });
       return;
     }
 

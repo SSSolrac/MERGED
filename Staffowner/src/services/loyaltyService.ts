@@ -1,8 +1,13 @@
 import { normalizeError } from '@/lib/errors';
 import { mapLoyaltyAccountRow, mapRewardRow } from '@/lib/mappers';
 import { requireSupabaseClient } from '@/lib/supabase';
-import type { LoyaltyAccount } from '@/types/loyalty';
-import type { ManualStampAwardResult, Reward } from '@/types/loyalty';
+import type { LoyaltyAccount, LoyaltyResetResult, ManualStampAwardResult, Reward, RewardRedemptionCount } from '@/types/loyalty';
+
+type LoyaltyRedemptionRow = {
+  customer_id?: unknown;
+  reward_id?: unknown;
+  redeemed_at?: unknown;
+};
 
 const listActiveRewards = async (): Promise<Reward[]> => {
   const supabase = requireSupabaseClient();
@@ -35,6 +40,47 @@ const normalizeManualStampAwardResult = (data: unknown): ManualStampAwardResult 
   };
 };
 
+const normalizeLoyaltyResetResult = (data: unknown): LoyaltyResetResult => {
+  const row = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : {};
+  return {
+    customerId: asText(row.customerId),
+    customerLabel: asText(row.customerLabel, 'Customer'),
+    previousStampCount: asNumber(row.previousStampCount, 0),
+    newStampCount: asNumber(row.newStampCount, 0),
+    reason: row.reason == null ? null : asText(row.reason),
+    resetAt: asText(row.resetAt, new Date().toISOString()),
+  };
+};
+
+const buildRewardRedemptionCounts = (rows: LoyaltyRedemptionRow[], rewardsById: Map<string, Reward>): RewardRedemptionCount[] => {
+  const counts = new Map<string, RewardRedemptionCount>();
+
+  rows.forEach((row) => {
+    const rewardId = asText(row.reward_id);
+    if (!rewardId) return;
+
+    const reward = rewardsById.get(rewardId);
+    const label = reward?.label || 'Reward';
+    const current = counts.get(rewardId) ?? {
+      rewardId,
+      label,
+      count: 0,
+      latestRedeemedAt: '',
+    };
+    const redeemedAt = asText(row.redeemed_at);
+    const currentMs = Date.parse(current.latestRedeemedAt);
+    const redeemedMs = Date.parse(redeemedAt);
+
+    counts.set(rewardId, {
+      ...current,
+      count: current.count + 1,
+      latestRedeemedAt: Number.isFinite(redeemedMs) && (!Number.isFinite(currentMs) || redeemedMs > currentMs) ? redeemedAt : current.latestRedeemedAt,
+    });
+  });
+
+  return Array.from(counts.values()).sort((a, b) => a.label.localeCompare(b.label));
+};
+
 export const loyaltyService = {
   async getCustomerLoyalty(customerId: string): Promise<LoyaltyAccount> {
     const supabase = requireSupabaseClient();
@@ -50,10 +96,12 @@ export const loyaltyService = {
 
     const stampCount = mapLoyaltyAccountRow(accountResult.data).stampCount ?? 0;
     const availableRewards = rewards.filter((reward) => reward.requiredStamps <= stampCount);
+    const rewardsById = new Map(rewards.map((reward) => [String(reward.id), reward] as const));
+    const redemptionRows = (Array.isArray(redemptionsResult.data) ? redemptionsResult.data : []) as LoyaltyRedemptionRow[];
 
     const redeemedRewardIds = new Set(
-      (Array.isArray(redemptionsResult.data) ? redemptionsResult.data : [])
-        .map((row) => String((row as { reward_id?: unknown }).reward_id ?? ''))
+      redemptionRows
+        .map((row) => String(row.reward_id ?? ''))
         .filter(Boolean),
     );
 
@@ -64,6 +112,7 @@ export const loyaltyService = {
       stampCount,
       availableRewards,
       redeemedRewards,
+      rewardRedemptionCounts: buildRewardRedemptionCounts(redemptionRows, rewardsById),
       updatedAt: mapLoyaltyAccountRow(accountResult.data).updatedAt ?? now,
     };
   },
@@ -90,11 +139,20 @@ export const loyaltyService = {
       }),
     );
 
-    const redeemedIdsByCustomerId = (Array.isArray(redemptionsResult.data) ? redemptionsResult.data : []).reduce(
+    const rewardsById = new Map(rewards.map((reward) => [String(reward.id), reward] as const));
+    const redemptionRows = (Array.isArray(redemptionsResult.data) ? redemptionsResult.data : []) as LoyaltyRedemptionRow[];
+    const redemptionsByCustomerId = redemptionRows.reduce<Record<string, LoyaltyRedemptionRow[]>>((acc, row) => {
+      const customerId = String(row.customer_id ?? '');
+      if (!customerId) return acc;
+      if (!acc[customerId]) acc[customerId] = [];
+      acc[customerId].push(row);
+      return acc;
+    }, {});
+
+    const redeemedIdsByCustomerId = redemptionRows.reduce(
       (acc, row) => {
-        const r = row as { customer_id?: unknown; reward_id?: unknown };
-        const customerId = String(r.customer_id ?? '');
-        const rewardId = String(r.reward_id ?? '');
+        const customerId = String(row.customer_id ?? '');
+        const rewardId = String(row.reward_id ?? '');
         if (!customerId || !rewardId) return acc;
         if (!acc[customerId]) acc[customerId] = new Set<string>();
         acc[customerId].add(rewardId);
@@ -113,6 +171,7 @@ export const loyaltyService = {
         stampCount,
         availableRewards: rewards.filter((reward) => reward.requiredStamps <= stampCount),
         redeemedRewards: rewards.filter((reward) => redeemedRewardIds.has(String(reward.id))),
+        rewardRedemptionCounts: buildRewardRedemptionCounts(redemptionsByCustomerId[customerId] ?? [], rewardsById),
         updatedAt: account?.updatedAt ?? now,
       };
 
@@ -139,5 +198,21 @@ export const loyaltyService = {
 
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to award loyalty stamps.' });
     return normalizeManualStampAwardResult(data);
+  },
+
+  async resetCustomerCard(customerId: string, reason = ''): Promise<LoyaltyResetResult> {
+    const supabase = requireSupabaseClient();
+    const safeCustomerId = customerId.trim();
+    const safeReason = reason.trim();
+
+    if (!safeCustomerId) throw new Error('Choose a customer before resetting the card.');
+
+    const { data, error } = await supabase.rpc('reset_customer_loyalty_card', {
+      p_customer_id: safeCustomerId,
+      p_reason: safeReason || null,
+    });
+
+    if (error) throw normalizeError(error, { fallbackMessage: 'Unable to reset loyalty card.' });
+    return normalizeLoyaltyResetResult(data);
   },
 };

@@ -28,6 +28,10 @@ const blankAddressFields = {
   selectedPurokId: "",
 };
 
+function isRewardCartItem(item) {
+  return Boolean(item?.isLoyaltyReward || item?.loyaltyRewardItemId);
+}
+
 function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const { user, session } = useAuth();
   const { addItem, cart, openMiniCart } = useCart();
@@ -44,6 +48,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState({});
+  const hasClaimableOrderCart = useMemo(() => cart.some((item) => !isRewardCartItem(item)), [cart]);
 
   const loadLoyaltyData = useCallback(async () => {
     const data = await getCustomerLoyaltyData();
@@ -153,6 +158,10 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     () => (Array.isArray(loyaltyData?.pendingRewardItems) ? loyaltyData.pendingRewardItems : []),
     [loyaltyData?.pendingRewardItems]
   );
+  const inStoreRewardBalances = useMemo(
+    () => (Array.isArray(loyaltyData?.inStoreRewardBalances) ? loyaltyData.inStoreRewardBalances : []),
+    [loyaltyData?.inStoreRewardBalances]
+  );
 
   const canEditDeliveryAddress =
     deliveryConfig &&
@@ -221,6 +230,12 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
 
   const addRewardItemToBasket = (rewardItem, successMessage) => {
     if (!rewardItem?.id) return;
+    if (!hasClaimableOrderCart) {
+      setError("Start a pickup, dine-in, or takeout order before claiming this free latte.");
+      setMessage("");
+      return;
+    }
+
     const alreadyInCart = cart.some((item) => String(item?.loyaltyRewardItemId || "") === String(rewardItem.id));
     addItem(buildLoyaltyRewardCartItem(rewardItem), 1);
     if (!alreadyInCart) openMiniCart();
@@ -325,10 +340,18 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     try {
       const result = await redeemLoyaltyReward(rewardId, redeemOptions);
       if (result?.rewardItem) {
-        addRewardItemToBasket(
-          result.rewardItem,
-          `${result.rewardItem.itemName || reward?.label || "Free drink"} redeemed and added to your basket.`
-        );
+        if (hasClaimableOrderCart) {
+          addRewardItemToBasket(
+            result.rewardItem,
+            `${result.rewardItem.itemName || reward?.label || "Free drink"} redeemed and added to your basket.`
+          );
+        } else {
+          setMessage(
+            `${result.rewardItem.itemName || reward?.label || "Free drink"} redeemed and saved. Start a pickup, dine-in, or takeout order first, then claim it from Ready to Claim.`
+          );
+        }
+      } else if (result?.resetsCard) {
+        setMessage(`${result.rewardLabel || reward?.label || "Free Groom"} can only be redeemed in store. This reward has been saved to your profile.`);
       } else {
         setMessage(`${reward?.label || "Reward"} redeemed successfully.`);
       }
@@ -376,10 +399,27 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
             <p className="loyalty-loading">Loading loyalty card...</p>
           )}
 
+          {inStoreRewardBalances.length ? (
+            <section className="profile-in-store-rewards">
+              <h2>Saved In-Store Rewards</h2>
+              <p>Show these rewards to cafe staff when you visit. Free Groom can only be redeemed in store.</p>
+              <div className="profile-in-store-rewards__list">
+                {inStoreRewardBalances.map((reward) => (
+                  <div key={reward.rewardId || reward.label} className="profile-in-store-rewards__row">
+                    <strong>{reward.label} x {reward.count}</strong>
+                    {reward.latestRedeemedAt ? (
+                      <span>Saved {new Date(reward.latestRedeemedAt).toLocaleDateString()}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {pendingRewardItems.length ? (
             <section className="profile-reward-items">
               <h2>Ready to Claim</h2>
-              <p>Redeemed drinks stay pending until you include them in an order.</p>
+              <p>Redeemed drinks stay pending until you include them with a pickup, dine-in, or takeout order.</p>
               <div className="profile-reward-items__list">
                 {pendingRewardItems.map((rewardItem) => {
                   const isInBasket = cart.some(
@@ -398,10 +438,10 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
                       <button
                         type="button"
                         className="save-btn profile-reward-items__btn"
-                        disabled={isInBasket}
+                        disabled={isInBasket || !hasClaimableOrderCart}
                         onClick={() => handleAddPendingRewardToBasket(rewardItem)}
                       >
-                        {isInBasket ? "In basket" : "Add to basket"}
+                        {isInBasket ? "In basket" : hasClaimableOrderCart ? "Add to basket" : "Start an order first"}
                       </button>
                     </div>
                   );

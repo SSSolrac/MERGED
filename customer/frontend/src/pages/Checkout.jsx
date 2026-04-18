@@ -82,6 +82,10 @@ function toPhilippineE164(value) {
   return `+63${localDigits}`;
 }
 
+function isLoyaltyRewardCartItem(item) {
+  return Boolean(item?.isLoyaltyReward || item?.loyaltyRewardItemId);
+}
+
 export default function Checkout() {
   const navigate = useNavigate();
   const { cart, total, clearCart } = useCart();
@@ -227,8 +231,10 @@ export default function Checkout() {
     );
   }, [availablePaymentOptions]);
 
+  const isFreeOrder = Number(total || 0) <= 0;
+
   useEffect(() => {
-    if (form.paymentMethod !== "cash") return;
+    if (!isFreeOrder && form.paymentMethod !== "cash") return;
 
     setErrors((prev) => (prev.receipt ? { ...prev, receipt: "" } : prev));
 
@@ -237,19 +243,25 @@ export default function Checkout() {
       setReceiptFile(null);
       setReceiptPreviewUrl("");
     }
-  }, [form.paymentMethod, receiptFile, receiptPreviewUrl]);
+  }, [form.paymentMethod, isFreeOrder, receiptFile, receiptPreviewUrl]);
 
   const normalizedPhone = toPhilippineE164(form.phone);
   const canonicalOrderType = labelToCanonicalOrderType(form.orderType);
   const requiresDeliveryAddress = canonicalOrderType === "delivery";
-  const isCashPayment = form.paymentMethod === "cash";
+  const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;
+  const isCashPayment = effectivePaymentMethod === "cash";
+  const hasLoyaltyRewardItems = cart.some(isLoyaltyRewardCartItem);
+  const hasRegularOrderItems = cart.some((item) => !isLoyaltyRewardCartItem(item));
+  const canClaimLoyaltyRewardsWithOrderType =
+    !hasLoyaltyRewardItems || ["dine_in", "pickup", "takeout"].includes(canonicalOrderType);
+  const hasOrderForLoyaltyReward = !hasLoyaltyRewardItems || hasRegularOrderItems;
   const hasName = Boolean(form.name.trim());
   const isPhoneValid = /^9\d{9}$/.test(form.phone);
-  const hasReceipt = isCashPayment || Boolean(receiptFile);
+  const hasReceipt = isFreeOrder || isCashPayment || Boolean(receiptFile);
   const hasAvailableOrderTypes = availableOrderTypeOptions.length > 0;
-  const hasAvailablePaymentMethods = availablePaymentOptions.length > 0;
+  const hasAvailablePaymentMethods = isFreeOrder || availablePaymentOptions.length > 0;
   const isSelectedOrderTypeEnabled = availableOrderTypeOptions.some((option) => option.value === form.orderType);
-  const isSelectedPaymentEnabled = availablePaymentOptions.some((option) => option.value === form.paymentMethod);
+  const isSelectedPaymentEnabled = isFreeOrder || availablePaymentOptions.some((option) => option.value === form.paymentMethod);
 
   const deliveryValidation = useMemo(() => {
     if (!deliveryConfig) {
@@ -282,7 +294,9 @@ export default function Checkout() {
     hasAvailableOrderTypes &&
     hasAvailablePaymentMethods &&
     isSelectedOrderTypeEnabled &&
-    isSelectedPaymentEnabled;
+    isSelectedPaymentEnabled &&
+    hasOrderForLoyaltyReward &&
+    canClaimLoyaltyRewardsWithOrderType;
 
   const payload = useMemo(
     () => ({
@@ -294,12 +308,12 @@ export default function Checkout() {
         email: user?.email || "",
       },
       orderType: canonicalOrderType,
-      paymentMethod: form.paymentMethod,
+      paymentMethod: effectivePaymentMethod,
       notes: form.notes,
       items: cart,
       total,
     }),
-    [canonicalOrderType, cart, form, normalizedPhone, total, user?.email, user?.id]
+    [canonicalOrderType, cart, effectivePaymentMethod, form, normalizedPhone, total, user?.email, user?.id]
   );
 
   const handleFieldChange = (key, value) => {
@@ -373,6 +387,22 @@ export default function Checkout() {
 
       if (!hasAvailablePaymentMethods || !isSelectedPaymentEnabled) {
         setErrors((prev) => ({ ...prev, form: "No payment method is currently available for checkout." }));
+        return;
+      }
+
+      if (!hasOrderForLoyaltyReward) {
+        setErrors((prev) => ({
+          ...prev,
+          form: "Free latte rewards must be claimed with a pickup, dine-in, or takeout order. Add at least one regular menu item first.",
+        }));
+        return;
+      }
+
+      if (!canClaimLoyaltyRewardsWithOrderType) {
+        setErrors((prev) => ({
+          ...prev,
+          form: "Free latte rewards can only be claimed with pickup, dine-in, or takeout orders.",
+        }));
         return;
       }
 
@@ -565,6 +595,11 @@ export default function Checkout() {
             ))}
           </select>
           <p className="field-hint">Available order types are pulled from owner-managed business settings.</p>
+          {hasLoyaltyRewardItems ? (
+            <p className={canClaimLoyaltyRewardsWithOrderType && hasOrderForLoyaltyReward ? "field-hint" : "field-error"}>
+              Free latte rewards can only be claimed with a pickup, dine-in, or takeout order that includes at least one regular menu item.
+            </p>
+          ) : null}
           {!hasAvailableOrderTypes && !isLoadingCheckoutSettings ? (
             <p className="field-error">No order type is currently enabled for checkout.</p>
           ) : null}
@@ -604,25 +639,38 @@ export default function Checkout() {
         <section className="checkout-card checkout-card--payment">
           <h3>Payment Details</h3>
           <label>Payment</label>
-          <select
-            value={form.paymentMethod}
-            onChange={(event) => handleFieldChange("paymentMethod", event.target.value)}
-            disabled={isLoadingCheckoutSettings || !hasAvailablePaymentMethods}
-          >
-            {availablePaymentOptions.map((method) => (
-              <option key={method.value} value={method.value}>
-                {method.label}
-              </option>
-            ))}
-          </select>
-          <p className="field-hint">Enabled payment methods are controlled from owner business settings.</p>
+          {isFreeOrder ? (
+            <div className="checkout-free-payment" aria-live="polite">
+              No payment needed for this free reward checkout.
+            </div>
+          ) : (
+            <select
+              value={form.paymentMethod}
+              onChange={(event) => handleFieldChange("paymentMethod", event.target.value)}
+              disabled={isLoadingCheckoutSettings || !hasAvailablePaymentMethods}
+            >
+              {availablePaymentOptions.map((method) => (
+                <option key={method.value} value={method.value}>
+                  {method.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="field-hint">
+            {isFreeOrder ? "The order will be submitted as a free loyalty reward." : "Enabled payment methods are controlled from owner business settings."}
+          </p>
           {errors.paymentMethod ? <p className="field-error">{errors.paymentMethod}</p> : null}
-          {!hasAvailablePaymentMethods && !isLoadingCheckoutSettings ? (
+          {!isFreeOrder && !hasAvailablePaymentMethods && !isLoadingCheckoutSettings ? (
             <p className="field-error">No payment method is currently enabled for checkout.</p>
           ) : null}
 
           <div className="payment-qr-preview" aria-live="polite">
-            {!hasAvailablePaymentMethods ? (
+            {isFreeOrder ? (
+              <>
+                <p className="payment-qr-title">Free reward checkout</p>
+                <p className="field-hint">No QR payment or receipt upload is required for zero-total reward orders.</p>
+              </>
+            ) : !hasAvailablePaymentMethods ? (
               <>
                 <p className="payment-qr-title">No payment method available</p>
                 <p className="field-hint">Ask the cafe to enable at least one payment method in owner settings.</p>
@@ -643,7 +691,9 @@ export default function Checkout() {
           <label>
             Upload Receipt {isCashPayment ? null : <span className="required-indicator">*</span>}
           </label>
-          {isCashPayment ? (
+          {isFreeOrder ? (
+            <p className="field-hint">Receipt upload is not required for free loyalty reward orders.</p>
+          ) : isCashPayment ? (
             <p className="field-hint">Receipt upload is not required for cash payments in-store.</p>
           ) : (
             <>

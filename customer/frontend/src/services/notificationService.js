@@ -350,7 +350,7 @@ export async function syncCustomerNotifications({ force = false } = {}) {
     const merged = sortByDateDesc(Array.from(byId.values()));
     writeStore(merged);
     lastSyncAt = Date.now();
-    return merged;
+    return getCustomerNotifications();
   })().finally(() => {
     inFlightSync = null;
   });
@@ -359,7 +359,7 @@ export async function syncCustomerNotifications({ force = false } = {}) {
 }
 
 export function getCustomerNotifications() {
-  return sortByDateDesc(readStore());
+  return sortByDateDesc(readStore().filter((item) => !item.isRead));
 }
 
 export function getUnreadNotificationCount() {

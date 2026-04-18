@@ -2,10 +2,20 @@ import { useNavigate } from "react-router-dom";
 import { BagFill, XLg } from "react-bootstrap-icons";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import coffeeFallback from "../assets/coffee.png";
 import "./MiniCartPanel.css";
 
 function formatCurrency(value) {
   return `PHP ${Number(value || 0).toFixed(2)}`;
+}
+
+function getCartItemImage(item) {
+  return item?.image || coffeeFallback;
+}
+
+function handleFallbackImage(event) {
+  if (event.currentTarget.src === coffeeFallback) return;
+  event.currentTarget.src = coffeeFallback;
 }
 
 export default function MiniCartPanel({ onClose, onOpenAuth }) {
@@ -58,7 +68,7 @@ export default function MiniCartPanel({ onClose, onOpenAuth }) {
           <div className="mini-cart-list">
             {cart.map((item) => (
               <div className="mini-cart-item" key={item.id}>
-                <img className="mini-cart-image" src={item.image} alt={item.displayName || item.name} />
+                <img className="mini-cart-image" src={getCartItemImage(item)} alt={item.displayName || item.name} onError={handleFallbackImage} />
                 <div className="mini-cart-item-body">
                   <h3 className="mini-cart-item-name">{item.displayName || item.name}</h3>
                   <p className="mini-cart-item-price">{item.isLoyaltyReward ? "Free reward item" : formatCurrency(item.price)}</p>

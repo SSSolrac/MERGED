@@ -1,6 +1,9 @@
 import { normalizeError } from '@/lib/errors';
 import { requireSupabaseClient } from '@/lib/supabase';
 
+const BRANDING_IMAGE_BUCKET = 'menu-images';
+const MAX_BRANDING_IMAGE_BYTES = 5 * 1024 * 1024;
+
 export type BusinessSettings = {
   cafeName: string;
   businessHours: string;
@@ -43,6 +46,22 @@ const asBoolean = (value: unknown, fallback: boolean): boolean => {
 const asNumber = (value: unknown, fallback: number): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const sanitizeAssetFileName = (fileName: string) => {
+  const trimmed = fileName.trim().toLowerCase();
+  if (!trimmed) return 'branding-asset';
+  return trimmed
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+};
+
+const getAssetExtension = (fileName: string) => {
+  const parts = fileName.split('.');
+  const ext = parts.length > 1 ? parts[parts.length - 1]?.trim() : '';
+  if (!ext) return 'jpg';
+  return ext.replace(/[^a-z0-9]/gi, '') || 'jpg';
 };
 
 const mapBusinessSettingsRow = (row: unknown): BusinessSettings => {
@@ -117,5 +136,34 @@ export const businessSettingsService = {
     const { data, error } = await supabase.from('business_settings').upsert(payload, { onConflict: 'id' }).select('*').single();
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to save business settings.' });
     return mapBusinessSettingsRow(data);
+  },
+
+  async uploadBrandingAsset(file: File): Promise<string> {
+    if (!file) throw new Error('Select an image file before uploading.');
+    if (!file.type || !file.type.startsWith('image/')) throw new Error('Only image files can be uploaded.');
+    if (file.size > MAX_BRANDING_IMAGE_BYTES) throw new Error('Image must be 5 MB or smaller.');
+
+    const supabase = requireSupabaseClient();
+    const safeName = sanitizeAssetFileName(file.name || 'branding-asset');
+    const extension = getAssetExtension(safeName);
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    const path = `branding/${Date.now()}-${randomSuffix}.${extension}`;
+
+    const { error } = await supabase.storage.from(BRANDING_IMAGE_BUCKET).upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+    if (error) {
+      const message = String(error.message || '').toLowerCase();
+      if (message.includes('bucket') && message.includes('not found')) {
+        throw new Error('Storage bucket "menu-images" is missing. Create it in Supabase before uploading branding images.');
+      }
+      throw normalizeError(error, { fallbackMessage: 'Unable to upload branding image.' });
+    }
+
+    const { data } = supabase.storage.from(BRANDING_IMAGE_BUCKET).getPublicUrl(path);
+    if (!data?.publicUrl) throw new Error('Image uploaded, but public URL could not be generated.');
+    return data.publicUrl;
   },
 };

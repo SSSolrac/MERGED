@@ -24,6 +24,8 @@ export const useNotifications = () => {
   }, [refresh]);
 
   const unreadCount = useMemo(() => notifications.filter((row) => !row.isRead).length, [notifications]);
+  const unreadNotifications = useMemo(() => notifications.filter((row) => !row.isRead), [notifications]);
+  const readNotifications = useMemo(() => notifications.filter((row) => row.isRead), [notifications]);
 
-  return { notifications, unreadCount, refresh, markRead, markAllRead };
+  return { notifications, unreadNotifications, readNotifications, unreadCount, refresh, markRead, markAllRead };
 };
