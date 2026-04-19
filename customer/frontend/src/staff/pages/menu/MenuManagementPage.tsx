@@ -55,6 +55,7 @@ const defaultCategoryDraft: MenuCategory = {
 type DiscountMode = 'amount' | 'percent';
 type DraftDiscountMode = DiscountMode | 'none';
 type BulkScope = 'all' | 'specific';
+type MenuEditorTab = 'discount-tools' | 'discounted-items';
 type MenuItemGroup = {
   id: string;
   name: string;
@@ -174,6 +175,7 @@ export const MenuManagementPage = () => {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingCategoryImage, setIsUploadingCategoryImage] = useState(false);
   const [isMenuItemModalOpen, setIsMenuItemModalOpen] = useState(false);
+  const [activeEditorTab, setActiveEditorTab] = useState<MenuEditorTab>('discount-tools');
   const [bulkDiscountMode, setBulkDiscountMode] = useState<DiscountMode>('amount');
   const [bulkDiscountInput, setBulkDiscountInput] = useState('0');
   const [bulkScope, setBulkScope] = useState<BulkScope>('all');
@@ -225,6 +227,24 @@ export const MenuManagementPage = () => {
   const discountedItems = useMemo(
     () => items.filter((item) => item.isDiscountActive && normalizeAmount(item.effectiveDiscount) > 0),
     [items],
+  );
+  const menuEditorTabs = useMemo(
+    () => [
+      {
+        id: 'discount-tools' as const,
+        label: 'Discount Tools',
+        description:
+          bulkScope === 'all'
+            ? `Apply to ${items.length} item${items.length === 1 ? '' : 's'}`
+            : `${selectedBulkCount} selected item${selectedBulkCount === 1 ? '' : 's'}`,
+      },
+      {
+        id: 'discounted-items' as const,
+        label: 'Discounted Items',
+        description: `${discountedItems.length} active`,
+      },
+    ],
+    [bulkScope, discountedItems.length, items.length, selectedBulkCount],
   );
 
   useEffect(() => {
@@ -564,107 +584,128 @@ export const MenuManagementPage = () => {
           </button>
         </div>
         <p className="text-xs text-[#6B7280]">Use the popup editor for adding or updating menu items.</p>
-
-        <div className="rounded border border-dashed p-3 space-y-3">
-          <h4 className="font-medium text-sm">Apply Discount</h4>
-          <div className="grid md:grid-cols-4 gap-3">
-            <label className="text-sm">
-              Scope
-              <select className="block border rounded mt-1 px-2 py-1 w-full" value={bulkScope} onChange={(event) => setBulkScope(event.target.value as BulkScope)}>
-                <option value="all">All menu items</option>
-                <option value="specific">Specific items</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              Discount mode
-              <select
-                className="block border rounded mt-1 px-2 py-1 w-full"
-                value={bulkDiscountMode}
-                onChange={(event) => setBulkDiscountMode(event.target.value as DiscountMode)}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {menuEditorTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`min-w-[160px] rounded border px-3 py-2 text-left text-sm ${
+                  activeEditorTab === tab.id ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'
+                }`}
+                onClick={() => setActiveEditorTab(tab.id)}
               >
-                <option value="amount">Fixed amount (PHP)</option>
-                <option value="percent">Percent off (%)</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              Discount value
-              <input
-                type="number"
-                min={0}
-                max={bulkDiscountMode === 'percent' ? 100 : undefined}
-                step="0.01"
-                className="block border rounded mt-1 px-2 py-1 w-full"
-                value={bulkDiscountInput}
-                onChange={(event) => setBulkDiscountInput(event.target.value)}
-              />
-            </label>
-            <div className="text-sm flex items-end">
-              <p className="text-[#6B7280]">
-                Preview: {bulkPreviewLabel} on {bulkTargetCount} {bulkTargetCount === 1 ? 'item' : 'items'}
-              </p>
-            </div>
+                <span className="block font-medium">{tab.label}</span>
+                <span className="block text-xs text-[#6B7280]">{tab.description}</span>
+              </button>
+            ))}
           </div>
-          {bulkScope === 'specific' ? (
-            <div className="rounded border p-3 space-y-2">
-              <div className="flex flex-wrap gap-2 items-center">
-                <input
-                  className="border rounded px-2 py-1 text-sm min-w-[220px]"
-                  placeholder="Filter items by name"
-                  value={bulkItemQuery}
-                  onChange={(event) => setBulkItemQuery(event.target.value)}
-                />
-                <button className="border rounded px-2 py-1 text-sm" type="button" onClick={selectAllVisibleBulkItems}>
-                  Select Visible
+
+          {activeEditorTab === 'discount-tools' ? (
+            <div className="rounded border border-dashed p-3 space-y-3">
+              <h4 className="font-medium text-sm">Apply Discount</h4>
+              <div className="grid md:grid-cols-4 gap-3">
+                <label className="text-sm">
+                  Scope
+                  <select className="block border rounded mt-1 px-2 py-1 w-full" value={bulkScope} onChange={(event) => setBulkScope(event.target.value as BulkScope)}>
+                    <option value="all">All menu items</option>
+                    <option value="specific">Specific items</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  Discount mode
+                  <select
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    value={bulkDiscountMode}
+                    onChange={(event) => setBulkDiscountMode(event.target.value as DiscountMode)}
+                  >
+                    <option value="amount">Fixed amount (PHP)</option>
+                    <option value="percent">Percent off (%)</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  Discount value
+                  <input
+                    type="number"
+                    min={0}
+                    max={bulkDiscountMode === 'percent' ? 100 : undefined}
+                    step="0.01"
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    value={bulkDiscountInput}
+                    onChange={(event) => setBulkDiscountInput(event.target.value)}
+                  />
+                </label>
+                <div className="text-sm flex items-end">
+                  <p className="text-[#6B7280]">
+                    Preview: {bulkPreviewLabel} on {bulkTargetCount} {bulkTargetCount === 1 ? 'item' : 'items'}
+                  </p>
+                </div>
+              </div>
+              {bulkScope === 'specific' ? (
+                <div className="rounded border p-3 space-y-2">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <input
+                      className="border rounded px-2 py-1 text-sm min-w-[220px]"
+                      placeholder="Filter items by name"
+                      value={bulkItemQuery}
+                      onChange={(event) => setBulkItemQuery(event.target.value)}
+                    />
+                    <button className="border rounded px-2 py-1 text-sm" type="button" onClick={selectAllVisibleBulkItems}>
+                      Select Visible
+                    </button>
+                    <button className="border rounded px-2 py-1 text-sm" type="button" onClick={clearBulkSelection}>
+                      Clear Selection
+                    </button>
+                  </div>
+                  <div className="max-h-44 overflow-auto space-y-1 pr-1">
+                    {!bulkSelectableItems.length ? <p className="text-xs text-[#6B7280]">No items match this filter.</p> : null}
+                    {bulkSelectableItems.map((item) => (
+                      <label key={item.id} className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={selectedBulkSet.has(item.id)} onChange={() => toggleBulkItemSelection(item.id)} />
+                        <span>
+                          {item.name}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex gap-2">
+                <button className="border rounded px-3 py-1" onClick={handleApplyBulkDiscount} disabled={isApplyingBulkDiscount}>
+                  {isApplyingBulkDiscount ? 'Applying...' : bulkScope === 'all' ? 'Apply To All Items' : 'Apply To Selected Items'}
                 </button>
-                <button className="border rounded px-2 py-1 text-sm" type="button" onClick={clearBulkSelection}>
-                  Clear Selection
+                <button className="border rounded px-3 py-1" onClick={handleClearAllDiscounts} disabled={isApplyingBulkDiscount}>
+                  {bulkScope === 'all' ? 'Clear All Discounts' : 'Clear Selected Discounts'}
                 </button>
               </div>
-              <div className="max-h-44 overflow-auto space-y-1 pr-1">
-                {!bulkSelectableItems.length ? <p className="text-xs text-[#6B7280]">No items match this filter.</p> : null}
-                {bulkSelectableItems.map((item) => (
-                  <label key={item.id} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={selectedBulkSet.has(item.id)} onChange={() => toggleBulkItemSelection(item.id)} />
-                    <span>
-                      {item.name}
-                    </span>
-                  </label>
+            </div>
+          ) : null}
+
+          {activeEditorTab === 'discounted-items' ? (
+            <div className="rounded border p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-medium text-sm">Discounted Items</h4>
+                <StatusChip label={`${discountedItems.length} active`} tone={discountedItems.length ? 'warning' : 'neutral'} />
+              </div>
+              {!discountedItems.length ? <p className="text-sm text-[#6B7280]">No menu items have an active discount right now.</p> : null}
+              <div className="space-y-2">
+                {discountedItems.map((item) => (
+                  <div key={`discounted-${item.id}`} className="rounded border p-2 text-sm flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">
+                        {item.name} - {formatCurrency(item.effectivePrice)}
+                        <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span>
+                      </p>
+                      <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p>
+                    </div>
+                    <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
+                      Edit discount
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
           ) : null}
-          <div className="flex gap-2">
-            <button className="border rounded px-3 py-1" onClick={handleApplyBulkDiscount} disabled={isApplyingBulkDiscount}>
-              {isApplyingBulkDiscount ? 'Applying...' : bulkScope === 'all' ? 'Apply To All Items' : 'Apply To Selected Items'}
-            </button>
-            <button className="border rounded px-3 py-1" onClick={handleClearAllDiscounts} disabled={isApplyingBulkDiscount}>
-              {bulkScope === 'all' ? 'Clear All Discounts' : 'Clear Selected Discounts'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded border p-3 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="font-medium text-sm">Discounted Items</h4>
-            <StatusChip label={`${discountedItems.length} active`} tone={discountedItems.length ? 'warning' : 'neutral'} />
-          </div>
-          {!discountedItems.length ? <p className="text-sm text-[#6B7280]">No menu items have an active discount right now.</p> : null}
-          <div className="space-y-2">
-            {discountedItems.map((item) => (
-              <div key={`discounted-${item.id}`} className="rounded border p-2 text-sm flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-medium">
-                    {item.name} - {formatCurrency(item.effectivePrice)}
-                    <span className="text-[#6B7280]"> (was {formatCurrency(item.price)})</span>
-                  </p>
-                  <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p>
-                </div>
-                <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
-                  Edit discount
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -757,17 +798,25 @@ export const MenuManagementPage = () => {
         <div className="space-y-4">
           {!filtered.length ? <p className="text-sm text-[#6B7280]">No menu items match your search.</p> : null}
           {categoryTabs.length > 1 ? (
-            <div className="flex flex-wrap gap-2">
-              {categoryTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`rounded border px-3 py-1 text-sm ${activeCategoryTab === tab.id ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'}`}
-                  onClick={() => setActiveCategoryTab(tab.id)}
-                >
-                  {tab.label} ({tab.count})
-                </button>
-              ))}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Menu Categories</p>
+              <div className="flex flex-wrap gap-2">
+                {categoryTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`min-w-[160px] rounded border px-3 py-2 text-left text-sm ${
+                      activeCategoryTab === tab.id ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'
+                    }`}
+                    onClick={() => setActiveCategoryTab(tab.id)}
+                  >
+                    <span className="block font-medium">{tab.label}</span>
+                    <span className="block text-xs text-[#6B7280]">
+                      {tab.count} item{tab.count === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
           {visibleGroupedMenuItems.map((group) => (

@@ -2715,6 +2715,59 @@ values
 ('MI-00046', (select id from public.menu_categories where lower(name)='frappuccino (16oz)' limit 1), 'Strawberry Frappe', null, 170, 0, true)
 on conflict (code) do nothing;
 
+update public.menu_items as mi
+set cost = seeded.cost
+from (
+  values
+    ('MI-00001', 100.00::numeric),
+    ('MI-00002', 70.00::numeric),
+    ('MI-00003', 80.00::numeric),
+    ('MI-00004', 85.00::numeric),
+    ('MI-00005', 45.00::numeric),
+    ('MI-00006', 60.00::numeric),
+    ('MI-00007', 39.00::numeric),
+    ('MI-00008', 65.00::numeric),
+    ('MI-00009', 120.00::numeric),
+    ('MI-00010', 95.00::numeric),
+    ('MI-00011', 60.00::numeric),
+    ('MI-00012', 70.00::numeric),
+    ('MI-00013', 100.00::numeric),
+    ('MI-00014', 90.00::numeric),
+    ('MI-00015', 85.00::numeric),
+    ('MI-00016', 80.00::numeric),
+    ('MI-00017', 75.00::numeric),
+    ('MI-00018', 70.00::numeric),
+    ('MI-00019', 32.00::numeric),
+    ('MI-00020', 50.00::numeric),
+    ('MI-00021', 58.00::numeric),
+    ('MI-00022', 53.00::numeric),
+    ('MI-00023', 53.00::numeric),
+    ('MI-00024', 75.00::numeric),
+    ('MI-00025', 40.00::numeric),
+    ('MI-00026', 28.00::numeric),
+    ('MI-00027', 41.00::numeric),
+    ('MI-00028', 60.00::numeric),
+    ('MI-00029', 50.00::numeric),
+    ('MI-00030', 45.00::numeric),
+    ('MI-00031', 47.00::numeric),
+    ('MI-00032', 55.00::numeric),
+    ('MI-00033', 50.00::numeric),
+    ('MI-00034', 65.00::numeric),
+    ('MI-00035', 60.00::numeric),
+    ('MI-00036', 65.00::numeric),
+    ('MI-00037', 75.00::numeric),
+    ('MI-00038', 75.00::numeric),
+    ('MI-00039', 77.00::numeric),
+    ('MI-00040', 85.00::numeric),
+    ('MI-00041', 70.00::numeric),
+    ('MI-00042', 70.00::numeric),
+    ('MI-00043', 75.00::numeric),
+    ('MI-00044', 90.00::numeric),
+    ('MI-00045', 0.00::numeric),
+    ('MI-00046', 0.00::numeric)
+) as seeded(code, cost)
+where mi.code = seeded.code;
+
 -- Keep future auto-generated codes after the seeded set (use max numeric suffix, not row count).
 select setval(
   'public.menu_item_code_seq',
@@ -3273,6 +3326,41 @@ begin
 
     execute 'drop policy if exists "menu_images_owner_staff_delete" on storage.objects';
     execute 'create policy "menu_images_owner_staff_delete" on storage.objects for delete to authenticated using (bucket_id = ''menu-images'' and public.is_owner_or_staff())';
+
+    execute 'drop policy if exists "menu_images_profile_insert_self" on storage.objects';
+    execute '' ||
+      'create policy "menu_images_profile_insert_self" on storage.objects ' ||
+      'for insert to authenticated with check (' ||
+      'bucket_id = ''menu-images'' ' ||
+      'and auth.uid() is not null ' ||
+      'and (storage.foldername(name))[1] = ''profiles'' ' ||
+      'and (storage.foldername(name))[2] = auth.uid()::text' ||
+      ')';
+
+    execute 'drop policy if exists "menu_images_profile_update_self" on storage.objects';
+    execute '' ||
+      'create policy "menu_images_profile_update_self" on storage.objects ' ||
+      'for update to authenticated using (' ||
+      'bucket_id = ''menu-images'' ' ||
+      'and auth.uid() is not null ' ||
+      'and (storage.foldername(name))[1] = ''profiles'' ' ||
+      'and (storage.foldername(name))[2] = auth.uid()::text' ||
+      ') with check (' ||
+      'bucket_id = ''menu-images'' ' ||
+      'and auth.uid() is not null ' ||
+      'and (storage.foldername(name))[1] = ''profiles'' ' ||
+      'and (storage.foldername(name))[2] = auth.uid()::text' ||
+      ')';
+
+    execute 'drop policy if exists "menu_images_profile_delete_self" on storage.objects';
+    execute '' ||
+      'create policy "menu_images_profile_delete_self" on storage.objects ' ||
+      'for delete to authenticated using (' ||
+      'bucket_id = ''menu-images'' ' ||
+      'and auth.uid() is not null ' ||
+      'and (storage.foldername(name))[1] = ''profiles'' ' ||
+      'and (storage.foldername(name))[2] = auth.uid()::text' ||
+      ')';
   end if;
 end
 $$;

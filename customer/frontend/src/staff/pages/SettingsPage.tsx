@@ -1,8 +1,6 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { useAuth } from '@/hooks/useAuth';
 import { getErrorMessage } from '@/lib/errors';
-import { authService } from '@/services/authService';
 import { businessSettingsService } from '@/services/businessSettingsService';
 import {
   campaignAnnouncementService,
@@ -26,10 +24,9 @@ const toSimpleTickerAnnouncement = (entry: CampaignAnnouncement): CampaignAnnoun
   };
 };
 
-type SettingsTabKey = 'business' | 'announcements' | 'checkout' | 'account' | 'staff';
+type SettingsTabKey = 'business' | 'announcements' | 'checkout' | 'staff';
 
 export const SettingsPage = () => {
-  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('business');
   const [cafeName, setCafeName] = useState('');
   const [hours, setHours] = useState('');
@@ -58,8 +55,6 @@ export const SettingsPage = () => {
   const [serviceFeePct, setServiceFeePct] = useState(0);
   const [taxPct, setTaxPct] = useState(0);
   const [kitchenCutoff, setKitchenCutoff] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [staffName, setStaffName] = useState('');
   const [staffJobTitle, setStaffJobTitle] = useState('');
   const [staffEmail, setStaffEmail] = useState('');
@@ -184,27 +179,6 @@ export const SettingsPage = () => {
       cancelled = true;
     };
   }, []);
-
-  const handlePasswordChange = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const password = newPassword.trim();
-    if (password.length < 8) {
-      toast.error('Password must be at least 8 characters.');
-      return;
-    }
-
-    try {
-      setIsUpdatingPassword(true);
-      await authService.updatePassword(password);
-      setNewPassword('');
-      toast.success('Password updated.');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to update password.'));
-    } finally {
-      setIsUpdatingPassword(false);
-    }
-  };
 
   const handleAddStaff = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -352,7 +326,6 @@ export const SettingsPage = () => {
     { key: 'business', label: 'Business', description: 'Cafe details and branding' },
     { key: 'announcements', label: 'Announcements', description: 'Homepage ticker text' },
     { key: 'checkout', label: 'Checkout', description: 'Order types and service rules' },
-    { key: 'account', label: 'Account', description: 'Owner password changes' },
     { key: 'staff', label: 'Staff', description: 'Grant staff access and titles' },
   ];
   const announcementSourceLabel =
@@ -618,38 +591,12 @@ export const SettingsPage = () => {
           <label><input type="checkbox" checked={enableBdo} onChange={(e) => setEnableBdo(e.target.checked)} /> BDO</label>
           <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
         </div>
-        <div className="grid md:grid-cols-2 gap-3">
-          <label className="text-sm">
-            Service Fee (%)
-            <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={serviceFeePct} onChange={(e) => setServiceFeePct(Number(e.target.value))} />
-          </label>
+        <div className="grid max-w-md gap-3">
           <label className="text-sm">
             Kitchen cut-off time
             <input type="time" className="block border rounded mt-1 px-2 py-1 w-full" value={kitchenCutoff} onChange={(e) => setKitchenCutoff(e.target.value)} />
           </label>
         </div>
-      </section>
-      ) : null}
-
-      {activeTab === 'account' ? (
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h3 className="font-medium">Owner Account</h3>
-        <p className="text-sm text-[#6B7280]">Manage owner credentials in this tab.</p>
-        <p className="text-sm text-[#6B7280]">{user?.email || 'No owner email loaded.'}</p>
-        <form onSubmit={handlePasswordChange} className="space-y-2 max-w-lg">
-          <input
-            required
-            minLength={8}
-            type="password"
-            placeholder="New password"
-            className="border rounded px-2 py-1 w-full"
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.target.value)}
-          />
-          <button className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2" disabled={isUpdatingPassword}>
-            {isUpdatingPassword ? 'Updating...' : 'Change password'}
-          </button>
-        </form>
       </section>
       ) : null}
 

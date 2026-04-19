@@ -103,6 +103,13 @@ export const InventoryTrackerSection = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
 
   const categoryNameById = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
+  const itemCountByCategoryId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + 1);
+    }
+    return counts;
+  }, [items]);
 
   const filteredItems = useMemo(() => {
     const lowered = query.toLowerCase();
@@ -137,6 +144,25 @@ export const InventoryTrackerSection = () => {
       lowStockItems,
     };
   }, [categories, items]);
+
+  const inventoryTabs = useMemo(
+    () => [
+      {
+        id: 'all',
+        label: 'All Items',
+        description: `${items.length} item${items.length === 1 ? '' : 's'} in inventory`,
+      },
+      ...categories.map((category) => {
+        const count = itemCountByCategoryId.get(category.id) ?? 0;
+        return {
+          id: category.id,
+          label: category.name,
+          description: `${count} item${count === 1 ? '' : 's'}${category.isActive ? '' : ' - inactive'}`,
+        };
+      }),
+    ],
+    [categories, itemCountByCategoryId, items.length]
+  );
 
   const handleSaveCategory = async () => {
     const name = asTrimmed(categoryDraft.name);
@@ -253,6 +279,13 @@ export const InventoryTrackerSection = () => {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isItemModalOpen]);
 
+  useEffect(() => {
+    if (categoryFilter === 'all') return;
+    if (!categories.some((category) => category.id === categoryFilter)) {
+      setCategoryFilter('all');
+    }
+  }, [categories, categoryFilter]);
+
   const handleAdjustStock = async (item: InventoryItem, delta: number) => {
     const nextQuantity = Math.max(0, item.quantityOnHand + delta);
     try {
@@ -292,6 +325,30 @@ export const InventoryTrackerSection = () => {
           <p className="mt-1 text-3xl font-bold leading-none text-[#1F2937]">{formatMetricText(inventorySummary.lowStockItems)}</p>
         </div>
       </div>
+
+      {inventoryTabs.length > 1 ? (
+        <div className="space-y-2">
+          <div>
+            <h4 className="font-medium">Inventory Categories</h4>
+            <p className="text-sm text-[#6B7280]">Browse one stock group at a time.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {inventoryTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`min-w-[160px] rounded border px-3 py-2 text-left text-sm ${
+                  categoryFilter === tab.id ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'
+                }`}
+                onClick={() => setCategoryFilter(tab.id)}
+              >
+                <span className="block font-medium">{tab.label}</span>
+                <span className="block text-xs text-[#6B7280]">{tab.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="border rounded p-3 space-y-2">
         <h4 className="font-medium">Manage Inventory Categories</h4>
@@ -348,21 +405,13 @@ export const InventoryTrackerSection = () => {
       </div>
 
       <div className="border rounded p-3 space-y-3">
-        <div className="grid md:grid-cols-[2fr_1fr_auto] gap-2">
+        <div className="grid md:grid-cols-[2fr_auto] gap-2">
           <input
             className="border rounded px-2 py-1 text-sm"
             placeholder="Search inventory item"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <select className="border rounded px-2 py-1 text-sm" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-            <option value="all">All categories</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
           <button className="border rounded px-3 py-1 text-sm" onClick={handleOpenCreateItemModal}>
             Add Inventory Item
           </button>

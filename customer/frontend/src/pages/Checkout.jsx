@@ -248,6 +248,14 @@ export default function Checkout() {
   const normalizedPhone = toPhilippineE164(form.phone);
   const canonicalOrderType = labelToCanonicalOrderType(form.orderType);
   const requiresDeliveryAddress = canonicalOrderType === "delivery";
+  const isDeliveryConfigReady =
+    deliveryConfig &&
+    deliveryConfig.isActive !== false &&
+    String(deliveryConfig.deliveryStatus || "active").toLowerCase() !== "inactive" &&
+    Array.isArray(deliveryConfig.puroks) &&
+    deliveryConfig.puroks.length > 0 &&
+    Array.isArray(deliveryConfig.polygon) &&
+    deliveryConfig.polygon.length >= 3;
   const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;
   const isCashPayment = effectivePaymentMethod === "cash";
   const hasLoyaltyRewardItems = cart.some(isLoyaltyRewardCartItem);
@@ -264,10 +272,10 @@ export default function Checkout() {
   const isSelectedPaymentEnabled = isFreeOrder || availablePaymentOptions.some((option) => option.value === form.paymentMethod);
 
   const deliveryValidation = useMemo(() => {
-    if (!deliveryConfig) {
+    if (!deliveryConfig || !isDeliveryConfigReady) {
       return {
         isValid: false,
-        errors: { address: "Delivery configuration is currently unavailable." },
+        errors: { address: "Delivery coverage is unavailable or incomplete right now." },
         normalizedAddress: "",
         selectedPurok: null,
         latitude: NaN,
@@ -282,7 +290,7 @@ export default function Checkout() {
       longitude: deliveryInput.longitude,
       config: deliveryConfig,
     });
-  }, [deliveryConfig, deliveryInput.houseDetails, deliveryInput.latitude, deliveryInput.longitude, deliveryInput.selectedPurokId]);
+  }, [deliveryConfig, deliveryInput.houseDetails, deliveryInput.latitude, deliveryInput.longitude, deliveryInput.selectedPurokId, isDeliveryConfigReady]);
 
   const hasAddress = !requiresDeliveryAddress || (!isLoadingDeliveryConfig && deliveryValidation.isValid);
   const canSubmit =
@@ -612,16 +620,20 @@ export default function Checkout() {
               {isLoadingDeliveryConfig ? (
                 <p className="field-hint">Loading delivery coverage...</p>
               ) : (
-                <DeliveryAddressForm
-                  config={deliveryConfig}
-                  value={deliveryInput}
-                  onChange={handleDeliveryInputChange}
-                  validationErrors={errors}
-                />
+                isDeliveryConfigReady ? (
+                  <DeliveryAddressForm
+                    config={deliveryConfig}
+                    value={deliveryInput}
+                    onChange={handleDeliveryInputChange}
+                    validationErrors={errors}
+                  />
+                ) : (
+                  <p className="field-error">
+                    Delivery coverage is unavailable or incomplete right now. Please ask the cafe to review Admin &gt; Delivery Coverage.
+                  </p>
+                )
               )}
-              <p className="field-hint">
-                Only pins inside the configured service polygon can be submitted.
-              </p>
+              {isDeliveryConfigReady ? <p className="field-hint">Only pins inside the configured service polygon can be submitted.</p> : null}
               {errors.address ? <p className="field-error">{errors.address}</p> : null}
             </>
           ) : (

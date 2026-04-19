@@ -8,7 +8,7 @@ import {
   isLatteReward,
   redeemLoyaltyReward,
 } from "../services/loyaltyService";
-import { getCustomerProfile, saveCustomerProfile, uploadCustomerProfileImage } from "../services/profileService";
+import { getCustomerProfile, saveCustomerProfile } from "../services/profileService";
 import { getActiveDeliveryConfig } from "../services/deliveryAreaService";
 import { buildDeliveryAddress, parseDeliveryAddress } from "../utils/deliveryAddress";
 import { useAuth } from "../context/AuthContext";
@@ -45,7 +45,6 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDeliveryConfig, setIsLoadingDeliveryConfig] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [redeemingRewardId, setRedeemingRewardId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -68,7 +67,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
       try {
         const [profile, config, latteOptions] = await Promise.all([
           getCustomerProfile(),
-          getActiveDeliveryConfig({ force: true }),
+          getActiveDeliveryConfig({ force: true }).catch(() => null),
           getFreeLatteRewardOptions().catch(() => []),
         ]);
 
@@ -321,28 +320,6 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     }
   };
 
-  const handleAvatarUpload = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    try {
-      setIsUploadingAvatar(true);
-      const avatarUrl = await uploadCustomerProfileImage(file);
-      setFormData((current) => ({
-        ...current,
-        avatarUrl,
-      }));
-      setError("");
-      setMessage("Profile photo uploaded. Save your profile to keep it.");
-    } catch (uploadError) {
-      setError(uploadError?.message || "Unable to upload your profile photo right now.");
-      setMessage("");
-    } finally {
-      setIsUploadingAvatar(false);
-    }
-  };
-
   const handleRedeemReward = async (reward) => {
     const rewardId = String(reward?.id || "").trim();
     if (!rewardId) return;
@@ -501,11 +478,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
             </div>
             <div className="profile-avatar-copy">
               <strong>Profile Photo</strong>
-              <p>Upload a photo so your account feels a little more like yours.</p>
-              <label className="profile-avatar-upload">
-                <span>{isUploadingAvatar ? "Uploading..." : "Upload photo"}</span>
-                <input type="file" accept="image/*" onChange={handleAvatarUpload} disabled={isUploadingAvatar || isSaving} />
-              </label>
+              <p>Your saved profile photo appears here.</p>
             </div>
           </div>
 

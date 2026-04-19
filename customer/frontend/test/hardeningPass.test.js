@@ -74,11 +74,42 @@ test("checkout: customer app reads owner-managed availability settings", async (
   assert.ok(src.includes("availablePaymentOptions"), "Checkout should derive payment methods from owner-managed settings.");
 });
 
+test("delivery coverage: checkout only renders the map from a ready live config", async () => {
+  const src = await readSource("src/pages/Checkout.jsx");
+  assert.ok(src.includes("isDeliveryConfigReady"), "Checkout should gate delivery map rendering on a ready live config.");
+  assert.ok(
+    src.includes("Delivery coverage is unavailable or incomplete right now."),
+    "Checkout should show an explicit delivery coverage warning instead of a misleading fallback map."
+  );
+});
+
 test("profile: customer address uses shared delivery-area config (no legacy lucena utility)", async () => {
   const src = await readSource("src/pages/Profile.jsx");
   assert.ok(src.includes("getActiveDeliveryConfig"), "Profile should load delivery coverage from the shared service.");
   assert.ok(src.includes("buildDeliveryAddress"), "Profile should build saved addresses with the shared delivery helper.");
   assert.ok(!src.includes("lucenaAddress"), "Profile should not depend on the removed lucenaAddress utility.");
+});
+
+test("delivery coverage: customer and staff services share the delivery area selector", async () => {
+  const customerSrc = await readSource("src/services/deliveryAreaService.js");
+  const staffSrc = await readSource("src/staff/services/deliveryCoverageService.ts");
+
+  assert.ok(
+    customerSrc.includes("selectPreferredDeliveryArea"),
+    "Customer delivery config should use the shared preferred-area selector."
+  );
+  assert.ok(
+    staffSrc.includes("selectPreferredDeliveryArea"),
+    "Staff delivery coverage should use the shared preferred-area selector."
+  );
+  assert.ok(
+    customerSrc.includes("toCustomerDeliveryConfig"),
+    "Customer delivery config should be assembled from the shared delivery helper."
+  );
+  assert.ok(
+    staffSrc.includes("toStaffDeliveryCoverage"),
+    "Staff delivery coverage should be assembled from the shared delivery helper."
+  );
 });
 
 test("codebase: no Google Maps runtime references remain in active source", async () => {
@@ -173,16 +204,25 @@ test("staff settings and menu management use image uploads instead of raw URL fi
   assert.ok(settingsSrc.includes("uploadBrandingAsset"), "Business settings should upload branding images.");
   assert.ok(settingsSrc.includes("Logo / Branding picture"), "Business settings should expose picture upload copy.");
   assert.ok(!settingsSrc.includes("Logo URL / Branding asset"), "Business settings should not expose the old raw logo URL field.");
+  assert.ok(!settingsSrc.includes("Owner Account"), "Settings should not duplicate owner password controls.");
+  assert.ok(!settingsSrc.includes("Service Fee (%)"), "Settings should not expose the service fee field.");
+  assert.ok(!settingsSrc.includes("'account'"), "Settings should not keep the old account tab.");
 
   const menuManagementSrc = await readSource("src/staff/pages/menu/MenuManagementPage.tsx");
   assert.ok(menuManagementSrc.includes("Upload category picture"), "Category editor should upload category pictures.");
   assert.ok(menuManagementSrc.includes("groupedMenuItems"), "Menu items should be grouped by category.");
+  assert.ok(menuManagementSrc.includes("Menu Categories"), "Menu management should expose category tabs.");
+  assert.ok(menuManagementSrc.includes("Discount Tools"), "Menu management should collapse discount controls behind tabs.");
   assert.ok(menuManagementSrc.includes("Mark as limited item"), "Menu item editor should expose a simple limited item toggle.");
   assert.ok(!menuManagementSrc.includes("Image URL (optional)"), "Menu item editor should not expose raw image URL input.");
   assert.ok(!menuManagementSrc.includes("Discount amount"), "Menu item editor should not expose the old raw discount amount field.");
   assert.ok(!menuManagementSrc.includes("Discount starts at"), "Menu item editor should not expose discount schedule fields.");
   assert.ok(!menuManagementSrc.includes("Discount ends at"), "Menu item editor should not expose discount schedule fields.");
   assert.ok(!menuManagementSrc.includes("Limited time ends at"), "Menu item editor should not expose raw limited-end datetime field.");
+
+  const inventorySrc = await readSource("src/staff/pages/menu/InventoryTrackerSection.tsx");
+  assert.ok(inventorySrc.includes("inventoryTabs"), "Inventory page should build tab-style category filters.");
+  assert.ok(inventorySrc.includes("Inventory Categories"), "Inventory page should expose category tabs.");
 });
 
 test("menu: schema and customer cards preserve discount mode and category images", async () => {
@@ -204,6 +244,20 @@ test("menu: schema and customer cards preserve discount mode and category images
   const orderCategorySrc = await readSource("src/pages/OrderCategory.jsx");
   assert.ok(orderCategorySrc.includes("buildDiscountLabel"), "Customer item cards should format discount labels from saved mode.");
   assert.ok(orderCategorySrc.includes("DISCOUNTED"), "Customer item cards should show a discounted overlay tag.");
+});
+
+test("storage: customers can upload profile photos to their own folder", async () => {
+  const schema = await readSchema();
+  assert.ok(schema.includes('menu_images_profile_insert_self'), "Schema should allow self-service profile image uploads.");
+  assert.ok(schema.includes('menu_images_profile_update_self'), "Schema should allow self-service profile image updates.");
+  assert.ok(schema.includes('menu_images_profile_delete_self'), "Schema should allow self-service profile image deletes.");
+  assert.ok(schema.includes("(storage.foldername(name))[1] = ''profiles''"), "Profile image policies should target the profiles folder.");
+  assert.ok(schema.includes("(storage.foldername(name))[2] = auth.uid()::text"), "Profile image policies should scope uploads to the signed-in user.");
+
+  const profileSrc = await readSource("src/pages/Profile.jsx");
+  assert.ok(!profileSrc.includes("uploadCustomerProfileImage"), "Customer profile should not wire the profile image upload helper.");
+  assert.ok(!profileSrc.includes("Upload photo"), "Customer profile should not expose an upload-photo action.");
+  assert.ok(!profileSrc.includes("Remove photo"), "Customer profile should not expose a remove-photo action.");
 });
 
 test("loyalty: free groom is saved as an in-store profile reward", async () => {
