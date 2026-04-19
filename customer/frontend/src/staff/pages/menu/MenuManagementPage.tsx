@@ -15,6 +15,7 @@ const createDefaultMenuItemDraft = (): MenuItem => ({
   categoryId: '',
   description: null,
   price: 0,
+  cost: 0,
   effectivePrice: 0,
   discount: 0,
   discountType: 'amount',
@@ -153,6 +154,7 @@ const validateMenuItemDraft = (draft: MenuItem) => {
   if (!asTrimmed(draft.name)) return 'Menu item name is required.';
   if (!asTrimmed(draft.categoryId)) return 'Category is required.';
   if (!Number.isFinite(draft.price) || draft.price < 0) return 'Price must be zero or higher.';
+  if (!Number.isFinite(draft.cost) || draft.cost < 0) return 'Item cost must be zero or higher.';
   if (!Number.isFinite(draft.discount) || draft.discount < 0) return 'Discount must be zero or higher.';
   if (draft.price > 0 && draft.discount > draft.price) return 'Discount cannot be greater than price.';
   if (draft.discountType === 'percent' && draft.discountValue > 100) return 'Percent discount cannot exceed 100%.';
@@ -164,6 +166,7 @@ export const MenuManagementPage = () => {
   const { items, loading: itemsLoading, error: itemsError, saveItem, deleteItem } = useMenuItems();
   const [categoryDraft, setCategoryDraft] = useState<MenuCategory>(defaultCategoryDraft);
   const [draft, setDraft] = useState<MenuItem>(() => createDefaultMenuItemDraft());
+  const [activeCategoryTab, setActiveCategoryTab] = useState('all');
   const [draftDiscountMode, setDraftDiscountMode] = useState<DraftDiscountMode>('none');
   const [draftPriceInput, setDraftPriceInput] = useState('');
   const [query, setQuery] = useState('');
@@ -192,6 +195,21 @@ export const MenuManagementPage = () => {
     if (!uncategorizedItems.length) return categoryGroups;
     return [...categoryGroups, { id: 'uncategorized', name: 'Uncategorized', items: uncategorizedItems }];
   }, [categories, filtered]);
+  const categoryTabs = useMemo(
+    () => [
+      { id: 'all', label: 'All items', count: filtered.length },
+      ...groupedMenuItems.map((group) => ({
+        id: group.id,
+        label: group.name,
+        count: group.items.length,
+      })),
+    ],
+    [filtered.length, groupedMenuItems],
+  );
+  const visibleGroupedMenuItems = useMemo(
+    () => (activeCategoryTab === 'all' ? groupedMenuItems : groupedMenuItems.filter((group) => group.id === activeCategoryTab)),
+    [activeCategoryTab, groupedMenuItems],
+  );
   const bulkSelectableItems = useMemo(() => {
     const needle = asTrimmed(bulkItemQuery).toLowerCase();
     if (!needle) return items;
@@ -212,6 +230,13 @@ export const MenuManagementPage = () => {
   useEffect(() => {
     setSelectedBulkItemIds((current) => current.filter((id) => items.some((item) => item.id === id)));
   }, [items]);
+
+  useEffect(() => {
+    if (activeCategoryTab === 'all') return;
+    if (!groupedMenuItems.some((group) => group.id === activeCategoryTab)) {
+      setActiveCategoryTab('all');
+    }
+  }, [activeCategoryTab, groupedMenuItems]);
 
   useEffect(() => {
     if (!isMenuItemModalOpen) return;
@@ -284,6 +309,7 @@ export const MenuManagementPage = () => {
     const preparedDraft: MenuItem = {
       ...draft,
       price: normalizedPrice,
+      cost: normalizeAmount(draft.cost),
       effectivePrice: Math.max(normalizedPrice - normalizedDiscount, 0),
       discount: normalizedDiscount,
       discountType: normalizedDiscount > 0 ? activeDiscountMode : 'amount',
@@ -730,7 +756,21 @@ export const MenuManagementPage = () => {
         </div>
         <div className="space-y-4">
           {!filtered.length ? <p className="text-sm text-[#6B7280]">No menu items match your search.</p> : null}
-          {groupedMenuItems.map((group) => (
+          {categoryTabs.length > 1 ? (
+            <div className="flex flex-wrap gap-2">
+              {categoryTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`rounded border px-3 py-1 text-sm ${activeCategoryTab === tab.id ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'}`}
+                  onClick={() => setActiveCategoryTab(tab.id)}
+                >
+                  {tab.label} ({tab.count})
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {visibleGroupedMenuItems.map((group) => (
             <div key={group.id} className="rounded border border-dashed p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="font-semibold text-sm">{group.name}</h4>
@@ -747,6 +787,7 @@ export const MenuManagementPage = () => {
                       Category: {categoryNameById.get(item.categoryId) ?? (item.categoryId || 'uncategorized')} - Updated:{' '}
                       {new Date(item.updatedAt).toLocaleString()}
                     </p>
+                    <p className="text-[#6B7280]">Item cost: {formatCurrency(item.cost)}</p>
                     {item.limitedTimeEndsAt ? <p className="text-[#6B7280]">{getLimitedDisplayLabel(item.limitedTimeEndsAt)}</p> : null}
                     {item.discount > 0 ? <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p> : null}
                     <div className="flex gap-2 mt-1 flex-wrap">
@@ -819,6 +860,18 @@ export const MenuManagementPage = () => {
                   value={draftPriceInput}
                   onChange={handleDraftPriceChange}
                   onBlur={handleDraftPriceBlur}
+                />
+              </label>
+              <label className="text-sm">
+                Item cost
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="block border rounded mt-1 px-2 py-1 w-full"
+                  placeholder="0.00"
+                  value={draft.cost}
+                  onChange={(event) => setDraft({ ...draft, cost: normalizeAmount(Number(event.target.value)) })}
                 />
               </label>
               <div className="text-sm">

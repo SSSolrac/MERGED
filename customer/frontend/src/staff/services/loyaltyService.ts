@@ -3,10 +3,44 @@ import { mapLoyaltyAccountRow, mapRewardRow } from '@/lib/mappers';
 import { requireSupabaseClient } from '@/lib/supabase';
 import type { LoyaltyAccount, LoyaltyResetResult, ManualStampAwardResult, Reward, RewardRedemptionCount } from '@/types/loyalty';
 
+const CLAIMED_IN_STORE_MARKER = '[claimed-in-store]';
+
 type LoyaltyRedemptionRow = {
+  id?: unknown;
   customer_id?: unknown;
   reward_id?: unknown;
   redeemed_at?: unknown;
+  notes?: unknown;
+};
+
+type PendingRewardItemRow = {
+  id?: unknown;
+  redemption_id?: unknown;
+  customer_id?: unknown;
+  reward_id?: unknown;
+  item_name?: unknown;
+  option_label?: unknown;
+  notes?: unknown;
+  created_at?: unknown;
+};
+
+export type PendingRewardItem = {
+  id: string;
+  redemptionId: string;
+  customerId: string;
+  rewardId: string;
+  rewardLabel: string;
+  itemName: string;
+  optionLabel: string | null;
+  notes: string | null;
+  createdAt: string;
+};
+
+export type SavedInStoreRewardBalance = {
+  rewardId: string;
+  label: string;
+  count: number;
+  latestRedeemedAt: string;
 };
 
 const listActiveRewards = async (): Promise<Reward[]> => {
@@ -25,6 +59,17 @@ const asText = (value: unknown, fallback = '') => (typeof value === 'string' ? v
 const asNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+const hasClaimedInStoreMarker = (value: unknown) => asText(value).toLowerCase().includes(CLAIMED_IN_STORE_MARKER);
+const stripClaimedInStoreMarker = (value: unknown) =>
+  asText(value)
+    .replace(/\s*\|\s*\[claimed-in-store\][^|]*$/i, '')
+    .replace(/\[claimed-in-store\][^|]*$/i, '')
+    .trim();
+const appendClaimedInStoreNote = (value: unknown, note = '') => {
+  const cleaned = stripClaimedInStoreMarker(value);
+  const parts = [cleaned, note.trim(), CLAIMED_IN_STORE_MARKER].filter(Boolean);
+  return parts.join(' | ');
 };
 
 const normalizeManualStampAwardResult = (data: unknown): ManualStampAwardResult => {
@@ -79,6 +124,22 @@ const buildRewardRedemptionCounts = (rows: LoyaltyRedemptionRow[], rewardsById: 
   });
 
   return Array.from(counts.values()).sort((a, b) => a.label.localeCompare(b.label));
+};
+
+const mapPendingRewardItemRow = (row: PendingRewardItemRow, rewardsById: Map<string, Reward>): PendingRewardItem => {
+  const rewardId = asText(row.reward_id);
+  const reward = rewardsById.get(rewardId);
+  return {
+    id: asText(row.id),
+    redemptionId: asText(row.redemption_id),
+    customerId: asText(row.customer_id),
+    rewardId,
+    rewardLabel: reward?.label || 'Reward',
+    itemName: asText(row.item_name, 'Reward item'),
+    optionLabel: asText(row.option_label) || null,
+    notes: stripClaimedInStoreMarker(row.notes) || null,
+    createdAt: asText(row.created_at),
+  };
 };
 
 export const loyaltyService = {
@@ -214,5 +275,153 @@ export const loyaltyService = {
 
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to reset loyalty card.' });
     return normalizeLoyaltyResetResult(data);
+  },
+
+  async listPendingRewardItems(customerId: string): Promise<PendingRewardItem[]> {
+    const supabase = requireSupabaseClient();
+    const safeCustomerId = customerId.trim();
+    if (!safeCustomerId) return [];
+
+    const [rewards, rewardItemsResult] = await Promise.all([
+      listActiveRewards(),
+      supabase
+        .from('loyalty_reward_items')
+        .select('id, redemption_id, customer_id, reward_id, item_name, option_label, notes, created_at')
+        .eq('customer_id', safeCustomerId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false }),
+    ]);
+
+    if (rewardItemsResult.error) {
+      throw normalizeError(rewardItemsResult.error, { fallbackMessage: 'Unable to load pending reward items.' });
+    }
+
+    const rewardsById = new Map(rewards.map((reward) => [String(reward.id), reward] as const));
+    return (Array.isArray(rewardItemsResult.data) ? rewardItemsResult.data : []).map((row) =>
+      mapPendingRewardItemRow(row as PendingRewardItemRow, rewardsById),
+    );
+  },
+
+  async listSavedInStoreRewards(customerId: string): Promise<SavedInStoreRewardBalance[]> {
+    const supabase = requireSupabaseClient();
+    const safeCustomerId = customerId.trim();
+    if (!safeCustomerId) return [];
+
+    const [rewards, redemptionsResult] = await Promise.all([
+      listActiveRewards(),
+      supabase.from('loyalty_redemptions').select('*').eq('customer_id', safeCustomerId).order('redeemed_at', { ascending: false }),
+    ]);
+
+    if (redemptionsResult.error) {
+      throw normalizeError(redemptionsResult.error, { fallbackMessage: 'Unable to load saved in-store rewards.' });
+    }
+
+    const rewardsById = new Map(rewards.map((reward) => [String(reward.id), reward] as const));
+    const balances = new Map<string, SavedInStoreRewardBalance>();
+
+    (Array.isArray(redemptionsResult.data) ? redemptionsResult.data : []).forEach((row) => {
+      const rewardId = asText((row as LoyaltyRedemptionRow).reward_id);
+      if (!rewardId || hasClaimedInStoreMarker((row as LoyaltyRedemptionRow).notes)) return;
+
+      const reward = rewardsById.get(rewardId);
+      const label = reward?.label || 'Reward';
+      if (!/groom/i.test(label)) return;
+
+      const current = balances.get(rewardId) ?? {
+        rewardId,
+        label,
+        count: 0,
+        latestRedeemedAt: '',
+      };
+      const redeemedAt = asText((row as LoyaltyRedemptionRow).redeemed_at);
+      const currentMs = Date.parse(current.latestRedeemedAt);
+      const redeemedMs = Date.parse(redeemedAt);
+
+      balances.set(rewardId, {
+        ...current,
+        count: current.count + 1,
+        latestRedeemedAt: Number.isFinite(redeemedMs) && (!Number.isFinite(currentMs) || redeemedMs > currentMs) ? redeemedAt : current.latestRedeemedAt,
+      });
+    });
+
+    return Array.from(balances.values()).sort((a, b) => a.label.localeCompare(b.label));
+  },
+
+  async claimPendingRewardItemInStore(rewardItemId: string, note = ''): Promise<{ itemName: string; rewardLabel: string }> {
+    const supabase = requireSupabaseClient();
+    const safeRewardItemId = rewardItemId.trim();
+    if (!safeRewardItemId) throw new Error('Choose a reward item first.');
+
+    const { data: rewardItemRow, error: rewardItemError } = await supabase
+      .from('loyalty_reward_items')
+      .select('id, redemption_id, reward_id, item_name, option_label, notes')
+      .eq('id', safeRewardItemId)
+      .maybeSingle();
+
+    if (rewardItemError) throw normalizeError(rewardItemError, { fallbackMessage: 'Unable to load the reward item.' });
+    if (!rewardItemRow) throw new Error('Reward item not found.');
+
+    const rewards = await listActiveRewards();
+    const rewardsById = new Map(rewards.map((reward) => [String(reward.id), reward] as const));
+    const rewardLabel = rewardsById.get(asText(rewardItemRow.reward_id))?.label || 'Reward';
+    const itemName = asText(rewardItemRow.item_name, 'Reward item');
+
+    const { error: updateRedemptionError } = await supabase
+      .from('loyalty_redemptions')
+      .update({ notes: appendClaimedInStoreNote(rewardItemRow.notes, note) })
+      .eq('id', rewardItemRow.redemption_id);
+
+    if (updateRedemptionError) {
+      throw normalizeError(updateRedemptionError, { fallbackMessage: 'Unable to mark this reward as claimed in store.' });
+    }
+
+    const { error: deleteRewardItemError } = await supabase.from('loyalty_reward_items').delete().eq('id', safeRewardItemId);
+    if (deleteRewardItemError) {
+      throw normalizeError(deleteRewardItemError, { fallbackMessage: 'Unable to remove this reward from the customer profile.' });
+    }
+
+    return { itemName, rewardLabel };
+  },
+
+  async claimSavedRewardInStore(customerId: string, rewardId: string, note = ''): Promise<{ rewardLabel: string }> {
+    const supabase = requireSupabaseClient();
+    const safeCustomerId = customerId.trim();
+    const safeRewardId = rewardId.trim();
+
+    if (!safeCustomerId || !safeRewardId) throw new Error('Choose a saved reward first.');
+
+    const [rewards, redemptionsResult] = await Promise.all([
+      listActiveRewards(),
+      supabase
+        .from('loyalty_redemptions')
+        .select('id, reward_id, notes, redeemed_at')
+        .eq('customer_id', safeCustomerId)
+        .eq('reward_id', safeRewardId)
+        .order('redeemed_at', { ascending: false }),
+    ]);
+
+    if (redemptionsResult.error) {
+      throw normalizeError(redemptionsResult.error, { fallbackMessage: 'Unable to load the saved reward.' });
+    }
+
+    const rewardLabel = rewards.find((reward) => String(reward.id) === safeRewardId)?.label || 'Reward';
+    const targetRow = (Array.isArray(redemptionsResult.data) ? redemptionsResult.data : []).find(
+      (row) => !hasClaimedInStoreMarker((row as LoyaltyRedemptionRow).notes),
+    ) as LoyaltyRedemptionRow | undefined;
+
+    if (!targetRow?.id) {
+      throw new Error('No saved in-store reward was found to clear.');
+    }
+
+    const { error } = await supabase
+      .from('loyalty_redemptions')
+      .update({ notes: appendClaimedInStoreNote(targetRow.notes, note) })
+      .eq('id', targetRow.id);
+
+    if (error) {
+      throw normalizeError(error, { fallbackMessage: 'Unable to remove this reward from the customer profile.' });
+    }
+
+    return { rewardLabel };
   },
 };

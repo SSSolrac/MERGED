@@ -58,6 +58,7 @@ export type Order = {
   placedAt: string;
   createdAt: string;
   updatedAt: string;
+  costOfGoods?: number;
 
   items?: OrderItem[];
   statusTimeline?: OrderStatusHistoryItem[];

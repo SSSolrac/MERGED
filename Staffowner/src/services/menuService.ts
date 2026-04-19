@@ -7,7 +7,7 @@ const MENU_IMAGE_BUCKET = 'menu-images';
 const MAX_MENU_IMAGE_BYTES = 5 * 1024 * 1024;
 const MENU_CATEGORY_VIEW_SELECT = '*';
 const MENU_ITEM_VIEW_SELECT =
-  'id, code, category_id, name, description, price, discount, discount_type, discount_value, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at';
+  'id, code, category_id, name, description, price, cost, discount, discount_type, discount_value, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at';
 
 const sanitizeImageFileName = (fileName: string) => {
   const trimmed = fileName.trim().toLowerCase();
@@ -142,6 +142,7 @@ export const menuService = {
       name: item.name,
       description: item.description || null,
       price: item.price,
+      cost: item.cost,
       discount: item.discount,
       discount_type: item.discountType,
       discount_value: item.discountValue,

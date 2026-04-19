@@ -174,7 +174,8 @@ export const DashboardPage = () => {
   const refundsTotal = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).refunded, 0);
   const discountsTotal = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).discountTotal, 0);
   const netSales = Math.max(0, grossSales - refundsTotal - discountsTotal);
-  const grossProfitEstimate = netSales;
+  const costOfGoodsTotal = filteredOrders.reduce((sum, order) => sum + (Number.isFinite(order.costOfGoods) ? Math.max(0, order.costOfGoods ?? 0) : 0), 0);
+  const netProfitEstimate = netSales - costOfGoodsTotal;
 
   const SummaryCard = ({ title, value, subtitle }: { title: string; value: string; subtitle: string }) => (
     <div className="rounded-lg border bg-white p-4 shadow-sm">
@@ -204,7 +205,7 @@ export const DashboardPage = () => {
         <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
         <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
         <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Gross profit" value={formatCurrency(grossProfitEstimate)} subtitle={`Estimate (${rangeLabel(selectedRange)})`} />
+        <SummaryCard title="Net profit" value={formatCurrency(netProfitEstimate)} subtitle={`After menu item costs (${rangeLabel(selectedRange)})`} />
       </div>
 
       <div className="rounded-lg border bg-white p-4 shadow-sm">

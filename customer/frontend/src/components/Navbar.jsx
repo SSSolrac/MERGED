@@ -16,7 +16,7 @@ function Navbar({ onSignOut, onOpenModal }) {
   const notificationMenuRef = useRef(null);
   const profileMenuRef = useRef(null);
   const { cartCount, isMiniCartOpen, toggleMiniCart, closeMiniCart } = useCart();
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, role, user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -108,6 +108,8 @@ function Navbar({ onSignOut, onOpenModal }) {
 
   const visibleUnreadCount = isAuthenticated ? unreadCount : 0;
   const dashboardPath = role === "owner" ? "/owner/dashboard" : role === "staff" ? "/staff/dashboard" : "";
+  const profileImageSrc = user?.avatar || profileIcon;
+  const isCustomProfileImage = Boolean(user?.avatar);
 
   return (
     <nav className="navbar" style={{ backgroundColor: "#ffffff" }}>
@@ -173,7 +175,7 @@ function Navbar({ onSignOut, onOpenModal }) {
                 aria-expanded={isProfileMenuOpen}
                 onClick={handleToggleProfileMenu}
               >
-                <img src={profileIcon} alt="" className="profile-icon" style={{ filter: "brightness(0)" }} />
+                <img src={profileImageSrc} alt="" className="profile-icon" style={isCustomProfileImage ? undefined : { filter: "brightness(0)" }} />
               </button>
               {isProfileMenuOpen ? (
                 <div className="profile-dropdown" role="menu" aria-label="Account">

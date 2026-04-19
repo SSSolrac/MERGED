@@ -21,6 +21,16 @@ const asNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const asBoolean = (value: unknown, fallback = false) => (typeof value === 'boolean' ? value : value == null ? fallback : Boolean(value));
+const readPreferences = (value: unknown) => (asRecord(value) ?? {}) as Record<string, unknown>;
+const readAvatarUrl = (value: unknown) => {
+  const preferences = readPreferences(value);
+  const avatar = preferences.avatarUrl ?? preferences.profilePhotoUrl;
+  return avatar == null ? null : asString(avatar, '').trim() || null;
+};
+const readJobTitle = (value: unknown) => {
+  const preferences = readPreferences(value);
+  return asString(preferences.jobTitle ?? preferences.title, '').trim();
+};
 const asDiscountType = (value: unknown): MenuItem['discountType'] => {
   const text = asString(value, '').trim().toLowerCase();
   return text === 'percent' ? 'percent' : 'amount';
@@ -42,14 +52,17 @@ export const mapCustomerProfileRow = (row: unknown): CustomerProfile => {
   const r = asRecord(row) ?? {};
   const now = new Date().toISOString();
   const customerCode = r.customer_code == null ? null : asString(r.customer_code, '').trim() || null;
+  const preferences = readPreferences(r.preferences);
   return {
     id: asString(r.id, ''),
     customerCode,
     name: asString(r.name, ''),
     email: asString(r.email, ''),
     phone: asString(r.phone, ''),
+    jobTitle: readJobTitle(preferences),
+    avatarUrl: readAvatarUrl(preferences),
     addresses: Array.isArray(r.addresses) ? r.addresses : [],
-    preferences: (asRecord(r.preferences) ?? {}) as Record<string, unknown>,
+    preferences,
     isActive: asBoolean(r.is_active, true),
     createdAt: asIsoString(r.created_at, now),
     updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
@@ -90,6 +103,7 @@ export const mapMenuItemRow = (row: unknown): MenuItem => {
     name: asString(r.name, ''),
     description: r.description == null ? null : asString(r.description, ''),
     price: asNumber(r.price, 0),
+    cost: asNumber(r.cost, 0),
     effectivePrice: asNumber(r.effective_price, Math.max(asNumber(r.price, 0) - asNumber(r.effective_discount ?? r.discount, 0), 0)),
     discount: asNumber(r.discount, 0),
     discountType: asDiscountType(r.discount_type ?? r.discountType),

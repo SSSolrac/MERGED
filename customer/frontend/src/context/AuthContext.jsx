@@ -177,6 +177,8 @@ export function AuthProvider({ children }) {
       name,
       role: profile ? normalizeAppRole(profile.role, null) : null,
       customerCode: profile?.customerCode ?? null,
+      jobTitle: profile?.jobTitle || "",
+      avatar: profile?.avatarUrl || "",
     };
   }, [profile, session?.user]);
 

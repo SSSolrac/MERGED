@@ -11,6 +11,7 @@ import {
   Menu,
   Settings,
   Upload,
+  User,
   Users,
   Utensils,
 } from 'lucide-react';
@@ -30,6 +31,12 @@ export const DashboardLayout = () => {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const workspaceBasePath = location.pathname.startsWith('/owner') ? '/owner' : '/staff';
+  const userInitials = useMemo(() => {
+    const source = String(user?.name || user?.email || 'SO').trim();
+    const parts = source.split(/\s+/).filter(Boolean).slice(0, 2);
+    return (parts.map((part) => part.charAt(0).toUpperCase()).join('') || 'SO').slice(0, 2);
+  }, [user?.email, user?.name]);
+  const userTitle = String(user?.jobTitle || '').trim() || (user?.role === 'owner' ? 'Owner' : 'Staff');
 
   const navItems = useMemo(() => {
     const base = [
@@ -39,6 +46,7 @@ export const DashboardLayout = () => {
       { section: 'Catalog', label: 'Manage Menu Items', path: `${workspaceBasePath}/menu`, icon: Utensils },
       { section: 'Catalog', label: 'Inventory', path: `${workspaceBasePath}/inventory`, icon: Boxes },
       { section: 'Customers', label: 'Customer Loyalty', path: `${workspaceBasePath}/customers`, icon: Users },
+      { section: 'Account', label: 'Profile', path: `${workspaceBasePath}/profile`, icon: User },
       { section: 'Administration', label: 'Import Sales Data', path: `${workspaceBasePath}/imports`, icon: Upload, ownerOnly: true },
       { section: 'Administration', label: 'Settings', path: `${workspaceBasePath}/settings`, icon: Settings, ownerOnly: true },
       { section: 'Administration', label: 'Delivery Coverage', path: `${workspaceBasePath}/admin/delivery-coverage`, icon: MapPinned, ownerOnly: true },
@@ -80,8 +88,18 @@ export const DashboardLayout = () => {
     <div className="staff-app staff-workspace min-h-screen bg-[#FFF7F9] text-[#1F2937]">
       <div className="staff-workspace__shell">
         <aside className="staff-workspace__sidebar">
-          <div className="staff-workspace__avatar h-10 w-10 rounded-full bg-[#FF8FA3] text-white flex items-center justify-center font-semibold text-sm mx-2">
-            SO
+          <div className="mx-2 flex items-center gap-3 rounded-xl bg-[#FFF3F5] p-3">
+            {user?.avatar ? (
+              <img src={user.avatar} alt={user?.name || 'Staff profile'} className="h-11 w-11 rounded-full border border-[#F6D2DA] object-cover" />
+            ) : (
+              <div className="staff-workspace__avatar h-11 w-11 rounded-full bg-[#FF8FA3] text-white flex items-center justify-center font-semibold text-sm">
+                {userInitials}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[#1F2937]">{user?.name || 'Staff / Owner'}</p>
+              <p className="truncate text-xs text-slate-500">{userTitle}</p>
+            </div>
           </div>
           <nav className="staff-workspace__nav mt-4 flex-1 w-full space-y-3 overflow-y-auto">
             {navSections.map(([section, sectionItems]) => (

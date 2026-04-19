@@ -724,6 +724,7 @@ create table if not exists public.menu_items (
   name text not null,
   description text,
   price numeric(10,2) not null check (price >= 0),
+  cost numeric(10,2) not null default 0 check (cost >= 0),
   discount numeric(10,2) not null default 0 check (discount >= 0),
   discount_type text not null default 'amount' check (discount_type in ('amount', 'percent')),
   discount_value numeric(10,2) not null default 0 check (discount_value >= 0),
@@ -740,6 +741,7 @@ create table if not exists public.menu_items (
 
 alter table public.menu_items add column if not exists discount_type text not null default 'amount';
 alter table public.menu_items add column if not exists discount_value numeric(10,2) not null default 0;
+alter table public.menu_items add column if not exists cost numeric(10,2) not null default 0;
 alter table public.menu_items add column if not exists discount_starts_at timestamptz;
 alter table public.menu_items add column if not exists discount_ends_at timestamptz;
 alter table public.menu_items add column if not exists limited_time_ends_at timestamptz;
@@ -747,6 +749,7 @@ alter table public.menu_items add column if not exists new_tag_started_at timest
 
 alter table public.menu_items alter column discount_type set default 'amount';
 alter table public.menu_items alter column discount_value set default 0;
+alter table public.menu_items alter column cost set default 0;
 
 update public.menu_items
 set
@@ -765,8 +768,14 @@ set discount_value = 0
 where discount_value is null
   or discount_value < 0;
 
+update public.menu_items
+set cost = 0
+where cost is null
+  or cost < 0;
+
 alter table public.menu_items alter column discount_type set not null;
 alter table public.menu_items alter column discount_value set not null;
+alter table public.menu_items alter column cost set not null;
 
 create index if not exists idx_menu_items_category_id on public.menu_items(category_id);
 create index if not exists idx_menu_items_is_available on public.menu_items(is_available);
@@ -787,6 +796,17 @@ begin
     alter table public.menu_items
       add constraint menu_items_discount_type_chk
       check (discount_type in ('amount', 'percent'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'menu_items_cost_chk'
+      and conrelid = 'public.menu_items'::regclass
+  ) then
+    alter table public.menu_items
+      add constraint menu_items_cost_chk
+      check (cost >= 0);
   end if;
 
   if not exists (
@@ -2454,6 +2474,7 @@ select
   mi.name,
   mi.description,
   mi.price,
+  mi.cost,
   mi.discount,
   mi.discount_type,
   mi.discount_value,

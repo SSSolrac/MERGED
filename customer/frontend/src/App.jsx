@@ -34,6 +34,7 @@ import { MenuManagementPage } from "@/pages/menu/MenuManagementPage";
 import { InventoryManagementPage } from "@/pages/menu/InventoryManagementPage";
 import { CustomersLoyaltyPage } from "@/pages/customers/CustomersLoyaltyPage";
 import { ImportsReportsPage } from "@/pages/imports/ImportsReportsPage";
+import { ProfilePage as StaffProfilePage } from "@/pages/ProfilePage";
 
 function CustomerRoute({ children }) {
   return <RequireRole roles={["customer"]}>{children}</RequireRole>;
@@ -57,6 +58,7 @@ function staffOwnerChildRoutes(basePath) {
       <Route path="menu" element={<MenuManagementPage />} />
       <Route path="inventory" element={<InventoryManagementPage />} />
       <Route path="customers" element={<CustomersLoyaltyPage />} />
+      <Route path="profile" element={<StaffProfilePage />} />
       <Route path="imports" element={<OwnerRoute><ImportsReportsPage /></OwnerRoute>} />
       <Route path="settings" element={<OwnerRoute><SettingsPage /></OwnerRoute>} />
       <Route path="admin/delivery-coverage" element={<OwnerRoute><DeliveryCoveragePage /></OwnerRoute>} />

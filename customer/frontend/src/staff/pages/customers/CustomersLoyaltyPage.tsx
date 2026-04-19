@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { toast } from 'sonner';
 import { KPICard } from '@/components/dashboard';
 import { useCustomers } from '@/hooks/useCustomers';
-import { loyaltyService } from '@/services/loyaltyService';
+import { loyaltyService, type PendingRewardItem, type SavedInStoreRewardBalance } from '@/services/loyaltyService';
 import { LOYALTY_TOTAL_STAMPS } from '@/types/loyalty';
 import type { Customer } from '@/types/customer';
 
@@ -35,6 +35,10 @@ export const CustomersLoyaltyPage = () => {
   const [resetReason, setResetReason] = useState('');
   const [resetError, setResetError] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+  const [pendingRewardItems, setPendingRewardItems] = useState<PendingRewardItem[]>([]);
+  const [savedInStoreRewards, setSavedInStoreRewards] = useState<SavedInStoreRewardBalance[]>([]);
+  const [isLoadingOutstandingRewards, setIsLoadingOutstandingRewards] = useState(false);
+  const [rewardActionKey, setRewardActionKey] = useState('');
 
   const filtered = useMemo(() => customers.filter((customer) => {
     const byQuery = customer.name.toLowerCase().includes(query.toLowerCase()) || customer.email.toLowerCase().includes(query.toLowerCase());
@@ -56,6 +60,51 @@ export const CustomersLoyaltyPage = () => {
     setAwardError('');
     setResetReason('');
     setResetError('');
+    setPendingRewardItems([]);
+    setSavedInStoreRewards([]);
+    setRewardActionKey('');
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOutstandingRewards = async () => {
+      if (!selected?.id) {
+        setPendingRewardItems([]);
+        setSavedInStoreRewards([]);
+        return;
+      }
+
+      try {
+        setIsLoadingOutstandingRewards(true);
+        const [pendingItems, savedRewards] = await Promise.all([
+          loyaltyService.listPendingRewardItems(selected.id),
+          loyaltyService.listSavedInStoreRewards(selected.id),
+        ]);
+        if (cancelled) return;
+        setPendingRewardItems(pendingItems);
+        setSavedInStoreRewards(savedRewards);
+      } catch (error) {
+        if (cancelled) return;
+        toast.error(error instanceof Error ? error.message : 'Unable to load saved rewards.');
+        setPendingRewardItems([]);
+        setSavedInStoreRewards([]);
+      } finally {
+        if (!cancelled) setIsLoadingOutstandingRewards(false);
+      }
+    };
+
+    void loadOutstandingRewards();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
+
+  const refreshSelectedCustomer = async (customerId: string) => {
+    const refreshedCustomers = await refresh();
+    const updatedCustomer = refreshedCustomers.find((customer) => customer.id === customerId) || null;
+    if (updatedCustomer) setSelected(updatedCustomer);
+    return updatedCustomer;
   };
 
   const handleAwardStamps = async (event: FormEvent<HTMLFormElement>) => {
@@ -127,6 +176,50 @@ export const CustomersLoyaltyPage = () => {
     }
   };
 
+  const handleClaimPendingRewardInStore = async (rewardItem: PendingRewardItem) => {
+    if (!selected?.id) return;
+
+    try {
+      setRewardActionKey(`pending:${rewardItem.id}`);
+      const result = await loyaltyService.claimPendingRewardItemInStore(rewardItem.id);
+      await refreshSelectedCustomer(selected.id);
+      const [nextPendingItems, nextSavedRewards] = await Promise.all([
+        loyaltyService.listPendingRewardItems(selected.id),
+        loyaltyService.listSavedInStoreRewards(selected.id),
+      ]);
+      setPendingRewardItems(nextPendingItems);
+      setSavedInStoreRewards(nextSavedRewards);
+      toast.success(`${result.itemName || result.rewardLabel} cleared from the customer profile.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to clear this reward item right now.';
+      toast.error(message);
+    } finally {
+      setRewardActionKey('');
+    }
+  };
+
+  const handleClaimSavedRewardInStore = async (reward: SavedInStoreRewardBalance) => {
+    if (!selected?.id) return;
+
+    try {
+      setRewardActionKey(`saved:${reward.rewardId}`);
+      const result = await loyaltyService.claimSavedRewardInStore(selected.id, reward.rewardId);
+      await refreshSelectedCustomer(selected.id);
+      const [nextPendingItems, nextSavedRewards] = await Promise.all([
+        loyaltyService.listPendingRewardItems(selected.id),
+        loyaltyService.listSavedInStoreRewards(selected.id),
+      ]);
+      setPendingRewardItems(nextPendingItems);
+      setSavedInStoreRewards(nextSavedRewards);
+      toast.success(`${result.rewardLabel} marked as claimed in store.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to clear this saved reward right now.';
+      toast.error(message);
+    } finally {
+      setRewardActionKey('');
+    }
+  };
+
   if (loading) return <p>Loading customers...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
 
@@ -176,6 +269,66 @@ export const CustomersLoyaltyPage = () => {
               <p className="sm:col-span-2">Available rewards: {rewardLabels(selected.loyalty.availableRewards) || 'None'}</p>
               <p className="sm:col-span-2">Saved rewards: {rewardCountLabels(selected) || 'None'}</p>
             </div>
+
+            <section className="border-t pt-4 space-y-3">
+              <div>
+                <h4 className="font-medium">Outstanding Reward Claims</h4>
+                <p className="text-sm text-[#6B7280]">Use these buttons after a customer claims a latte or free groom in store so it disappears from their profile.</p>
+              </div>
+
+              {isLoadingOutstandingRewards ? <p className="text-sm text-[#6B7280]">Loading saved reward claims...</p> : null}
+
+              {!isLoadingOutstandingRewards ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Pending latte reward items</p>
+                    {!pendingRewardItems.length ? <p className="text-sm text-[#6B7280]">No saved latte reward items right now.</p> : null}
+                    {pendingRewardItems.map((rewardItem) => (
+                      <div key={rewardItem.id} className="rounded border p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                        <div>
+                          <p className="font-medium">{rewardItem.itemName}</p>
+                          <p className="text-[#6B7280]">
+                            {rewardItem.rewardLabel}
+                            {rewardItem.optionLabel ? ` - ${rewardItem.optionLabel}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="border rounded px-3 py-1"
+                          onClick={() => handleClaimPendingRewardInStore(rewardItem)}
+                          disabled={rewardActionKey === `pending:${rewardItem.id}`}
+                        >
+                          {rewardActionKey === `pending:${rewardItem.id}` ? 'Saving...' : 'Claimed in store'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Saved in-store rewards</p>
+                    {!savedInStoreRewards.length ? <p className="text-sm text-[#6B7280]">No saved in-store rewards right now.</p> : null}
+                    {savedInStoreRewards.map((reward) => (
+                      <div key={reward.rewardId} className="rounded border p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                        <div>
+                          <p className="font-medium">{reward.label} x {reward.count}</p>
+                          {reward.latestRedeemedAt ? (
+                            <p className="text-[#6B7280]">Latest saved {new Date(reward.latestRedeemedAt).toLocaleString()}</p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="border rounded px-3 py-1"
+                          onClick={() => handleClaimSavedRewardInStore(reward)}
+                          disabled={rewardActionKey === `saved:${reward.rewardId}`}
+                        >
+                          {rewardActionKey === `saved:${reward.rewardId}` ? 'Saving...' : 'Claimed in store'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </section>
 
             <form className="border-t pt-4 space-y-3" onSubmit={handleAwardStamps}>
               <div>

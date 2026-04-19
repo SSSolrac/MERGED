@@ -33,6 +33,25 @@ function formatPrice(value) {
   return `${PESO_SYMBOL}${Number(value || 0).toFixed(0)}`;
 }
 
+function formatPriceCompact(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return `${PESO_SYMBOL}0`;
+  return `${PESO_SYMBOL}${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
+}
+
+function buildDiscountLabel(item, discountAmount) {
+  const storedLabel = String(item?.discountLabel || "").trim();
+  if (storedLabel) return storedLabel;
+
+  const discountType = String(item?.discountType || "amount").toLowerCase();
+  const discountValue = Number(item?.discountValue ?? discountAmount ?? 0);
+  if (discountType === "percent" && Number.isFinite(discountValue) && discountValue > 0) {
+    return `${discountValue}% off`;
+  }
+
+  return `${formatPriceCompact(discountAmount)} off`;
+}
+
 function formatCategoryDisplayName(name) {
   return String(name || "")
     .replace(/\s*\(\s*\d+\s*oz\s*\)\s*$/i, "")
@@ -82,6 +101,7 @@ function mapMenuItem(item, categoryById) {
   const discountAmount = Number(item?.effectiveDiscount ?? item?.discount ?? 0);
   const basePrice = Number(item?.price || 0);
   const price = Number(item?.effectivePrice ?? Math.max(basePrice - discountAmount, 0));
+  const isDiscountActive = Boolean(item?.isDiscountActive ?? discountAmount > 0);
 
   return {
     id: String(item?.id || name),
@@ -93,7 +113,8 @@ function mapMenuItem(item, categoryById) {
     discountAmount,
     price,
     basePrice,
-    isDiscountActive: Boolean(item?.isDiscountActive ?? discountAmount > 0),
+    discountLabel: isDiscountActive ? buildDiscountLabel(item, discountAmount) : "",
+    isDiscountActive,
     isAvailable: item?.isAvailable !== false,
     isNew: Boolean(item?.isNew),
     isLimited: Boolean(item?.isLimited),
@@ -348,7 +369,7 @@ function Menu() {
                 {item.description ? <p className="featured-card__description">{item.description}</p> : null}
                 <div className="featured-card__meta">
                   {item.isNew ? <span className="menu-status-tag menu-status-tag--new">NEW</span> : null}
-                  {item.isDiscountActive ? <span className="menu-status-tag menu-status-tag--discount">{formatPrice(item.discountAmount)} OFF</span> : null}
+                  {item.isDiscountActive ? <span className="menu-status-tag menu-status-tag--discount">{item.discountLabel}</span> : null}
                   {item.isLimited ? <span className="menu-status-tag menu-status-tag--limited">LIMITED</span> : null}
                   <span className={item.isAvailable ? "available" : "sold-out"}>
                     {item.isAvailable ? "Available" : "Unavailable"}
@@ -434,7 +455,7 @@ function Menu() {
                       {item.description ? <p>{item.description}</p> : <p>Open this category to add the item to your basket.</p>}
                       <div className="menu-preview-card__tags">
                         {item.isNew ? <span className="menu-status-tag menu-status-tag--new">NEW</span> : null}
-                        {item.isDiscountActive ? <span className="menu-status-tag menu-status-tag--discount">{formatPrice(item.discountAmount)} OFF</span> : null}
+                        {item.isDiscountActive ? <span className="menu-status-tag menu-status-tag--discount">{item.discountLabel}</span> : null}
                         {item.isLimited ? <span className="menu-status-tag menu-status-tag--limited">LIMITED</span> : null}
                       </div>
                       <div className="menu-preview-card__footer">

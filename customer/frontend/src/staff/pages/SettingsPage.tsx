@@ -26,8 +26,11 @@ const toSimpleTickerAnnouncement = (entry: CampaignAnnouncement): CampaignAnnoun
   };
 };
 
+type SettingsTabKey = 'business' | 'announcements' | 'checkout' | 'account' | 'staff';
+
 export const SettingsPage = () => {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<SettingsTabKey>('business');
   const [cafeName, setCafeName] = useState('');
   const [hours, setHours] = useState('');
   const [contact, setContact] = useState('');
@@ -58,6 +61,7 @@ export const SettingsPage = () => {
   const [newPassword, setNewPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [staffName, setStaffName] = useState('');
+  const [staffJobTitle, setStaffJobTitle] = useState('');
   const [staffEmail, setStaffEmail] = useState('');
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
@@ -210,10 +214,12 @@ export const SettingsPage = () => {
       const saved = await staffService.addStaffMemberByEmail({
         email: staffEmail,
         name: staffName,
+        jobTitle: staffJobTitle,
       });
 
       setStaffMembers((current) => [saved, ...current.filter((member) => member.id !== saved.id)]);
       setStaffName('');
+      setStaffJobTitle('');
       setStaffEmail('');
       toast.success(`${saved.email} now has staff access.`);
     } catch (error) {
@@ -342,15 +348,47 @@ export const SettingsPage = () => {
 
   const isBusinessSettingsBusy = isLoadingSettings || isSavingSettings || isUploadingLogo;
   const isAnnouncementsBusy = isLoadingAnnouncements || isSavingAnnouncements;
+  const settingsTabs: Array<{ key: SettingsTabKey; label: string; description: string }> = [
+    { key: 'business', label: 'Business', description: 'Cafe details and branding' },
+    { key: 'announcements', label: 'Announcements', description: 'Homepage ticker text' },
+    { key: 'checkout', label: 'Checkout', description: 'Order types and service rules' },
+    { key: 'account', label: 'Account', description: 'Owner password changes' },
+    { key: 'staff', label: 'Staff', description: 'Grant staff access and titles' },
+  ];
   const announcementSourceLabel =
     announcementSource === 'campaign_table'
       ? 'campaign_announcements table'
       : announcementSource === 'business_settings'
       ? 'business_settings JSON'
       : 'fallback/default data';
+  const initialsForName = (value: string) => {
+    const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+    return (parts.map((part) => part.charAt(0).toUpperCase()).join('') || 'S').slice(0, 2);
+  };
 
   return (
     <div className="space-y-4 max-w-4xl">
+      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
+        <div>
+          <h2 className="text-xl font-semibold">Settings</h2>
+          <p className="text-sm text-[#6B7280]">Switch between tabs so each owner control stays easier to manage.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {settingsTabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`rounded border px-3 py-2 text-left text-sm ${activeTab === tab.key ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <span className="block font-medium">{tab.label}</span>
+              <span className="block text-xs text-[#6B7280]">{tab.description}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeTab === 'business' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
         <h2 className="text-xl font-semibold">Business Settings</h2>
         <p className="text-sm text-[#6B7280]">Configure cafe operations and owner-level controls.</p>
@@ -441,7 +479,9 @@ export const SettingsPage = () => {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {activeTab === 'announcements' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
         <h3 className="font-medium">Homepage Banner Announcements</h3>
         <p className="text-sm text-[#6B7280]">
@@ -546,7 +586,9 @@ export const SettingsPage = () => {
           </button>
         </div>
       </section>
+      ) : null}
 
+      {activeTab === 'checkout' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
         <h3 className="font-medium">Payment & Service Rules</h3>
         <p className="text-sm text-[#6B7280]">
@@ -576,14 +618,10 @@ export const SettingsPage = () => {
           <label><input type="checkbox" checked={enableBdo} onChange={(e) => setEnableBdo(e.target.checked)} /> BDO</label>
           <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
         </div>
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-2 gap-3">
           <label className="text-sm">
             Service Fee (%)
             <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={serviceFeePct} onChange={(e) => setServiceFeePct(Number(e.target.value))} />
-          </label>
-          <label className="text-sm">
-            Tax (%)
-            <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} />
           </label>
           <label className="text-sm">
             Kitchen cut-off time
@@ -591,7 +629,9 @@ export const SettingsPage = () => {
           </label>
         </div>
       </section>
+      ) : null}
 
+      {activeTab === 'account' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
         <h3 className="font-medium">Owner Account</h3>
         <p className="text-sm text-[#6B7280]">Manage owner credentials in this tab.</p>
@@ -611,17 +651,27 @@ export const SettingsPage = () => {
           </button>
         </form>
       </section>
+      ) : null}
 
+      {activeTab === 'staff' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
         <h3 className="font-medium">Add Staff Member</h3>
         <p className="text-sm text-[#6B7280]">Grant staff access to an existing account by email.</p>
-        <form className="grid md:grid-cols-3 gap-3 items-end" onSubmit={handleAddStaff}>
+        <form className="grid md:grid-cols-4 gap-3 items-end" onSubmit={handleAddStaff}>
           <label className="text-sm">
             Staff Name (optional)
             <input
               className="block border rounded mt-1 px-2 py-1 w-full"
               value={staffName}
               onChange={(event) => setStaffName(event.target.value)}
+            />
+          </label>
+          <label className="text-sm">
+            Job Title (optional)
+            <input
+              className="block border rounded mt-1 px-2 py-1 w-full"
+              value={staffJobTitle}
+              onChange={(event) => setStaffJobTitle(event.target.value)}
             />
           </label>
           <label className="text-sm">
@@ -647,9 +697,19 @@ export const SettingsPage = () => {
             {!staffMembers.length ? <p className="text-sm text-[#6B7280]">No staff members found.</p> : null}
             {staffMembers.map((member) => (
               <div key={member.id} className="border rounded p-2 text-sm flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-medium">{member.name || 'Unnamed staff'}</p>
-                  <p className="text-[#6B7280]">{member.email}</p>
+                <div className="flex items-center gap-3">
+                  {member.avatarUrl ? (
+                    <img src={member.avatarUrl} alt={member.name || member.email} className="h-10 w-10 rounded-full border object-cover" />
+                  ) : (
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFE4E8] text-xs font-semibold text-[#C94F7C]">
+                      {initialsForName(member.name || member.email)}
+                    </div>
+                  )}
+                  <div>
+                    <p className="font-medium">{member.name || 'Unnamed staff'}</p>
+                    {member.jobTitle ? <p className="text-[#6B7280]">{member.jobTitle}</p> : null}
+                    <p className="text-[#6B7280]">{member.email}</p>
+                  </div>
                 </div>
                 <div className="text-xs text-[#6B7280]">{member.isActive ? 'Active' : 'Inactive'}</div>
               </div>
@@ -657,14 +717,17 @@ export const SettingsPage = () => {
           </div>
         )}
       </section>
+      ) : null}
 
-      <button
-        className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2"
-        onClick={handleSaveBusinessSettings}
-        disabled={isBusinessSettingsBusy}
-      >
-        {isSavingSettings ? 'Saving...' : 'Save business settings'}
-      </button>
+      {activeTab === 'business' || activeTab === 'checkout' ? (
+        <button
+          className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2"
+          onClick={handleSaveBusinessSettings}
+          disabled={isBusinessSettingsBusy}
+        >
+          {isSavingSettings ? 'Saving...' : 'Save business settings'}
+        </button>
+      ) : null}
     </div>
   );
 };

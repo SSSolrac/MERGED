@@ -4,6 +4,7 @@ import { getSession } from "./authService";
 import { resolveMenuItemImage } from "../utils/menuImages";
 
 export const FREE_LATTE_CHOICES = ["Cafe Latte", "Matcha Latte", "Spanish Latte"];
+const CLAIMED_IN_STORE_MARKER = "[claimed-in-store]";
 
 function asDbError(error, fallback, options) {
   return asSupabaseError(error, {
@@ -20,6 +21,17 @@ function asText(value) {
 function asNullableText(value) {
   const text = asText(value);
   return text || null;
+}
+
+function hasClaimedInStoreMarker(value) {
+  return asText(value).toLowerCase().includes(CLAIMED_IN_STORE_MARKER);
+}
+
+function stripClaimedInStoreMarker(value) {
+  return asText(value)
+    .replace(/\s*\|\s*\[claimed-in-store\][^|]*$/i, "")
+    .replace(/\[claimed-in-store\][^|]*$/i, "")
+    .trim();
 }
 
 function asNumber(value, fallback = 0) {
@@ -50,13 +62,15 @@ function normalizeRedemption(row, rewardsById) {
   const rewardId = String(row?.reward_id || row?.rewardId || "");
   const reward = rewardsById.get(rewardId) || null;
   const rewardLabel = asText(row?.reward_label ?? row?.rewardLabel) || reward?.label || "Reward";
+  const notes = asNullableText(row?.notes);
   return {
     id: String(row?.id || ""),
     rewardId,
     rewardLabel,
     requiredStamps: reward?.requiredStamps ?? asNumber(row?.required_stamps ?? row?.requiredStamps ?? 0),
     redeemedAt: row?.redeemed_at ?? row?.redeemedAt ?? "",
-    notes: row?.notes ?? null,
+    notes: stripClaimedInStoreMarker(notes) || null,
+    isClaimedInStore: hasClaimedInStoreMarker(notes),
     isGroomReward: /groom/i.test(rewardLabel),
   };
 }
@@ -229,6 +243,7 @@ function buildInStoreRewardBalances(redemptions) {
   const balances = new Map();
 
   (Array.isArray(redemptions) ? redemptions : []).forEach((entry) => {
+    if (entry?.isClaimedInStore) return;
     if (!entry?.isGroomReward && !/groom/i.test(String(entry?.rewardLabel || ""))) return;
 
     const rewardId = asText(entry.rewardId) || asText(entry.id);

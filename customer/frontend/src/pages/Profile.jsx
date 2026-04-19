@@ -8,7 +8,7 @@ import {
   isLatteReward,
   redeemLoyaltyReward,
 } from "../services/loyaltyService";
-import { getCustomerProfile, saveCustomerProfile } from "../services/profileService";
+import { getCustomerProfile, saveCustomerProfile, uploadCustomerProfileImage } from "../services/profileService";
 import { getActiveDeliveryConfig } from "../services/deliveryAreaService";
 import { buildDeliveryAddress, parseDeliveryAddress } from "../utils/deliveryAddress";
 import { useAuth } from "../context/AuthContext";
@@ -21,6 +21,7 @@ const blankProfile = {
   email: "",
   addresses: [],
   preferences: {},
+  avatarUrl: "",
 };
 
 const blankAddressFields = {
@@ -33,7 +34,7 @@ function isRewardCartItem(item) {
 }
 
 function Profile({ linkComponent: LinkComponent, view = "info" }) {
-  const { user, session } = useAuth();
+  const { user, session, refreshProfile } = useAuth();
   const { addItem, cart, openMiniCart } = useCart();
   const [formData, setFormData] = useState(blankProfile);
   const [addressFields, setAddressFields] = useState(blankAddressFields);
@@ -44,6 +45,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDeliveryConfig, setIsLoadingDeliveryConfig] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [redeemingRewardId, setRedeemingRewardId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -292,10 +294,15 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           : Array.isArray(formData.addresses)
             ? formData.addresses
             : [],
+        avatarUrl: String(formData.avatarUrl || "").trim(),
       };
 
-      await saveCustomerProfile(profileToSave);
-      setFormData(profileToSave);
+      const savedProfile = await saveCustomerProfile(profileToSave);
+      setFormData({
+        ...blankProfile,
+        email: user?.email || "",
+        ...savedProfile,
+      });
       setAddressFields({
         houseDetails,
         selectedPurokId: matchedPurok ? matchedPurok.id : "",
@@ -305,11 +312,34 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           ? "Profile saved. Checkout will prefill this address, but you still need to confirm the exact delivery pin during checkout."
           : "Profile saved."
       );
+      await refreshProfile?.();
       await loadLoyaltyData();
     } catch (saveError) {
       setError(saveError?.message || "Unable to save right now. Please try again.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleAvatarUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      setIsUploadingAvatar(true);
+      const avatarUrl = await uploadCustomerProfileImage(file);
+      setFormData((current) => ({
+        ...current,
+        avatarUrl,
+      }));
+      setError("");
+      setMessage("Profile photo uploaded. Save your profile to keep it.");
+    } catch (uploadError) {
+      setError(uploadError?.message || "Unable to upload your profile photo right now.");
+      setMessage("");
+    } finally {
+      setIsUploadingAvatar(false);
     }
   };
 
@@ -461,6 +491,24 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
         </>
       ) : (
         <form className="profile-form" onSubmit={handleSave}>
+          <div className="profile-avatar-panel">
+            <div className="profile-avatar-preview">
+              {formData.avatarUrl ? (
+                <img src={formData.avatarUrl} alt={formData.name || user?.email || "Customer profile"} />
+              ) : (
+                <span>{String(formData.name || user?.email || "C").trim().charAt(0).toUpperCase() || "C"}</span>
+              )}
+            </div>
+            <div className="profile-avatar-copy">
+              <strong>Profile Photo</strong>
+              <p>Upload a photo so your account feels a little more like yours.</p>
+              <label className="profile-avatar-upload">
+                <span>{isUploadingAvatar ? "Uploading..." : "Upload photo"}</span>
+                <input type="file" accept="image/*" onChange={handleAvatarUpload} disabled={isUploadingAvatar || isSaving} />
+              </label>
+            </div>
+          </div>
+
           <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} />
           {errors.name ? <p className="field-error">{errors.name}</p> : null}
 

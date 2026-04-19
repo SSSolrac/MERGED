@@ -17,8 +17,21 @@ function asText(value) {
   return String(value).trim();
 }
 
+function readProfilePreferences(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {};
+}
+
+function readAvatarUrl(preferences) {
+  return asText(preferences?.avatarUrl || preferences?.profilePhotoUrl || "");
+}
+
+function readJobTitle(preferences) {
+  return asText(preferences?.jobTitle || preferences?.title || "");
+}
+
 function mapProfileRow(row, authUser = null) {
   if (!row) return null;
+  const preferences = readProfilePreferences(row.preferences);
 
   return {
     id: String(row.id || authUser?.id || ""),
@@ -28,7 +41,9 @@ function mapProfileRow(row, authUser = null) {
     email: asText(row.email || authUser?.email || ""),
     phone: asText(row.phone),
     addresses: Array.isArray(row.addresses) ? row.addresses : [],
-    preferences: row.preferences && typeof row.preferences === "object" ? row.preferences : {},
+    preferences,
+    jobTitle: readJobTitle(preferences),
+    avatarUrl: readAvatarUrl(preferences) || null,
     isActive: row.is_active ?? true,
     createdAt: row.created_at ?? "",
     updatedAt: row.updated_at ?? "",

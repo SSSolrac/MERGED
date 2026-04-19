@@ -6,6 +6,8 @@ export interface CustomerProfile {
   name: string;
   email: string;
   phone: string;
+  jobTitle: string;
+  avatarUrl: string | null;
   addresses: unknown[];
   preferences: Record<string, unknown>;
   isActive: boolean;

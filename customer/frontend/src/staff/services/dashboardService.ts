@@ -285,6 +285,50 @@ const attachOrderEmployees = async (orders: Order[]): Promise<Order[]> => {
   });
 };
 
+const attachOrderCosts = async (orders: Order[]): Promise<Order[]> => {
+  if (!orders.length) return orders;
+
+  const supabase = requireSupabaseClient();
+  const orderIds = orders.map((order) => order.id).filter((id): id is string => Boolean(id) && isUuid(id));
+  if (!orderIds.length) return orders;
+
+  const { data: orderItemRows, error: orderItemsError } = await supabase
+    .from('order_items')
+    .select('order_id, menu_item_id, quantity')
+    .in('order_id', orderIds);
+
+  if (orderItemsError || !Array.isArray(orderItemRows)) return orders;
+
+  const menuItemIds = Array.from(
+    new Set(orderItemRows.map((row) => asTrimmed(row.menu_item_id)).filter((id) => Boolean(id) && isUuid(id))),
+  );
+
+  const { data: menuItemRows, error: menuItemsError } = menuItemIds.length
+    ? await supabase.from('menu_items').select('id, cost').in('id', menuItemIds)
+    : { data: [], error: null };
+
+  if (menuItemsError) return orders;
+
+  const costByMenuItemId = new Map<string, number>(
+    (Array.isArray(menuItemRows) ? menuItemRows : []).map((row) => [asTrimmed(row.id), Math.max(0, asNumber(row.cost, 0))]),
+  );
+
+  const costByOrderId = orderItemRows.reduce<Map<string, number>>((acc, row) => {
+    const orderId = asTrimmed(row.order_id);
+    const menuItemId = asTrimmed(row.menu_item_id);
+    const quantity = Math.max(1, asNumber(row.quantity, 1));
+    if (!orderId || !menuItemId) return acc;
+    const lineCost = (costByMenuItemId.get(menuItemId) ?? 0) * quantity;
+    acc.set(orderId, roundMoney((acc.get(orderId) ?? 0) + lineCost));
+    return acc;
+  }, new Map<string, number>());
+
+  return orders.map((order) => ({
+    ...order,
+    costOfGoods: isCancelledStatus(order.status) ? 0 : roundMoney(costByOrderId.get(order.id) ?? 0),
+  }));
+};
+
 const mapDashboardSummary = (payload: unknown): DashboardData => {
   const base = (Array.isArray(payload) ? payload[0] : payload) as unknown;
   const row = asRecord(base) ?? {};
@@ -494,7 +538,8 @@ export const dashboardService = {
     }
 
     const liveOrdersWithEmployee = liveOrders ? await attachOrderEmployees(liveOrders) : [];
-    const sortedLiveOrders = [...liveOrdersWithEmployee].sort((a, b) => orderTimestampMs(b) - orderTimestampMs(a));
+    const liveOrdersWithRelations = await attachOrderCosts(liveOrdersWithEmployee);
+    const sortedLiveOrders = [...liveOrdersWithRelations].sort((a, b) => orderTimestampMs(b) - orderTimestampMs(a));
     const combinedOrders = dedupeOrdersById([...sortedLiveOrders, ...importedOrders]).sort((a, b) => orderTimestampMs(b) - orderTimestampMs(a));
 
     const salesSummary = summarizeOrders(combinedOrders);

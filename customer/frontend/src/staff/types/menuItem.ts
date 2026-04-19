@@ -5,6 +5,7 @@ export type MenuItem = {
   name: string;
   description: string | null;
   price: number;
+  cost: number;
   effectivePrice: number;
   isAvailable: boolean;
   imageUrl: string | null;
