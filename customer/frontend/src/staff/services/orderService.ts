@@ -242,20 +242,13 @@ export const orderService = {
 
   async confirmPayment(orderId: string): Promise<Order> {
     const supabase = requireSupabaseClient();
-    const userId = await requireUserId();
-    const current = await ensureMutableOrder(orderId);
-    const changedAt = new Date().toISOString();
-    const shouldMoveToPreparing = current.status === 'pending';
+    await ensureMutableOrder(orderId);
 
     const { data, error } = await supabase
       .from('orders')
-      .update({
-        payment_status: 'paid',
-        ...(shouldMoveToPreparing ? { status: 'preparing' } : {}),
-        updated_at: changedAt,
-      })
+      .update({ payment_status: 'paid', updated_at: new Date().toISOString() })
       .eq('id', orderId)
-      .select('id,status')
+      .select('id')
       .maybeSingle();
 
     if (error) throw asDbError(error, 'Unable to confirm payment.');
@@ -265,31 +258,6 @@ export const orderService = {
         message: 'Payment update did not apply. Refresh and try again.',
       });
     }
-
-    if (shouldMoveToPreparing) {
-      const { error: historyError } = await supabase.from('order_status_history').insert({
-        order_id: orderId,
-        status: 'preparing',
-        changed_by: userId,
-        note: 'Payment confirmed; order moved to preparing.',
-        changed_at: changedAt,
-      });
-
-      if (historyError) {
-        try {
-          await supabase
-            .from('orders')
-            .update({
-              payment_status: current.payment_status,
-              status: current.status,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', orderId);
-        } catch {}
-        throw asDbError(historyError, 'Unable to write status history.');
-      }
-    }
-
     return fetchOrderById(orderId);
   },
 
