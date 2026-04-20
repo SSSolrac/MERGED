@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import logoImg from "../assets/logo.png";
 import { getPublicBusinessSettings } from "../services/businessSettingsService";
+import { DEFAULT_BUSINESS_HOURS_TEXT } from "../utils/orderAvailability";
 
 function splitLines(value) {
   return String(value || "")
@@ -11,7 +12,7 @@ function splitLines(value) {
 
 const DEFAULT_BUSINESS_SETTINGS = {
   cafeName: "Happy Tails Pet Cafe",
-  businessHours: "Monday - Friday: 8:00 AM - 7:30 PM\nSaturday - Sunday: 8:00 AM - 8:00 PM",
+  businessHours: DEFAULT_BUSINESS_HOURS_TEXT,
   contactNumber: "0917 520 9713",
   businessEmail: "happytailspetcafe@gmail.com",
   cafeAddress: "AMCJ Commercial Building, Bonifacio Drive, Pleasantville Subdivision, Phase 1, Ilayang Iyam, Lucena, Philippines, 4301",

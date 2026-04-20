@@ -1,7 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { BagFill, XLg } from "react-bootstrap-icons";
 import { useCart } from "../context/CartContext";
-import { useAuth } from "../context/AuthContext";
 import coffeeFallback from "../assets/coffee.png";
 import "./MiniCartPanel.css";
 
@@ -18,10 +17,9 @@ function handleFallbackImage(event) {
   event.currentTarget.src = coffeeFallback;
 }
 
-export default function MiniCartPanel({ onClose, onOpenAuth }) {
+export default function MiniCartPanel({ onClose }) {
   const navigate = useNavigate();
   const { cart, total, changeQty, removeItem, clearCart } = useCart();
-  const { isAuthenticated } = useAuth();
 
   const handleContinueOrdering = () => {
     onClose();
@@ -30,12 +28,6 @@ export default function MiniCartPanel({ onClose, onOpenAuth }) {
 
   const handleCheckout = () => {
     onClose();
-
-    if (!isAuthenticated) {
-      onOpenAuth?.();
-      return;
-    }
-
     navigate("/checkout");
   };
 
@@ -114,7 +106,7 @@ export default function MiniCartPanel({ onClose, onOpenAuth }) {
 
           <div className="mini-cart-buttons">
             <button type="button" className="mini-cart-primary" onClick={handleCheckout}>
-              {isAuthenticated ? "Checkout" : "Sign In to Checkout"}
+              Checkout
             </button>
             <button type="button" className="mini-cart-secondary" onClick={handleContinueOrdering}>
               Add More Items

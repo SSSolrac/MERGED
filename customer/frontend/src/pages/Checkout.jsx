@@ -14,6 +14,7 @@ import {
   parseDeliveryAddress,
   validateDeliveryAddress,
 } from "../utils/deliveryAddress";
+import { getOrderWindowStatus } from "../utils/orderAvailability";
 import DeliveryAddressForm from "../components/DeliveryAddressForm";
 import "./Checkout.css";
 
@@ -100,10 +101,18 @@ export default function Checkout() {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreviewUrl, setReceiptPreviewUrl] = useState("");
   const savedAddressFromProfileRef = useRef("");
   const appliedProfileAddressRef = useRef(false);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 30000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -233,6 +242,7 @@ export default function Checkout() {
   }, [availablePaymentOptions]);
 
   const isFreeOrder = Number(total || 0) <= 0;
+  const orderWindowStatus = useMemo(() => getOrderWindowStatus(currentTime, checkoutSettings), [checkoutSettings, currentTime]);
 
   useEffect(() => {
     if (!isFreeOrder && form.paymentMethod !== "cash") return;
@@ -262,8 +272,7 @@ export default function Checkout() {
   const hasLoyaltyRewardItems = cart.some(isLoyaltyRewardCartItem);
   const canUseLoyaltyRewardItems = isAuthenticated;
   const hasRegularOrderItems = cart.some((item) => !isLoyaltyRewardCartItem(item));
-  const canClaimLoyaltyRewardsWithOrderType =
-    !hasLoyaltyRewardItems || (canUseLoyaltyRewardItems && ["dine_in", "pickup", "takeout"].includes(canonicalOrderType));
+  const canCheckoutWithLoyaltyRewards = !hasLoyaltyRewardItems || canUseLoyaltyRewardItems;
   const hasOrderForLoyaltyReward = !hasLoyaltyRewardItems || (canUseLoyaltyRewardItems && hasRegularOrderItems);
   const hasName = Boolean(form.name.trim());
   const isPhoneValid = /^9\d{9}$/.test(form.phone);
@@ -306,7 +315,8 @@ export default function Checkout() {
     isSelectedOrderTypeEnabled &&
     isSelectedPaymentEnabled &&
     hasOrderForLoyaltyReward &&
-    canClaimLoyaltyRewardsWithOrderType;
+    canCheckoutWithLoyaltyRewards &&
+    orderWindowStatus.isOpen;
 
   const payload = useMemo(
     () => ({
@@ -317,13 +327,14 @@ export default function Checkout() {
         address: form.address,
         email: user?.email || "",
       },
+      businessSettings: checkoutSettings,
       orderType: canonicalOrderType,
       paymentMethod: effectivePaymentMethod,
       notes: form.notes,
       items: cart,
       total,
     }),
-    [canonicalOrderType, cart, effectivePaymentMethod, form, normalizedPhone, total, user?.email, user?.id]
+    [canonicalOrderType, cart, checkoutSettings, effectivePaymentMethod, form, normalizedPhone, total, user?.email, user?.id]
   );
 
   const handleFieldChange = (key, value) => {
@@ -400,20 +411,24 @@ export default function Checkout() {
         return;
       }
 
-      if (!hasOrderForLoyaltyReward) {
+      const latestOrderWindowStatus = getOrderWindowStatus(Date.now(), checkoutSettings);
+      if (!latestOrderWindowStatus.isOpen) {
+        setErrors((prev) => ({ ...prev, form: latestOrderWindowStatus.message }));
+        return;
+      }
+
+      if (!canCheckoutWithLoyaltyRewards) {
         setErrors((prev) => ({
           ...prev,
-          form: isAuthenticated
-            ? "Free latte rewards must be claimed with a pickup, dine-in, or takeout order. Add at least one regular menu item first."
-            : "Create an account or log in before claiming loyalty rewards.",
+          form: "Create an account or log in before claiming loyalty rewards.",
         }));
         return;
       }
 
-      if (!canClaimLoyaltyRewardsWithOrderType) {
+      if (!hasOrderForLoyaltyReward) {
         setErrors((prev) => ({
           ...prev,
-          form: "Free latte rewards can only be claimed with pickup, dine-in, or takeout orders.",
+          form: "Free latte rewards cannot be checked out on their own. Add at least one regular menu item.",
         }));
         return;
       }
@@ -568,6 +583,7 @@ export default function Checkout() {
       <p className="profile-session">
         Ordering as <strong>{user?.email || form.name || "Guest"}</strong>
       </p>
+      {!orderWindowStatus.isOpen ? <p className="field-error">{orderWindowStatus.message}</p> : null}
 
       <form className="checkout-layout" onSubmit={submit}>
         <section className="checkout-card checkout-card--details">
@@ -609,9 +625,9 @@ export default function Checkout() {
           </select>
           <p className="field-hint">Available order types are pulled from owner-managed business settings.</p>
           {hasLoyaltyRewardItems ? (
-            <p className={canClaimLoyaltyRewardsWithOrderType && hasOrderForLoyaltyReward ? "field-hint" : "field-error"}>
+            <p className={canCheckoutWithLoyaltyRewards && hasOrderForLoyaltyReward ? "field-hint" : "field-error"}>
               {isAuthenticated
-                ? "Free latte rewards can only be claimed with a pickup, dine-in, or takeout order that includes at least one regular menu item."
+                ? "Free latte rewards can be included with delivery, pickup, dine-in, or takeout orders, but they cannot be checked out on their own."
                 : "Create an account or log in before claiming loyalty rewards."}
             </p>
           ) : null}

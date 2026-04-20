@@ -3,6 +3,8 @@ import { requireSupabaseClient } from '@/lib/supabase';
 
 const BRANDING_IMAGE_BUCKET = 'menu-images';
 const MAX_BRANDING_IMAGE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_BUSINESS_HOURS_TEXT = 'Monday - Friday: 8:00 AM - 7:30 PM\nSaturday - Sunday: 8:00 AM - 8:00 PM';
+const DEFAULT_ORDER_WINDOW_STORAGE_VALUE = 'Weekdays 08:00-19:30; Weekends 08:00-20:00';
 
 export type BusinessSettings = {
   cafeName: string;
@@ -68,7 +70,7 @@ const mapBusinessSettingsRow = (row: unknown): BusinessSettings => {
   const record = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
   return {
     cafeName: asText(record.cafe_name),
-    businessHours: asText(record.business_hours),
+    businessHours: asText(record.business_hours) || DEFAULT_BUSINESS_HOURS_TEXT,
     contactNumber: asText(record.contact_number),
     businessEmail: asText(record.business_email),
     cafeAddress: asText(record.cafe_address),
@@ -87,7 +89,7 @@ const mapBusinessSettingsRow = (row: unknown): BusinessSettings => {
     deliveryRadiusKm: asNumber(record.delivery_radius_km, 4),
     serviceFeePct: asNumber(record.service_fee_pct, 5),
     taxPct: asNumber(record.tax_pct, 12),
-    kitchenCutoff: asText(record.kitchen_cutoff),
+    kitchenCutoff: asText(record.kitchen_cutoff) || DEFAULT_ORDER_WINDOW_STORAGE_VALUE,
     updatedAt: asText(record.updated_at),
   };
 };
@@ -110,7 +112,7 @@ export const businessSettingsService = {
     const payload = {
       id: 1,
       cafe_name: asText(settings.cafeName),
-      business_hours: asText(settings.businessHours),
+      business_hours: asText(settings.businessHours) || DEFAULT_BUSINESS_HOURS_TEXT,
       contact_number: asText(settings.contactNumber),
       business_email: asText(settings.businessEmail),
       cafe_address: asText(settings.cafeAddress),
@@ -129,7 +131,7 @@ export const businessSettingsService = {
       delivery_radius_km: Number.isFinite(settings.deliveryRadiusKm) ? settings.deliveryRadiusKm : 0,
       service_fee_pct: Number.isFinite(settings.serviceFeePct) ? settings.serviceFeePct : 0,
       tax_pct: Number.isFinite(settings.taxPct) ? settings.taxPct : 0,
-      kitchen_cutoff: asText(settings.kitchenCutoff) || '20:30',
+      kitchen_cutoff: asText(settings.kitchenCutoff) || DEFAULT_ORDER_WINDOW_STORAGE_VALUE,
       updated_by: authData?.user?.id || null,
     };
 

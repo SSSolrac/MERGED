@@ -1,5 +1,6 @@
 import { requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError } from "../lib/supabaseErrors";
+import { DEFAULT_BUSINESS_HOURS_TEXT, ORDER_WINDOW_STORAGE_VALUE } from "../utils/orderAvailability";
 
 function asDbError(error, fallback, options) {
   return asSupabaseError(error, {
@@ -26,7 +27,7 @@ function asNumber(value, fallback = 0) {
 
 export const DEFAULT_PUBLIC_BUSINESS_SETTINGS = {
   cafeName: "",
-  businessHours: "",
+  businessHours: DEFAULT_BUSINESS_HOURS_TEXT,
   contactNumber: "",
   businessEmail: "",
   cafeAddress: "",
@@ -45,14 +46,14 @@ export const DEFAULT_PUBLIC_BUSINESS_SETTINGS = {
   deliveryRadiusKm: 4,
   serviceFeePct: 5,
   taxPct: 12,
-  kitchenCutoff: "20:30",
+  kitchenCutoff: ORDER_WINDOW_STORAGE_VALUE,
 };
 
 function mapBusinessSettingsRow(row) {
   const safe = row && typeof row === "object" ? row : {};
   return {
     cafeName: asText(safe.cafe_name),
-    businessHours: asText(safe.business_hours),
+    businessHours: asText(safe.business_hours) || DEFAULT_PUBLIC_BUSINESS_SETTINGS.businessHours,
     contactNumber: asText(safe.contact_number),
     businessEmail: asText(safe.business_email),
     cafeAddress: asText(safe.cafe_address),

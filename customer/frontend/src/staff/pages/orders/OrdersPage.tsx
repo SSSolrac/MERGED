@@ -48,6 +48,7 @@ export const OrdersPage = () => {
   const { orders, loading, error, query, status, range, setQuery, setStatus, setRange, getOrderById, confirmPayment, updateStatus } =
     useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [expandedReceiptUrl, setExpandedReceiptUrl] = useState<string | null>(null);
 
   const requestCancellationReason = (orderCode: string) => {
     const response = window.prompt(`Enter cancellation reason for ${orderCode}:`, '');
@@ -184,6 +185,7 @@ export const OrdersPage = () => {
                         onClick={async () => {
                           const full = await getOrderById(order.id);
                           setSelectedOrder(full);
+                          setExpandedReceiptUrl(null);
                         }}
                       >
                         View Order Details
@@ -221,7 +223,13 @@ export const OrdersPage = () => {
           <div className="w-full max-w-4xl rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">Order details: {selectedOrder.code}</h3>
-              <button className="border rounded px-2 py-1" onClick={() => setSelectedOrder(null)}>
+              <button
+                className="border rounded px-2 py-1"
+                onClick={() => {
+                  setSelectedOrder(null);
+                  setExpandedReceiptUrl(null);
+                }}
+              >
                 Close
               </button>
             </div>
@@ -269,7 +277,26 @@ export const OrdersPage = () => {
               <div>
                 <p className="font-medium text-sm mb-2">Payment proof preview</p>
                 {selectedOrder.receiptImageUrl ? (
-                  <img src={selectedOrder.receiptImageUrl} alt="Payment proof" className="h-36 rounded border object-cover" />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className="block"
+                      onClick={() => setExpandedReceiptUrl(selectedOrder.receiptImageUrl)}
+                    >
+                      <img
+                        src={selectedOrder.receiptImageUrl}
+                        alt="Payment proof"
+                        className="h-36 rounded border object-cover cursor-zoom-in"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="border rounded px-2 py-1 text-xs"
+                      onClick={() => setExpandedReceiptUrl(selectedOrder.receiptImageUrl)}
+                    >
+                      Enlarge receipt
+                    </button>
+                  </div>
                 ) : (
                   <p className="text-sm text-[#6B7280]">No proof attached yet.</p>
                 )}
@@ -319,6 +346,30 @@ export const OrdersPage = () => {
           </div>
         </div>
       )}
+
+      {expandedReceiptUrl ? (
+        <div
+          className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setExpandedReceiptUrl(null)}
+        >
+          <div
+            className="w-full max-w-5xl space-y-3 rounded-lg border bg-white p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold">Receipt preview</h3>
+              <button type="button" className="border rounded px-2 py-1" onClick={() => setExpandedReceiptUrl(null)}>
+                Close
+              </button>
+            </div>
+            <img
+              src={expandedReceiptUrl}
+              alt="Expanded payment proof"
+              className="max-h-[80vh] w-full rounded border object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

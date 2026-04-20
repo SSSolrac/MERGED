@@ -441,15 +441,15 @@ function resolveMenuSnapshot(item, menuSnapshot) {
 export async function createOrder(orderPayload) {
   const user = await getUserOrNull();
   const supabase = requireSupabaseClient();
+  const placedAt = new Date().toISOString();
 
-  const validation = await validateCheckout(orderPayload);
+  const validation = await validateCheckout({ ...orderPayload, placedAt });
   if (!validation.isValid) {
     const error = new Error("Checkout validation failed.");
     error.validationErrors = validation.errors;
     throw error;
   }
 
-  const placedAt = new Date().toISOString();
   const canonicalType = toCanonicalOrderType(orderPayload.orderType);
   const paymentMethod = labelToCanonicalPaymentMethod(orderPayload.paymentMethod || orderPayload.payment || "qrph");
   const normalizedReceiptImageUrl =
@@ -457,8 +457,14 @@ export async function createOrder(orderPayload) {
 
   const rawItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
   const hasLoyaltyRewardItems = rawItems.some((item) => String(item?.loyaltyRewardItemId || item?.loyalty_reward_item_id || "").trim());
+  const hasRegularOrderItems = rawItems.some(
+    (item) => !String(item?.loyaltyRewardItemId || item?.loyalty_reward_item_id || "").trim()
+  );
   if (hasLoyaltyRewardItems && !user) {
     throw new Error("Create an account or log in before claiming loyalty rewards.");
+  }
+  if (hasLoyaltyRewardItems && !hasRegularOrderItems) {
+    throw new Error("Free latte rewards cannot be checked out on their own. Add at least one regular menu item.");
   }
 
   const menuSnapshot = await fetchMenuSnapshot(rawItems);

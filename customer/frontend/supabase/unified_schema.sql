@@ -1456,10 +1456,6 @@ begin
     )
     where x.loyalty_reward_item_id is not null
   ) then
-    if p_order_type not in ('dine_in', 'pickup', 'takeout') then
-      raise exception 'Free latte rewards can only be claimed with pickup, dine-in, or takeout orders.';
-    end if;
-
     if not exists (
       select 1
       from jsonb_to_recordset(p_items) as x(

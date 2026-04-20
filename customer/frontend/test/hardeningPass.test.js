@@ -72,6 +72,7 @@ test("checkout: customer app reads owner-managed availability settings", async (
   assert.ok(src.includes("getPublicBusinessSettings"), "Checkout should load public business settings.");
   assert.ok(src.includes("availableOrderTypeOptions"), "Checkout should derive order types from owner-managed settings.");
   assert.ok(src.includes("availablePaymentOptions"), "Checkout should derive payment methods from owner-managed settings.");
+  assert.ok(src.includes("getOrderWindowStatus(currentTime, checkoutSettings)"), "Checkout should enforce the owner-managed cutoff schedule.");
 });
 
 test("delivery coverage: checkout only renders the map from a ready live config", async () => {
@@ -192,7 +193,8 @@ test("auth modal: successful login redirect is parent-controlled", async () => {
   );
 
   const appSrc = await readSource("src/App.jsx");
-  assert.ok(appSrc.includes("setShowAuthModal(false);\n      navigate(\"/\", { replace: true });"), "App should close signup modal and clear route-auth state.");
+  assert.ok(appSrc.includes('setShowAuthModal(false);'), "App should close the auth modal after signup.");
+  assert.ok(appSrc.includes('navigate("/", { replace: true });'), "App should clear route-auth state after signup.");
   assert.ok(
     appSrc.includes("navigate(getSafeRouteForRole(result?.role || role), { replace: true });"),
     "App should route staff/owner logins directly to their workspace."
@@ -203,10 +205,17 @@ test("staff settings and menu management use image uploads instead of raw URL fi
   const settingsSrc = await readSource("src/staff/pages/SettingsPage.tsx");
   assert.ok(settingsSrc.includes("uploadBrandingAsset"), "Business settings should upload branding images.");
   assert.ok(settingsSrc.includes("Logo / Branding picture"), "Business settings should expose picture upload copy.");
+  assert.ok(settingsSrc.includes("Checkout cut-off hours"), "Checkout settings should show the fixed weekday/weekend cutoff schedule.");
+  assert.ok(settingsSrc.includes("Weekday opening time"), "Checkout settings should let owners edit weekday opening time.");
+  assert.ok(settingsSrc.includes("Weekday closing time"), "Checkout settings should let owners edit weekday closing time.");
+  assert.ok(settingsSrc.includes("Weekend opening time"), "Checkout settings should let owners edit weekend opening time.");
+  assert.ok(settingsSrc.includes("Weekend closing time"), "Checkout settings should let owners edit weekend closing time.");
+  assert.ok(settingsSrc.includes("serializeOrderWindowConfig"), "Checkout settings should save the edited cutoff schedule.");
   assert.ok(!settingsSrc.includes("Logo URL / Branding asset"), "Business settings should not expose the old raw logo URL field.");
   assert.ok(!settingsSrc.includes("Owner Account"), "Settings should not duplicate owner password controls.");
   assert.ok(!settingsSrc.includes("Service Fee (%)"), "Settings should not expose the service fee field.");
   assert.ok(!settingsSrc.includes("'account'"), "Settings should not keep the old account tab.");
+  assert.ok(!settingsSrc.includes("Kitchen cut-off time"), "Checkout settings should not show the stale single cutoff input.");
 
   const menuManagementSrc = await readSource("src/staff/pages/menu/MenuManagementPage.tsx");
   assert.ok(menuManagementSrc.includes("Upload category picture"), "Category editor should upload category pictures.");
@@ -352,23 +361,37 @@ test("order history: customer history is paginated to five orders per page", asy
   assert.ok(historyCss.includes(".history-pagination"), "Order history should style pagination controls.");
 });
 
-test("loyalty: free latte claims require a regular pickup dine-in or takeout order", async () => {
+test("loyalty: free latte claims require a regular menu order", async () => {
   const profileSrc = await readSource("src/pages/Profile.jsx");
   assert.ok(profileSrc.includes("hasClaimableOrderCart"), "Profile should require an order cart before adding a free latte reward.");
-  assert.ok(profileSrc.includes("Start a pickup, dine-in, or takeout order"), "Profile should explain the free latte ordering rule.");
+  assert.ok(
+    profileSrc.includes("regular menu item before claiming this free latte"),
+    "Profile should explain that a free latte cannot be claimed by itself."
+  );
 
   const checkoutSrc = await readSource("src/pages/Checkout.jsx");
   assert.ok(checkoutSrc.includes("hasOrderForLoyaltyReward"), "Checkout should block reward-only carts.");
-  assert.ok(checkoutSrc.includes("canClaimLoyaltyRewardsWithOrderType"), "Checkout should block delivery orders containing free latte rewards.");
+  assert.ok(
+    checkoutSrc.includes("canCheckoutWithLoyaltyRewards"),
+    "Checkout should still require an authenticated account for loyalty rewards."
+  );
+  assert.ok(
+    checkoutSrc.includes("cannot be checked out on their own"),
+    "Checkout should explain that free latte rewards need another menu item in the cart."
+  );
+  assert.ok(
+    checkoutSrc.includes("can be included with delivery, pickup, dine-in, or takeout orders"),
+    "Checkout should allow free latte rewards for delivery as long as the cart includes other items."
+  );
 
   const schema = await readSchema();
   assert.ok(
-    schema.includes("Free latte rewards can only be claimed with pickup, dine-in, or takeout orders."),
-    "Order RPC should reject delivery claims for free latte rewards."
-  );
-  assert.ok(
     schema.includes("Free latte rewards must be claimed with a regular menu order."),
     "Order RPC should reject reward-only orders."
+  );
+  assert.ok(
+    !schema.includes("Free latte rewards can only be claimed with pickup, dine-in, or takeout orders."),
+    "Order RPC should no longer block delivery orders that include a regular menu item."
   );
 });
 
@@ -379,6 +402,8 @@ test("cart: reward item images fall back instead of rendering broken pictures", 
   const miniCartSrc = await readSource("src/components/MiniCartPanel.jsx");
   assert.ok(miniCartSrc.includes("coffeeFallback"), "Mini cart should use a fallback image for missing cart item images.");
   assert.ok(miniCartSrc.includes("onError={handleFallbackImage}"), "Mini cart should recover from broken image URLs.");
+  assert.ok(miniCartSrc.includes('navigate("/checkout");'), "Mini cart should always send guests straight to checkout.");
+  assert.ok(!miniCartSrc.includes("Sign In to Checkout"), "Mini cart should not pretend sign-in is required for guest checkout.");
 
   const cartSrc = await readSource("src/pages/Cart.jsx");
   assert.ok(cartSrc.includes("coffeeFallback"), "Full cart should use a fallback image for missing cart item images.");

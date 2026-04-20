@@ -1,12 +1,18 @@
 import { labelToCanonicalOrderType, labelToCanonicalPaymentMethod } from "../constants/canonical.js";
+import { getOrderWindowStatus } from "../utils/orderAvailability.js";
+
+function isLoyaltyRewardCartItem(item) {
+  return Boolean(item?.isLoyaltyReward || item?.loyaltyRewardItemId || item?.loyalty_reward_item_id);
+}
 
 export async function validateCheckout(orderPayload) {
   const errors = {};
+  const items = Array.isArray(orderPayload.items) ? orderPayload.items : [];
 
-  if (!orderPayload.items?.length) {
+  if (!items.length) {
     errors.items = "Your cart is empty.";
   } else {
-    const hasMissingItemCode = orderPayload.items.some((item) => {
+    const hasMissingItemCode = items.some((item) => {
       const code = String(item?.code || item?.menuItemCode || item?.menu_item_code || "").trim();
       return !code;
     });
@@ -14,6 +20,13 @@ export async function validateCheckout(orderPayload) {
       errors.items = "Every cart item must include a valid menu item code. Remove and re-add items from the menu.";
     }
   }
+
+  const hasLoyaltyRewardItems = items.some(isLoyaltyRewardCartItem);
+  const hasRegularOrderItems = items.some((item) => !isLoyaltyRewardCartItem(item));
+  if (hasLoyaltyRewardItems && !hasRegularOrderItems) {
+    errors.form = "Free latte rewards cannot be checked out on their own. Add at least one regular menu item.";
+  }
+
   if (!orderPayload.customer?.name?.trim()) errors.name = "Name is required.";
   const phone = String(orderPayload.customer?.phone || "").trim();
   if (!phone) {
@@ -46,6 +59,14 @@ export async function validateCheckout(orderPayload) {
   const requiresReceipt = paymentMethod !== "cash";
   if (requiresReceipt && !String(orderPayload.receiptImageUrl || "").trim()) {
     errors.receipt = "Receipt upload is required.";
+  }
+
+  const orderWindowStatus = getOrderWindowStatus(
+    orderPayload.placedAt || orderPayload.currentDate,
+    orderPayload.businessSettings || orderPayload.checkoutSettings || orderPayload.kitchenCutoff
+  );
+  if (!orderWindowStatus.isOpen && !errors.form) {
+    errors.form = orderWindowStatus.message;
   }
 
   return { isValid: Object.keys(errors).length === 0, errors };

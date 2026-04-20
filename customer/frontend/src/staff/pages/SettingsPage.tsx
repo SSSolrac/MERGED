@@ -3,6 +3,13 @@ import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/errors';
 import { businessSettingsService } from '@/services/businessSettingsService';
 import {
+  buildBusinessHoursText,
+  buildOrderWindowDisplayLines,
+  DEFAULT_BUSINESS_HOURS_TEXT,
+  parseOrderWindowConfig,
+  serializeOrderWindowConfig,
+} from '../../utils/orderAvailability';
+import {
   campaignAnnouncementService,
   type CampaignAnnouncement,
   type CampaignAnnouncementSource,
@@ -26,10 +33,18 @@ const toSimpleTickerAnnouncement = (entry: CampaignAnnouncement): CampaignAnnoun
 
 type SettingsTabKey = 'business' | 'announcements' | 'checkout' | 'staff';
 
+const toMinutes = (value: string) => {
+  const [hours, minutes] = String(value || '00:00')
+    .split(':')
+    .map((part) => Number(part) || 0);
+  return hours * 60 + minutes;
+};
+
 export const SettingsPage = () => {
+  const defaultOrderWindowConfig = parseOrderWindowConfig();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('business');
   const [cafeName, setCafeName] = useState('');
-  const [hours, setHours] = useState('');
+  const [hours, setHours] = useState(DEFAULT_BUSINESS_HOURS_TEXT);
   const [contact, setContact] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
@@ -54,11 +69,15 @@ export const SettingsPage = () => {
   const [deliveryRadius, setDeliveryRadius] = useState(0);
   const [serviceFeePct, setServiceFeePct] = useState(0);
   const [taxPct, setTaxPct] = useState(0);
-  const [kitchenCutoff, setKitchenCutoff] = useState('');
+  const [weekdayOpen, setWeekdayOpen] = useState(defaultOrderWindowConfig.weekdayOpen);
+  const [weekdayClose, setWeekdayClose] = useState(defaultOrderWindowConfig.weekdayClose);
+  const [weekendOpen, setWeekendOpen] = useState(defaultOrderWindowConfig.weekendOpen);
+  const [weekendClose, setWeekendClose] = useState(defaultOrderWindowConfig.weekendClose);
   const [staffName, setStaffName] = useState('');
   const [staffJobTitle, setStaffJobTitle] = useState('');
   const [staffEmail, setStaffEmail] = useState('');
   const [isAddingStaff, setIsAddingStaff] = useState(false);
+  const [revokingStaffId, setRevokingStaffId] = useState('');
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [isLoadingStaff, setIsLoadingStaff] = useState(true);
   const [staffLoadError, setStaffLoadError] = useState('');
@@ -95,7 +114,7 @@ export const SettingsPage = () => {
         const settings = await businessSettingsService.getBusinessSettings();
         if (cancelled) return;
         setCafeName(settings.cafeName);
-        setHours(settings.businessHours);
+        setHours(settings.businessHours || DEFAULT_BUSINESS_HOURS_TEXT);
         setContact(settings.contactNumber);
         setEmail(settings.businessEmail);
         setAddress(settings.cafeAddress);
@@ -114,7 +133,11 @@ export const SettingsPage = () => {
         setDeliveryRadius(settings.deliveryRadiusKm);
         setServiceFeePct(settings.serviceFeePct);
         setTaxPct(settings.taxPct);
-        setKitchenCutoff(settings.kitchenCutoff);
+        const orderWindowConfig = parseOrderWindowConfig(settings);
+        setWeekdayOpen(orderWindowConfig.weekdayOpen);
+        setWeekdayClose(orderWindowConfig.weekdayClose);
+        setWeekendOpen(orderWindowConfig.weekendOpen);
+        setWeekendClose(orderWindowConfig.weekendClose);
       } catch (error) {
         if (cancelled) return;
         toast.error(getErrorMessage(error, 'Unable to load business settings.'));
@@ -205,10 +228,28 @@ export const SettingsPage = () => {
 
   const handleSaveBusinessSettings = async () => {
     try {
+      const nextOrderWindowConfig = {
+        weekdayOpen,
+        weekdayClose,
+        weekendOpen,
+        weekendClose,
+      };
+
+      if (toMinutes(nextOrderWindowConfig.weekdayOpen) >= toMinutes(nextOrderWindowConfig.weekdayClose)) {
+        toast.error('Weekday closing time must be later than the weekday opening time.');
+        return;
+      }
+
+      if (toMinutes(nextOrderWindowConfig.weekendOpen) >= toMinutes(nextOrderWindowConfig.weekendClose)) {
+        toast.error('Weekend closing time must be later than the weekend opening time.');
+        return;
+      }
+
+      const derivedBusinessHours = buildBusinessHoursText(nextOrderWindowConfig);
       setIsSavingSettings(true);
       const saved = await businessSettingsService.saveBusinessSettings({
         cafeName,
-        businessHours: hours,
+        businessHours: activeTab === 'checkout' ? derivedBusinessHours : hours || derivedBusinessHours || DEFAULT_BUSINESS_HOURS_TEXT,
         contactNumber: contact,
         businessEmail: email,
         cafeAddress: address,
@@ -227,11 +268,12 @@ export const SettingsPage = () => {
         deliveryRadiusKm: deliveryRadius,
         serviceFeePct,
         taxPct,
-        kitchenCutoff,
+        kitchenCutoff: serializeOrderWindowConfig(nextOrderWindowConfig),
       });
 
+      const savedOrderWindowConfig = parseOrderWindowConfig(saved);
       setCafeName(saved.cafeName);
-      setHours(saved.businessHours);
+      setHours(saved.businessHours || buildBusinessHoursText(savedOrderWindowConfig) || DEFAULT_BUSINESS_HOURS_TEXT);
       setContact(saved.contactNumber);
       setEmail(saved.businessEmail);
       setAddress(saved.cafeAddress);
@@ -250,12 +292,31 @@ export const SettingsPage = () => {
       setDeliveryRadius(saved.deliveryRadiusKm);
       setServiceFeePct(saved.serviceFeePct);
       setTaxPct(saved.taxPct);
-      setKitchenCutoff(saved.kitchenCutoff);
+      setWeekdayOpen(savedOrderWindowConfig.weekdayOpen);
+      setWeekdayClose(savedOrderWindowConfig.weekdayClose);
+      setWeekendOpen(savedOrderWindowConfig.weekendOpen);
+      setWeekendClose(savedOrderWindowConfig.weekendClose);
       toast.success('Business settings saved.');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to save business settings.'));
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handleRevokeStaffAccess = async (member: StaffMember) => {
+    const confirmed = window.confirm(`Remove staff access for ${member.email}?`);
+    if (!confirmed) return;
+
+    try {
+      setRevokingStaffId(member.id);
+      const revoked = await staffService.revokeStaffAccess(member.id);
+      setStaffMembers((current) => current.filter((entry) => entry.id !== member.id));
+      toast.success(`${revoked.email || revoked.name || 'This account'} can no longer access the staff side.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to revoke staff access.'));
+    } finally {
+      setRevokingStaffId('');
     }
   };
 
@@ -334,6 +395,12 @@ export const SettingsPage = () => {
       : announcementSource === 'business_settings'
       ? 'business_settings JSON'
       : 'fallback/default data';
+  const orderWindowPreviewLines = buildOrderWindowDisplayLines({
+    weekdayOpen,
+    weekdayClose,
+    weekendOpen,
+    weekendClose,
+  });
   const initialsForName = (value: string) => {
     const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
     return (parts.map((part) => part.charAt(0).toUpperCase()).join('') || 'S').slice(0, 2);
@@ -592,10 +659,65 @@ export const SettingsPage = () => {
           <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
         </div>
         <div className="grid max-w-md gap-3">
-          <label className="text-sm">
-            Kitchen cut-off time
-            <input type="time" className="block border rounded mt-1 px-2 py-1 w-full" value={kitchenCutoff} onChange={(e) => setKitchenCutoff(e.target.value)} />
-          </label>
+          <div className="text-sm">
+            <p className="font-medium">Checkout cut-off hours</p>
+            <div className="mt-1 grid gap-3 rounded border bg-[#FFF7F9] px-3 py-3 text-sm text-[#4B5563]">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="text-sm">
+                  Weekday opening time
+                  <input
+                    type="time"
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                    value={weekdayOpen}
+                    onChange={(event) => setWeekdayOpen(event.target.value)}
+                    disabled={isBusinessSettingsBusy}
+                  />
+                </label>
+                <label className="text-sm">
+                  Weekday closing time
+                  <input
+                    type="time"
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                    value={weekdayClose}
+                    onChange={(event) => setWeekdayClose(event.target.value)}
+                    disabled={isBusinessSettingsBusy}
+                  />
+                </label>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="text-sm">
+                  Weekend opening time
+                  <input
+                    type="time"
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                    value={weekendOpen}
+                    onChange={(event) => setWeekendOpen(event.target.value)}
+                    disabled={isBusinessSettingsBusy}
+                  />
+                </label>
+                <label className="text-sm">
+                  Weekend closing time
+                  <input
+                    type="time"
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                    value={weekendClose}
+                    onChange={(event) => setWeekendClose(event.target.value)}
+                    disabled={isBusinessSettingsBusy}
+                  />
+                </label>
+              </div>
+              <div className="rounded border bg-white px-3 py-2 text-[#4B5563]">
+                {orderWindowPreviewLines.map((line) => (
+                  <p key={line} className="m-0">
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[#6B7280]">
+              Customer checkout automatically blocks orders outside these hours.
+            </p>
+          </div>
         </div>
       </section>
       ) : null}
@@ -658,7 +780,17 @@ export const SettingsPage = () => {
                     <p className="text-[#6B7280]">{member.email}</p>
                   </div>
                 </div>
-                <div className="text-xs text-[#6B7280]">{member.isActive ? 'Active' : 'Inactive'}</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-xs text-[#6B7280]">{member.isActive ? 'Active' : 'Inactive'}</div>
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs text-[#B42318] disabled:opacity-50"
+                    onClick={() => handleRevokeStaffAccess(member)}
+                    disabled={revokingStaffId === member.id}
+                  >
+                    {revokingStaffId === member.id ? 'Revoking...' : 'Revoke access'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

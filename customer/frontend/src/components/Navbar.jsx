@@ -165,7 +165,7 @@ function Navbar({ onSignOut, onOpenModal }) {
             <span className="basket-icon"><BagFill /></span>
             {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
           </button>
-          {isMiniCartOpen ? <MiniCartPanel onClose={closeMiniCart} onOpenAuth={onOpenModal} /> : null}
+          {isMiniCartOpen ? <MiniCartPanel onClose={closeMiniCart} /> : null}
         </div>
 
         {isAuthenticated ? (

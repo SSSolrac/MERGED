@@ -8,6 +8,7 @@ import { profileService } from '@/services/profileService';
 
 export const ProfilePage = () => {
   const { user, refreshProfile } = useAuth();
+  const canEditJobTitle = user?.role === 'owner';
   const [name, setName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -105,7 +106,11 @@ export const ProfilePage = () => {
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-4">
         <div>
           <h2 className="text-xl font-semibold">Profile</h2>
-          <p className="text-sm text-[#6B7280]">Set the name, job title, and photo shown in the staff workspace.</p>
+          <p className="text-sm text-[#6B7280]">
+            {canEditJobTitle
+              ? 'Set the name, job title, and photo shown in the staff workspace.'
+              : 'Set the name and photo shown in the staff workspace.'}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-4 rounded-lg border border-dashed p-4">
@@ -141,16 +146,18 @@ export const ProfilePage = () => {
               disabled={isLoading || isSavingProfile}
             />
           </label>
-          <label className="text-sm">
-            Job title
-            <input
-              className="mt-1 block w-full rounded border px-2 py-1"
-              value={jobTitle}
-              onChange={(event) => setJobTitle(event.target.value)}
-              placeholder={user?.role === 'owner' ? 'Owner' : 'Staff'}
-              disabled={isLoading || isSavingProfile}
-            />
-          </label>
+          {canEditJobTitle ? (
+            <label className="text-sm">
+              Job title
+              <input
+                className="mt-1 block w-full rounded border px-2 py-1"
+                value={jobTitle}
+                onChange={(event) => setJobTitle(event.target.value)}
+                placeholder={user?.role === 'owner' ? 'Owner' : 'Staff'}
+                disabled={isLoading || isSavingProfile}
+              />
+            </label>
+          ) : null}
           <label className="text-sm md:col-span-2">
             Email
             <input className="mt-1 block w-full rounded border px-2 py-1 bg-slate-50" value={user?.email || ''} readOnly />

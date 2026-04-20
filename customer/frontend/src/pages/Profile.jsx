@@ -246,7 +246,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const addRewardItemToBasket = (rewardItem, successMessage) => {
     if (!rewardItem?.id) return;
     if (!hasClaimableOrderCart) {
-      setError("Start a pickup, dine-in, or takeout order before claiming this free latte.");
+      setError("Add at least one regular menu item before claiming this free latte.");
       setMessage("");
       return;
     }
@@ -377,7 +377,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           );
         } else {
           setMessage(
-            `${result.rewardItem.itemName || reward?.label || "Free drink"} redeemed and saved. Start a pickup, dine-in, or takeout order first, then claim it from Ready to Claim.`
+            `${result.rewardItem.itemName || reward?.label || "Free drink"} redeemed and saved. Add another menu item first, then claim it from Ready to Claim.`
           );
         }
       } else if (result?.resetsCard) {
@@ -454,7 +454,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           {pendingRewardItems.length ? (
             <section className="profile-reward-items">
               <h2>Ready to Claim</h2>
-              <p>Redeemed drinks stay pending until you include them with a pickup, dine-in, or takeout order.</p>
+              <p>Redeemed drinks stay pending until you add them with at least one regular menu item.</p>
               <div className="profile-reward-items__list">
                 {pendingRewardItems.map((rewardItem) => {
                   const isInBasket = cart.some(
@@ -505,8 +505,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
               )}
             </div>
             <div className="profile-avatar-copy">
-              <strong>Profile Photo</strong>
-              <p>Your saved profile photo appears here.</p>
+              <strong>{formData.name?.trim() || user?.name || user?.email || "Customer"}</strong>
             </div>
           </div>
 

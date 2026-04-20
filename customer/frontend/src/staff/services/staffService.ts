@@ -44,6 +44,8 @@ const mapStaffMemberRow = (row: unknown): StaffMember => {
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
+type StaffAccessRecord = Pick<StaffMember, 'id' | 'name' | 'email'>;
+
 export const staffService = {
   async listStaffMembers(): Promise<StaffMember[]> {
     const supabase = requireSupabaseClient();
@@ -107,5 +109,51 @@ export const staffService = {
 
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to grant staff access.' });
     return mapStaffMemberRow(data);
+  },
+
+  async revokeStaffAccess(staffId: string): Promise<StaffAccessRecord> {
+    const id = asString(staffId, '').trim();
+    if (!id) throw new AppError({ category: 'auth', message: 'Staff account could not be identified.' });
+
+    const supabase = requireSupabaseClient();
+    const profileResult = await supabase
+      .from('profiles')
+      .select('id,name,email,role')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (profileResult.error) {
+      throw normalizeError(profileResult.error, { fallbackMessage: 'Unable to verify this staff account.' });
+    }
+
+    if (!profileResult.data) {
+      throw new AppError({ category: 'schema', message: 'That staff account could not be found.' });
+    }
+
+    const existingRole = mapUserRole(profileResult.data.role);
+    if (existingRole === 'owner') {
+      throw new AppError({ category: 'permission', message: 'Owner access cannot be revoked from this screen.' });
+    }
+    if (existingRole !== 'staff') {
+      throw new AppError({ category: 'permission', message: 'This account no longer has staff access.' });
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        role: 'customer',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('id,name,email')
+      .single();
+
+    if (error) throw normalizeError(error, { fallbackMessage: 'Unable to revoke staff access.' });
+
+    return {
+      id: asString(data?.id, id),
+      name: asString(data?.name, ''),
+      email: asString(data?.email, ''),
+    };
   },
 };

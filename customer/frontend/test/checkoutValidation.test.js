@@ -10,6 +10,7 @@ function basePayload(overrides = {}) {
     items: [{ id: "1", code: "ITEM-1", name: "Latte", qty: 1, price: 100 }],
     customer: { name: "Test User", phone: "+639171234567", address: "Pasig City" },
     receiptImageUrl: "data:image/png;base64,ZmFrZQ==",
+    currentDate: "2026-04-20T02:00:00.000Z",
     ...overrides,
   };
 }
@@ -112,4 +113,78 @@ test("missing menu item code fails validation", async () => {
   );
   assert.equal(result.isValid, false);
   assert.ok(result.errors.items);
+});
+
+test("free latte rewards cannot be checked out on their own", async () => {
+  const result = await validateCheckout(
+    basePayload({
+      items: [{ id: "reward-1", code: "LATTE-REWARD", name: "Free Latte", qty: 1, price: 0, isLoyaltyReward: true }],
+    })
+  );
+
+  assert.equal(result.isValid, false);
+  assert.equal(
+    result.errors.form,
+    "Free latte rewards cannot be checked out on their own. Add at least one regular menu item."
+  );
+});
+
+test("weekday orders close after 7:30 PM Manila time", async () => {
+  const result = await validateCheckout(
+    basePayload({
+      currentDate: "2026-04-20T11:31:00.000Z",
+    })
+  );
+
+  assert.equal(result.isValid, false);
+  assert.equal(
+    result.errors.form,
+    "Orders can only be placed from 8:00 AM - 7:30 PM on weekdays and 8:00 AM - 8:00 PM on weekends."
+  );
+});
+
+test("weekend orders stay open until 8:00 PM Manila time", async () => {
+  const openResult = await validateCheckout(
+    basePayload({
+      currentDate: "2026-04-25T11:59:00.000Z",
+    })
+  );
+  assert.equal(openResult.isValid, true);
+
+  const closedResult = await validateCheckout(
+    basePayload({
+      currentDate: "2026-04-25T12:01:00.000Z",
+    })
+  );
+  assert.equal(closedResult.isValid, false);
+  assert.equal(
+    closedResult.errors.form,
+    "Orders can only be placed from 8:00 AM - 7:30 PM on weekdays and 8:00 AM - 8:00 PM on weekends."
+  );
+});
+
+test("custom owner cutoff schedule is enforced during checkout validation", async () => {
+  const openResult = await validateCheckout(
+    basePayload({
+      currentDate: "2026-04-20T00:20:00.000Z",
+      businessSettings: {
+        kitchenCutoff: "Weekdays 08:00-17:00; Weekends 09:00-18:00",
+      },
+    })
+  );
+  assert.equal(openResult.isValid, true);
+
+  const closedResult = await validateCheckout(
+    basePayload({
+      currentDate: "2026-04-20T09:31:00.000Z",
+      businessSettings: {
+        kitchenCutoff: "Weekdays 08:00-17:00; Weekends 09:00-18:00",
+      },
+    })
+  );
+  assert.equal(closedResult.isValid, false);
+  assert.equal(
+    closedResult.errors.form,
+    "Orders can only be placed from 8:00 AM - 5:00 PM on weekdays and 9:00 AM - 6:00 PM on weekends."
+  );
 });

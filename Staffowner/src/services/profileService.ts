@@ -91,9 +91,11 @@ export const profileService = {
     const jobTitle = asText(input.jobTitle);
     const avatarUrl = asText(input.avatarUrl);
 
-    if (jobTitle) nextPreferences.jobTitle = jobTitle;
-    else delete nextPreferences.jobTitle;
-    delete nextPreferences.title;
+    if (current.role === 'owner') {
+      if (jobTitle) nextPreferences.jobTitle = jobTitle;
+      else delete nextPreferences.jobTitle;
+      delete nextPreferences.title;
+    }
 
     if (avatarUrl) nextPreferences.avatarUrl = avatarUrl;
     else delete nextPreferences.avatarUrl;
