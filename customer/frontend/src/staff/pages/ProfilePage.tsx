@@ -7,17 +7,20 @@ import { authService } from '@/services/authService';
 import { profileService } from '@/services/profileService';
 
 export const ProfilePage = () => {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, refreshSession } = useAuth();
   const canEditJobTitle = user?.role === 'owner';
   const canManageCredentials = user?.role === 'owner';
   const [name, setName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [nextEmail, setNextEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const pendingEmail = String(user?.pendingEmail || '').trim();
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +89,48 @@ export const ProfilePage = () => {
       toast.error(getErrorMessage(error, 'Unable to update password.'));
     } finally {
       setIsUpdatingPassword(false);
+    }
+  };
+
+  const updateEmail = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!canManageCredentials) {
+      toast.error('Only owners can change staff-side email addresses.');
+      return;
+    }
+
+    const normalizedEmail = nextEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error('Enter the new email address you want to use.');
+      return;
+    }
+    if (normalizedEmail === String(user?.email || '').trim().toLowerCase()) {
+      toast.error('That email is already active on this owner account.');
+      return;
+    }
+    if (pendingEmail && normalizedEmail === pendingEmail.toLowerCase()) {
+      toast.error('That email is already waiting for confirmation.');
+      return;
+    }
+
+    try {
+      setIsUpdatingEmail(true);
+      const updatedUser = await authService.updateEmail(normalizedEmail);
+      const syncedUser = (await refreshSession?.().catch(() => null)) || updatedUser;
+      await refreshProfile?.().catch(() => null);
+      setNextEmail('');
+
+      if (syncedUser?.new_email) {
+        toast.success(`Confirmation email sent to ${syncedUser.new_email}. Follow the link in that inbox to finish the change.`);
+      } else if (syncedUser?.email) {
+        toast.success(`Email updated to ${syncedUser.email}.`);
+      } else {
+        toast.success('Email update started successfully.');
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to update your email.'));
+    } finally {
+      setIsUpdatingEmail(false);
     }
   };
 
@@ -181,6 +226,45 @@ export const ProfilePage = () => {
           </div>
         </form>
       </section>
+
+      {canManageCredentials ? (
+        <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
+          <div>
+            <h3 className="font-medium">Email</h3>
+            <p className="text-sm text-[#6B7280]">Change the owner sign-in email using Supabase email confirmation.</p>
+          </div>
+          <form onSubmit={updateEmail} className="space-y-3">
+            <label className="text-sm block">
+              Current email
+              <input className="mt-1 block w-full rounded border px-2 py-1 bg-slate-50" value={user?.email || ''} readOnly />
+            </label>
+            <label className="text-sm block">
+              New email
+              <input
+                required
+                type="email"
+                className="mt-1 block w-full rounded border px-2 py-1"
+                placeholder="owner@happytails.com"
+                value={nextEmail}
+                onChange={(event) => setNextEmail(event.target.value)}
+                disabled={isUpdatingEmail}
+              />
+            </label>
+            {pendingEmail ? (
+              <p className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-sm text-[#9A3412]">
+                Pending confirmation: {pendingEmail}. Finish the email link flow before requesting another change.
+              </p>
+            ) : (
+              <p className="text-sm text-[#6B7280]">
+                We will send a confirmation link to the new email and route it back to this production app.
+              </p>
+            )}
+            <button className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingEmail}>
+              {isUpdatingEmail ? 'Sending confirmation...' : 'Change email'}
+            </button>
+          </form>
+        </section>
+      ) : null}
 
       {canManageCredentials ? (
         <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">

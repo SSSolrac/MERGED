@@ -15,6 +15,7 @@ npm install
 ```bash
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_APP_URL=http://127.0.0.1:5173
 ```
 
 3. Apply the shared Supabase SQL files in order:
@@ -56,7 +57,26 @@ Root Directory: .
 Framework Preset: Vite
 Build Command: npm run build
 Output Directory: customer/frontend/dist
-Required env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+Required env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_APP_URL
+```
+
+Add this production app URL env var in Vercel too:
+
+```text
+VITE_APP_URL=https://happytailspetcafe.vercel.app
+```
+
+For Supabase Dashboard -> Authentication -> URL Configuration, use:
+
+```text
+Site URL
+https://happytailspetcafe.vercel.app
+
+Redirect URLs
+https://happytailspetcafe.vercel.app/auth/reset-password
+https://happytailspetcafe.vercel.app/auth/email-change
+http://127.0.0.1:5173/auth/reset-password
+http://127.0.0.1:5173/auth/email-change
 ```
 
 If your Git provider imported a parent wrapper folder above `CAFE_SYSTEM`, set the Vercel Root Directory to:

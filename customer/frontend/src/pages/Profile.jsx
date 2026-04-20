@@ -279,7 +279,6 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
 
     if (!formData.name.trim()) nextErrors.name = "Name is required.";
     if (!/^\+?[0-9\-\s]{7,15}$/.test(formData.phone.trim())) nextErrors.phone = "Enter a valid phone number.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) nextErrors.email = "Enter a valid email address.";
 
     if (wantsToSaveAddress) {
       if (!canEditDeliveryAddress) {
@@ -313,12 +312,12 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
       const savedProfile = await saveCustomerProfile(profileToSave);
       await mergeGuestLoyaltyIntoAccount({
         phone: savedProfile?.phone || profileToSave.phone,
-        email: savedProfile?.email || profileToSave.email,
+        email: user?.email || savedProfile?.email || profileToSave.email,
       }).catch(() => null);
       setFormData({
         ...blankProfile,
-        email: user?.email || "",
         ...savedProfile,
+        email: user?.email || savedProfile?.email || "",
       });
       setAddressFields({
         houseDetails,
@@ -512,8 +511,16 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
           <input type="text" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} />
           {errors.name ? <p className="field-error">{errors.name}</p> : null}
 
-          <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleChange} />
-          {errors.email ? <p className="field-error">{errors.email}</p> : null}
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            value={formData.email}
+            readOnly
+            className="profile-readonly-input"
+            aria-label="Account email"
+          />
+          <p className="profile-session profile-email-note">Your sign-in email is managed securely through account verification.</p>
 
           <input type="text" name="phone" placeholder="Phone Number" value={formData.phone} onChange={handleChange} />
           {errors.phone ? <p className="field-error">{errors.phone}</p> : null}

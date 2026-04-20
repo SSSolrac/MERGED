@@ -11,6 +11,7 @@ export const useAuth = () => {
     bootstrapError: auth.error || '',
     backend: getSupabaseConfigStatus(),
     refreshProfile: auth.refreshProfile,
+    refreshSession: auth.refreshSession,
     login: async (email: string, password: string) => {
       await auth.signIn({ email, password });
     },

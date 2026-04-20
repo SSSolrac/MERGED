@@ -133,7 +133,6 @@ export async function saveCustomerProfile(profile) {
 
   const payload = {
     name: String(profile?.name || "").trim(),
-    email: String(profile?.email || user.email || "").trim(),
     phone: normalizeGuestPhone(profile?.phone || "") || String(profile?.phone || "").trim(),
     preferences: currentPreferences,
     updated_at: new Date().toISOString(),

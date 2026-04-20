@@ -1,10 +1,21 @@
-import { Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import RequireAuth from "./RequireAuth";
 import { useAuth } from "../context/AuthContext";
 import { getSafeRouteForRole, roleCanAccess } from "./roleRoutes";
 
 export default function RequireRole({ roles, children }) {
-  const { role, isAuthenticated, isLoading, sessionStatus, error } = useAuth();
+  const { role, isAuthenticated, isLoading, sessionStatus, error, refreshProfile } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    if (!location.pathname.startsWith("/staff") && !location.pathname.startsWith("/owner")) return;
+
+    void refreshProfile?.().catch(() => {
+      // Route guards already handle stale or missing role state gracefully.
+    });
+  }, [isAuthenticated, isLoading, location.pathname, refreshProfile]);
 
   return (
     <RequireAuth>

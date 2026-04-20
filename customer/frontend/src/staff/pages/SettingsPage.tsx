@@ -1,7 +1,12 @@
-import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/errors';
-import { businessSettingsService } from '@/services/businessSettingsService';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  businessSettingsService,
+  type BusinessSettings,
+  type BusinessSettingsSaveInput,
+} from '@/services/businessSettingsService';
 import {
   buildBusinessHoursText,
   buildOrderWindowDisplayLines,
@@ -41,6 +46,7 @@ const toMinutes = (value: string) => {
 };
 
 export const SettingsPage = () => {
+  const { user } = useAuth();
   const defaultOrderWindowConfig = parseOrderWindowConfig();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('business');
   const [cafeName, setCafeName] = useState('');
@@ -79,12 +85,17 @@ export const SettingsPage = () => {
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [revokingStaffId, setRevokingStaffId] = useState('');
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
-  const [isLoadingStaff, setIsLoadingStaff] = useState(true);
+  const [isLoadingStaff, setIsLoadingStaff] = useState(false);
+  const [hasLoadedStaff, setHasLoadedStaff] = useState(false);
   const [staffLoadError, setStaffLoadError] = useState('');
   const [campaignAnnouncements, setCampaignAnnouncements] = useState<CampaignAnnouncement[]>([]);
   const [announcementSource, setAnnouncementSource] = useState<CampaignAnnouncementSource>('fallback');
-  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(true);
+  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
+  const [hasLoadedAnnouncements, setHasLoadedAnnouncements] = useState(false);
   const [isSavingAnnouncements, setIsSavingAnnouncements] = useState(false);
+  const saveRequestLockRef = useRef(false);
+  const lastSavedBusinessDetailsRef = useRef('');
+  const lastSavedCheckoutSettingsRef = useRef('');
 
   const toDateTimeLocal = (value: string): string => {
     if (!value) return '';
@@ -113,31 +124,7 @@ export const SettingsPage = () => {
         setIsLoadingSettings(true);
         const settings = await businessSettingsService.getBusinessSettings();
         if (cancelled) return;
-        setCafeName(settings.cafeName);
-        setHours(settings.businessHours || DEFAULT_BUSINESS_HOURS_TEXT);
-        setContact(settings.contactNumber);
-        setEmail(settings.businessEmail);
-        setAddress(settings.cafeAddress);
-        setFacebookHandle(settings.facebookHandle);
-        setInstagramHandle(settings.instagramHandle);
-        setLogoUrl(settings.logoUrl);
-        setEnableQrph(settings.enableQrph);
-        setEnableGcash(settings.enableGcash);
-        setEnableMariBank(settings.enableMariBank);
-        setEnableBdo(settings.enableBdo);
-        setEnableCash(settings.enableCash);
-        setDineIn(settings.enableDineIn);
-        setPickup(settings.enablePickup);
-        setTakeout(settings.enableTakeout);
-        setDelivery(settings.enableDelivery);
-        setDeliveryRadius(settings.deliveryRadiusKm);
-        setServiceFeePct(settings.serviceFeePct);
-        setTaxPct(settings.taxPct);
-        const orderWindowConfig = parseOrderWindowConfig(settings);
-        setWeekdayOpen(orderWindowConfig.weekdayOpen);
-        setWeekdayClose(orderWindowConfig.weekdayClose);
-        setWeekendOpen(orderWindowConfig.weekendOpen);
-        setWeekendClose(orderWindowConfig.weekendClose);
+        applySavedBusinessSettings(settings);
       } catch (error) {
         if (cancelled) return;
         toast.error(getErrorMessage(error, 'Unable to load business settings.'));
@@ -154,6 +141,8 @@ export const SettingsPage = () => {
   }, []);
 
   useEffect(() => {
+    if (activeTab !== 'announcements' || hasLoadedAnnouncements || isLoadingAnnouncements) return;
+
     let cancelled = false;
 
     const loadAnnouncements = async () => {
@@ -163,6 +152,7 @@ export const SettingsPage = () => {
         if (cancelled) return;
         setCampaignAnnouncements(result.items.map(toSimpleTickerAnnouncement));
         setAnnouncementSource(result.source);
+        setHasLoadedAnnouncements(true);
       } catch (error) {
         if (cancelled) return;
         toast.error(getErrorMessage(error, 'Unable to load homepage banner announcements.'));
@@ -176,24 +166,37 @@ export const SettingsPage = () => {
     return () => {
       cancelled = true;
     };
+  }, [activeTab, hasLoadedAnnouncements, isLoadingAnnouncements]);
+
+  const loadStaffMembers = useCallback(async () => {
+    try {
+      setIsLoadingStaff(true);
+      setStaffLoadError('');
+      const rows = await staffService.listStaffMembers();
+      setStaffMembers(rows);
+      setHasLoadedStaff(true);
+      return rows;
+    } catch (error) {
+      const message = getErrorMessage(error, 'Unable to load staff members.');
+      setStaffLoadError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoadingStaff(false);
+    }
   }, []);
 
   useEffect(() => {
+    if (activeTab !== 'staff' || hasLoadedStaff || isLoadingStaff) return;
+
     let cancelled = false;
 
     const loadStaff = async () => {
       try {
-        setIsLoadingStaff(true);
-        setStaffLoadError('');
-        const rows = await staffService.listStaffMembers();
         if (cancelled) return;
-        setStaffMembers(rows);
+        await loadStaffMembers();
       } catch (error) {
         if (cancelled) return;
         setStaffLoadError(getErrorMessage(error, 'Unable to load staff members.'));
-      } finally {
-        if (cancelled) return;
-        setIsLoadingStaff(false);
       }
     };
 
@@ -201,7 +204,7 @@ export const SettingsPage = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeTab, hasLoadedStaff, isLoadingStaff, loadStaffMembers]);
 
   const handleAddStaff = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -215,10 +218,15 @@ export const SettingsPage = () => {
       });
 
       setStaffMembers((current) => [saved, ...current.filter((member) => member.id !== saved.id)]);
+      await loadStaffMembers().catch(() => null);
       setStaffName('');
       setStaffJobTitle('');
       setStaffEmail('');
-      toast.success(`${saved.email} now has staff access.`);
+      if (saved.assignmentStatus === 'already_staff') {
+        toast.success(`${saved.email} already had staff access. The latest account details are now refreshed.`);
+      } else {
+        toast.success(`${saved.email} now has staff access.`);
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to add staff member.'));
     } finally {
@@ -226,7 +234,192 @@ export const SettingsPage = () => {
     }
   };
 
-  const handleSaveBusinessSettings = async () => {
+  type BusinessDetailsDraft = Pick<
+    BusinessSettingsSaveInput,
+    | 'cafeName'
+    | 'businessHours'
+    | 'contactNumber'
+    | 'businessEmail'
+    | 'cafeAddress'
+    | 'facebookHandle'
+    | 'instagramHandle'
+    | 'logoUrl'
+  >;
+
+  type CheckoutSettingsDraft = Pick<
+    BusinessSettingsSaveInput,
+    | 'businessHours'
+    | 'enableQrph'
+    | 'enableGcash'
+    | 'enableMariBank'
+    | 'enableBdo'
+    | 'enableCash'
+    | 'enableDineIn'
+    | 'enablePickup'
+    | 'enableTakeout'
+    | 'enableDelivery'
+    | 'deliveryRadiusKm'
+    | 'serviceFeePct'
+    | 'taxPct'
+    | 'kitchenCutoff'
+  >;
+
+  const toSafeNumber = (value: number) => (Number.isFinite(value) ? value : 0);
+
+  const buildBusinessDetailsDraft = (settings?: BusinessSettings): BusinessDetailsDraft => {
+    if (settings) {
+      return {
+        cafeName: settings.cafeName,
+        businessHours: settings.businessHours || DEFAULT_BUSINESS_HOURS_TEXT,
+        contactNumber: settings.contactNumber,
+        businessEmail: settings.businessEmail,
+        cafeAddress: settings.cafeAddress,
+        facebookHandle: settings.facebookHandle,
+        instagramHandle: settings.instagramHandle,
+        logoUrl: settings.logoUrl,
+      };
+    }
+
+    const nextOrderWindowConfig = {
+      weekdayOpen,
+      weekdayClose,
+      weekendOpen,
+      weekendClose,
+    };
+    const derivedBusinessHours = buildBusinessHoursText(nextOrderWindowConfig);
+
+    return {
+      cafeName,
+      businessHours: hours || derivedBusinessHours || DEFAULT_BUSINESS_HOURS_TEXT,
+      contactNumber: contact,
+      businessEmail: email,
+      cafeAddress: address,
+      facebookHandle,
+      instagramHandle,
+      logoUrl,
+    };
+  };
+
+  const buildCheckoutSettingsDraft = (settings?: BusinessSettings): CheckoutSettingsDraft => {
+    if (settings) {
+      const orderWindowConfig = parseOrderWindowConfig(settings);
+      return {
+        businessHours: buildBusinessHoursText(orderWindowConfig),
+        enableQrph: settings.enableQrph,
+        enableGcash: settings.enableGcash,
+        enableMariBank: settings.enableMariBank,
+        enableBdo: settings.enableBdo,
+        enableCash: settings.enableCash,
+        enableDineIn: settings.enableDineIn,
+        enablePickup: settings.enablePickup,
+        enableTakeout: settings.enableTakeout,
+        enableDelivery: settings.enableDelivery,
+        deliveryRadiusKm: toSafeNumber(settings.deliveryRadiusKm),
+        serviceFeePct: toSafeNumber(settings.serviceFeePct),
+        taxPct: toSafeNumber(settings.taxPct),
+        kitchenCutoff: serializeOrderWindowConfig(orderWindowConfig),
+      };
+    }
+
+    const nextOrderWindowConfig = {
+      weekdayOpen,
+      weekdayClose,
+      weekendOpen,
+      weekendClose,
+    };
+
+    return {
+      businessHours: buildBusinessHoursText(nextOrderWindowConfig),
+      enableQrph,
+      enableGcash,
+      enableMariBank,
+      enableBdo,
+      enableCash,
+      enableDineIn: dineIn,
+      enablePickup: pickup,
+      enableTakeout: takeout,
+      enableDelivery: delivery,
+      deliveryRadiusKm: toSafeNumber(deliveryRadius),
+      serviceFeePct: toSafeNumber(serviceFeePct),
+      taxPct: toSafeNumber(taxPct),
+      kitchenCutoff: serializeOrderWindowConfig(nextOrderWindowConfig),
+    };
+  };
+
+  const serializeBusinessDetailsDraft = (draft: BusinessDetailsDraft) => JSON.stringify(draft);
+  const serializeCheckoutSettingsDraft = (draft: CheckoutSettingsDraft) => JSON.stringify(draft);
+
+  const applySavedBusinessSettings = (settings: BusinessSettings) => {
+    const orderWindowConfig = parseOrderWindowConfig(settings);
+
+    setCafeName(settings.cafeName);
+    setHours(settings.businessHours || DEFAULT_BUSINESS_HOURS_TEXT);
+    setContact(settings.contactNumber);
+    setEmail(settings.businessEmail);
+    setAddress(settings.cafeAddress);
+    setFacebookHandle(settings.facebookHandle);
+    setInstagramHandle(settings.instagramHandle);
+    setLogoUrl(settings.logoUrl);
+    setEnableQrph(settings.enableQrph);
+    setEnableGcash(settings.enableGcash);
+    setEnableMariBank(settings.enableMariBank);
+    setEnableBdo(settings.enableBdo);
+    setEnableCash(settings.enableCash);
+    setDineIn(settings.enableDineIn);
+    setPickup(settings.enablePickup);
+    setTakeout(settings.enableTakeout);
+    setDelivery(settings.enableDelivery);
+    setDeliveryRadius(settings.deliveryRadiusKm);
+    setServiceFeePct(settings.serviceFeePct);
+    setTaxPct(settings.taxPct);
+    setWeekdayOpen(orderWindowConfig.weekdayOpen);
+    setWeekdayClose(orderWindowConfig.weekdayClose);
+    setWeekendOpen(orderWindowConfig.weekendOpen);
+    setWeekendClose(orderWindowConfig.weekendClose);
+    lastSavedBusinessDetailsRef.current = serializeBusinessDetailsDraft(buildBusinessDetailsDraft(settings));
+    lastSavedCheckoutSettingsRef.current = serializeCheckoutSettingsDraft(buildCheckoutSettingsDraft(settings));
+  };
+
+  const buildBusinessSettingsPayload = (scope: 'business' | 'checkout'): BusinessSettingsSaveInput => {
+    const nextOrderWindowConfig = {
+      weekdayOpen,
+      weekdayClose,
+      weekendOpen,
+      weekendClose,
+    };
+    const derivedBusinessHours = buildBusinessHoursText(nextOrderWindowConfig);
+    const businessHoursToSave =
+      scope === 'checkout' ? derivedBusinessHours : hours || derivedBusinessHours || DEFAULT_BUSINESS_HOURS_TEXT;
+
+    return {
+      cafeName,
+      businessHours: businessHoursToSave,
+      contactNumber: contact,
+      businessEmail: email,
+      cafeAddress: address,
+      facebookHandle,
+      instagramHandle,
+      logoUrl,
+      enableQrph,
+      enableGcash,
+      enableMariBank,
+      enableBdo,
+      enableCash,
+      enableDineIn: dineIn,
+      enablePickup: pickup,
+      enableTakeout: takeout,
+      enableDelivery: delivery,
+      deliveryRadiusKm: toSafeNumber(deliveryRadius),
+      serviceFeePct: toSafeNumber(serviceFeePct),
+      taxPct: toSafeNumber(taxPct),
+      kitchenCutoff: serializeOrderWindowConfig(nextOrderWindowConfig),
+      updatedByUserId: user?.id || null,
+    };
+  };
+
+  const handleSaveBusinessSettings = async (scope: 'business' | 'checkout') => {
+    if (saveRequestLockRef.current || isSavingSettings || isLoadingSettings || isUploadingLogo) return;
+
     try {
       const nextOrderWindowConfig = {
         weekdayOpen,
@@ -245,63 +438,34 @@ export const SettingsPage = () => {
         return;
       }
 
-      const derivedBusinessHours = buildBusinessHoursText(nextOrderWindowConfig);
-      setIsSavingSettings(true);
-      const saved = await businessSettingsService.saveBusinessSettings({
-        cafeName,
-        businessHours: activeTab === 'checkout' ? derivedBusinessHours : hours || derivedBusinessHours || DEFAULT_BUSINESS_HOURS_TEXT,
-        contactNumber: contact,
-        businessEmail: email,
-        cafeAddress: address,
-        facebookHandle,
-        instagramHandle,
-        logoUrl,
-        enableQrph,
-        enableGcash,
-        enableMariBank,
-        enableBdo,
-        enableCash,
-        enableDineIn: dineIn,
-        enablePickup: pickup,
-        enableTakeout: takeout,
-        enableDelivery: delivery,
-        deliveryRadiusKm: deliveryRadius,
-        serviceFeePct,
-        taxPct,
-        kitchenCutoff: serializeOrderWindowConfig(nextOrderWindowConfig),
-      });
+      if (
+        serializeBusinessDetailsDraft(buildBusinessDetailsDraft()) === lastSavedBusinessDetailsRef.current &&
+        serializeCheckoutSettingsDraft(buildCheckoutSettingsDraft()) === lastSavedCheckoutSettingsRef.current
+      ) {
+        return;
+      }
 
-      const savedOrderWindowConfig = parseOrderWindowConfig(saved);
-      setCafeName(saved.cafeName);
-      setHours(saved.businessHours || buildBusinessHoursText(savedOrderWindowConfig) || DEFAULT_BUSINESS_HOURS_TEXT);
-      setContact(saved.contactNumber);
-      setEmail(saved.businessEmail);
-      setAddress(saved.cafeAddress);
-      setFacebookHandle(saved.facebookHandle);
-      setInstagramHandle(saved.instagramHandle);
-      setLogoUrl(saved.logoUrl);
-      setEnableQrph(saved.enableQrph);
-      setEnableGcash(saved.enableGcash);
-      setEnableMariBank(saved.enableMariBank);
-      setEnableBdo(saved.enableBdo);
-      setEnableCash(saved.enableCash);
-      setDineIn(saved.enableDineIn);
-      setPickup(saved.enablePickup);
-      setTakeout(saved.enableTakeout);
-      setDelivery(saved.enableDelivery);
-      setDeliveryRadius(saved.deliveryRadiusKm);
-      setServiceFeePct(saved.serviceFeePct);
-      setTaxPct(saved.taxPct);
-      setWeekdayOpen(savedOrderWindowConfig.weekdayOpen);
-      setWeekdayClose(savedOrderWindowConfig.weekdayClose);
-      setWeekendOpen(savedOrderWindowConfig.weekendOpen);
-      setWeekendClose(savedOrderWindowConfig.weekendClose);
+      saveRequestLockRef.current = true;
+      setIsSavingSettings(true);
+      const saved = await businessSettingsService.saveBusinessSettings(buildBusinessSettingsPayload(scope));
+      applySavedBusinessSettings(saved);
       toast.success('Business settings saved.');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to save business settings.'));
     } finally {
+      saveRequestLockRef.current = false;
       setIsSavingSettings(false);
     }
+  };
+
+  const handleBusinessDetailsSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleSaveBusinessSettings('business');
+  };
+
+  const handleCheckoutSettingsSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleSaveBusinessSettings('checkout');
   };
 
   const handleRevokeStaffAccess = async (member: StaffMember) => {
@@ -312,6 +476,7 @@ export const SettingsPage = () => {
       setRevokingStaffId(member.id);
       const revoked = await staffService.revokeStaffAccess(member.id);
       setStaffMembers((current) => current.filter((entry) => entry.id !== member.id));
+      await loadStaffMembers().catch(() => null);
       toast.success(`${revoked.email || revoked.name || 'This account'} can no longer access the staff side.`);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to revoke staff access.'));
@@ -383,6 +548,12 @@ export const SettingsPage = () => {
 
   const isBusinessSettingsBusy = isLoadingSettings || isSavingSettings || isUploadingLogo;
   const isAnnouncementsBusy = isLoadingAnnouncements || isSavingAnnouncements;
+  const hasBusinessDetailsChanges =
+    !isLoadingSettings && serializeBusinessDetailsDraft(buildBusinessDetailsDraft()) !== lastSavedBusinessDetailsRef.current;
+  const hasCheckoutSettingsChanges =
+    !isLoadingSettings && serializeCheckoutSettingsDraft(buildCheckoutSettingsDraft()) !== lastSavedCheckoutSettingsRef.current;
+  const hasAnyBusinessSettingsChanges = hasBusinessDetailsChanges || hasCheckoutSettingsChanges;
+  const saveStatusLabel = hasAnyBusinessSettingsChanges ? 'Unsaved changes ready to save.' : 'All settings saved.';
   const settingsTabs: Array<{ key: SettingsTabKey; label: string; description: string }> = [
     { key: 'business', label: 'Business', description: 'Cafe details and branding' },
     { key: 'announcements', label: 'Announcements', description: 'Homepage ticker text' },
@@ -430,94 +601,107 @@ export const SettingsPage = () => {
 
       {activeTab === 'business' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h2 className="text-xl font-semibold">Business Settings</h2>
-        <p className="text-sm text-[#6B7280]">Configure cafe operations and owner-level controls.</p>
-        {isLoadingSettings ? <p className="text-sm text-[#6B7280]">Loading business settings...</p> : null}
+        <form className="space-y-3" onSubmit={handleBusinessDetailsSubmit}>
+          <h2 className="text-xl font-semibold">Business Settings</h2>
+          <p className="text-sm text-[#6B7280]">Configure cafe operations and owner-level controls.</p>
+          {isLoadingSettings ? <p className="text-sm text-[#6B7280]">Loading business settings...</p> : null}
 
-        <label className="block text-sm">
-          Cafe Name
-          <input
-            className="block border rounded mt-1 px-2 py-1 w-full"
-            value={cafeName}
-            onChange={(e) => setCafeName(e.target.value)}
-            disabled={isBusinessSettingsBusy}
-          />
-        </label>
+          <label className="block text-sm">
+            Cafe Name
+            <input
+              className="block border rounded mt-1 px-2 py-1 w-full"
+              value={cafeName}
+              onChange={(e) => setCafeName(e.target.value)}
+              disabled={isBusinessSettingsBusy}
+            />
+          </label>
 
-        <div className="grid md:grid-cols-2 gap-3">
-          <label className="block text-sm">
-            Business Hours
-            <textarea
-              className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Contact Number
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Business Email
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Cafe Address
-            <textarea
-              className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Facebook Page
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={facebookHandle}
-              onChange={(e) => setFacebookHandle(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Instagram Handle
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={instagramHandle}
-              onChange={(e) => setInstagramHandle(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <div className="block text-sm md:col-span-2">
-            <span className="block">Logo / Branding picture</span>
-            <div className="mt-1 flex flex-wrap items-center gap-3 rounded border p-3">
-              <input
-                type="file"
-                accept="image/*"
-                className="block text-sm"
-                onChange={handleLogoUpload}
+          <div className="grid md:grid-cols-2 gap-3">
+            <label className="block text-sm">
+              Business Hours
+              <textarea
+                className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
                 disabled={isBusinessSettingsBusy}
               />
-              <span className="text-xs text-[#6B7280]">
-                {isUploadingLogo ? 'Uploading...' : 'Upload a logo or branding image for the customer storefront.'}
-              </span>
-              {logoUrl ? (
-                <img src={logoUrl} alt="Current cafe branding" className="h-16 w-16 rounded border object-cover" />
-              ) : null}
+            </label>
+            <label className="block text-sm">
+              Contact Number
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Business Email
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Cafe Address
+              <textarea
+                className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Facebook Page
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={facebookHandle}
+                onChange={(e) => setFacebookHandle(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Instagram Handle
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={instagramHandle}
+                onChange={(e) => setInstagramHandle(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <div className="block text-sm md:col-span-2">
+              <span className="block">Logo / Branding picture</span>
+              <div className="mt-1 flex flex-wrap items-center gap-3 rounded border p-3">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="block text-sm"
+                  onChange={handleLogoUpload}
+                  disabled={isBusinessSettingsBusy}
+                />
+                <span className="text-xs text-[#6B7280]">
+                  {isUploadingLogo ? 'Uploading...' : 'Upload a logo or branding image for the customer storefront.'}
+                </span>
+                {logoUrl ? (
+                  <img src={logoUrl} alt="Current cafe branding" className="h-16 w-16 rounded border object-cover" />
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2 disabled:opacity-60"
+              disabled={isBusinessSettingsBusy || !hasAnyBusinessSettingsChanges}
+            >
+              {isSavingSettings ? 'Saving...' : 'Save business details'}
+            </button>
+            {!isLoadingSettings ? <p className="text-xs text-[#6B7280]">{saveStatusLabel}</p> : null}
+          </div>
+        </form>
       </section>
       ) : null}
 
@@ -533,7 +717,7 @@ export const SettingsPage = () => {
         <p className="text-xs text-[#6B7280]">Current data source: {announcementSourceLabel}</p>
         {isLoadingAnnouncements ? <p className="text-sm text-[#6B7280]">Loading announcements...</p> : null}
 
-        {!isLoadingAnnouncements && !campaignAnnouncements.length ? (
+        {!isLoadingAnnouncements && hasLoadedAnnouncements && !campaignAnnouncements.length ? (
           <p className="text-sm text-[#6B7280]">No announcements yet. Add one to start the ticker.</p>
         ) : null}
 
@@ -630,95 +814,108 @@ export const SettingsPage = () => {
 
       {activeTab === 'checkout' ? (
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h3 className="font-medium">Payment & Service Rules</h3>
-        <p className="text-sm text-[#6B7280]">
-          Customer checkout reads these availability toggles from <code>business_settings</code>. Delivery coverage itself is
-          managed from the dedicated Delivery Coverage page.
-        </p>
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Available order types</p>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label><input type="checkbox" checked={dineIn} onChange={(e) => setDineIn(e.target.checked)} /> Dine-in</label>
-            <label><input type="checkbox" checked={pickup} onChange={(e) => setPickup(e.target.checked)} /> Pickup</label>
-            <label><input type="checkbox" checked={takeout} onChange={(e) => setTakeout(e.target.checked)} /> Takeout</label>
-            <label><input type="checkbox" checked={delivery} onChange={(e) => setDelivery(e.target.checked)} /> Delivery</label>
-          </div>
-          <p className="text-xs text-[#6B7280]">
-            Polygon coverage, fixed barangay labels, and allowed puroks are controlled in Admin &gt; Delivery Coverage. The
-            legacy radius field remains in the schema for compatibility but does not drive polygon validation anymore.
+        <form className="space-y-3" onSubmit={handleCheckoutSettingsSubmit}>
+          <h3 className="font-medium">Payment & Service Rules</h3>
+          <p className="text-sm text-[#6B7280]">
+            Customer checkout reads these availability toggles from <code>business_settings</code>. Delivery coverage itself is
+            managed from the dedicated Delivery Coverage page.
           </p>
-        </div>
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Enabled payment methods</p>
-        </div>
-        <div className="flex flex-wrap gap-4 text-sm">
-          <label><input type="checkbox" checked={enableQrph} onChange={(e) => setEnableQrph(e.target.checked)} /> QRPH</label>
-          <label><input type="checkbox" checked={enableGcash} onChange={(e) => setEnableGcash(e.target.checked)} /> GCash</label>
-          <label><input type="checkbox" checked={enableMariBank} onChange={(e) => setEnableMariBank(e.target.checked)} /> MariBank</label>
-          <label><input type="checkbox" checked={enableBdo} onChange={(e) => setEnableBdo(e.target.checked)} /> BDO</label>
-          <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
-        </div>
-        <div className="grid max-w-md gap-3">
-          <div className="text-sm">
-            <p className="font-medium">Checkout cut-off hours</p>
-            <div className="mt-1 grid gap-3 rounded border bg-[#FFF7F9] px-3 py-3 text-sm text-[#4B5563]">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="text-sm">
-                  Weekday opening time
-                  <input
-                    type="time"
-                    className="mt-1 block w-full rounded border px-2 py-1"
-                    value={weekdayOpen}
-                    onChange={(event) => setWeekdayOpen(event.target.value)}
-                    disabled={isBusinessSettingsBusy}
-                  />
-                </label>
-                <label className="text-sm">
-                  Weekday closing time
-                  <input
-                    type="time"
-                    className="mt-1 block w-full rounded border px-2 py-1"
-                    value={weekdayClose}
-                    onChange={(event) => setWeekdayClose(event.target.value)}
-                    disabled={isBusinessSettingsBusy}
-                  />
-                </label>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="text-sm">
-                  Weekend opening time
-                  <input
-                    type="time"
-                    className="mt-1 block w-full rounded border px-2 py-1"
-                    value={weekendOpen}
-                    onChange={(event) => setWeekendOpen(event.target.value)}
-                    disabled={isBusinessSettingsBusy}
-                  />
-                </label>
-                <label className="text-sm">
-                  Weekend closing time
-                  <input
-                    type="time"
-                    className="mt-1 block w-full rounded border px-2 py-1"
-                    value={weekendClose}
-                    onChange={(event) => setWeekendClose(event.target.value)}
-                    disabled={isBusinessSettingsBusy}
-                  />
-                </label>
-              </div>
-              <div className="rounded border bg-white px-3 py-2 text-[#4B5563]">
-                {orderWindowPreviewLines.map((line) => (
-                  <p key={line} className="m-0">
-                    {line}
-                  </p>
-                ))}
-              </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Available order types</p>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <label><input type="checkbox" checked={dineIn} onChange={(e) => setDineIn(e.target.checked)} /> Dine-in</label>
+              <label><input type="checkbox" checked={pickup} onChange={(e) => setPickup(e.target.checked)} /> Pickup</label>
+              <label><input type="checkbox" checked={takeout} onChange={(e) => setTakeout(e.target.checked)} /> Takeout</label>
+              <label><input type="checkbox" checked={delivery} onChange={(e) => setDelivery(e.target.checked)} /> Delivery</label>
             </div>
-            <p className="mt-2 text-xs text-[#6B7280]">
-              Customer checkout automatically blocks orders outside these hours.
+            <p className="text-xs text-[#6B7280]">
+              Polygon coverage, fixed barangay labels, and allowed puroks are controlled in Admin &gt; Delivery Coverage. The
+              legacy radius field remains in the schema for compatibility but does not drive polygon validation anymore.
             </p>
           </div>
-        </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Enabled payment methods</p>
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label><input type="checkbox" checked={enableQrph} onChange={(e) => setEnableQrph(e.target.checked)} /> QRPH</label>
+            <label><input type="checkbox" checked={enableGcash} onChange={(e) => setEnableGcash(e.target.checked)} /> GCash</label>
+            <label><input type="checkbox" checked={enableMariBank} onChange={(e) => setEnableMariBank(e.target.checked)} /> MariBank</label>
+            <label><input type="checkbox" checked={enableBdo} onChange={(e) => setEnableBdo(e.target.checked)} /> BDO</label>
+            <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
+          </div>
+          <div className="grid max-w-md gap-3">
+            <div className="text-sm">
+              <p className="font-medium">Checkout cut-off hours</p>
+              <div className="mt-1 grid gap-3 rounded border bg-[#FFF7F9] px-3 py-3 text-sm text-[#4B5563]">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-sm">
+                    Weekday opening time
+                    <input
+                      type="time"
+                      className="mt-1 block w-full rounded border px-2 py-1"
+                      value={weekdayOpen}
+                      onChange={(event) => setWeekdayOpen(event.target.value)}
+                      disabled={isBusinessSettingsBusy}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    Weekday closing time
+                    <input
+                      type="time"
+                      className="mt-1 block w-full rounded border px-2 py-1"
+                      value={weekdayClose}
+                      onChange={(event) => setWeekdayClose(event.target.value)}
+                      disabled={isBusinessSettingsBusy}
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-sm">
+                    Weekend opening time
+                    <input
+                      type="time"
+                      className="mt-1 block w-full rounded border px-2 py-1"
+                      value={weekendOpen}
+                      onChange={(event) => setWeekendOpen(event.target.value)}
+                      disabled={isBusinessSettingsBusy}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    Weekend closing time
+                    <input
+                      type="time"
+                      className="mt-1 block w-full rounded border px-2 py-1"
+                      value={weekendClose}
+                      onChange={(event) => setWeekendClose(event.target.value)}
+                      disabled={isBusinessSettingsBusy}
+                    />
+                  </label>
+                </div>
+                <div className="rounded border bg-white px-3 py-2 text-[#4B5563]">
+                  {orderWindowPreviewLines.map((line) => (
+                    <p key={line} className="m-0">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-[#6B7280]">
+                Customer checkout automatically blocks orders outside these hours.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2 disabled:opacity-60"
+              disabled={isBusinessSettingsBusy || !hasAnyBusinessSettingsChanges}
+            >
+              {isSavingSettings ? 'Saving...' : 'Save checkout settings'}
+            </button>
+            {!isLoadingSettings ? <p className="text-xs text-[#6B7280]">{saveStatusLabel}</p> : null}
+          </div>
+        </form>
       </section>
       ) : null}
 
@@ -757,13 +954,15 @@ export const SettingsPage = () => {
             {isAddingStaff ? 'Adding...' : 'Add Staff'}
           </button>
         </form>
-        <p className="text-xs text-[#6B7280]">If no account is found, ask them to sign up first, then add them here.</p>
+        <p className="text-xs text-[#6B7280]">
+          Staff lookup uses each user&apos;s confirmed Supabase account email. If no account is found, ask them to sign up first, then add them here.
+        </p>
         {staffLoadError ? <p className="text-sm text-red-600">{staffLoadError}</p> : null}
         {isLoadingStaff ? (
           <p className="text-sm text-[#6B7280]">Loading current staff members...</p>
         ) : (
           <div className="space-y-2">
-            {!staffMembers.length ? <p className="text-sm text-[#6B7280]">No staff members found.</p> : null}
+            {hasLoadedStaff && !staffMembers.length ? <p className="text-sm text-[#6B7280]">No staff members found.</p> : null}
             {staffMembers.map((member) => (
               <div key={member.id} className="border rounded p-2 text-sm flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -798,15 +997,6 @@ export const SettingsPage = () => {
       </section>
       ) : null}
 
-      {activeTab === 'business' || activeTab === 'checkout' ? (
-        <button
-          className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2"
-          onClick={handleSaveBusinessSettings}
-          disabled={isBusinessSettingsBusy}
-        >
-          {isSavingSettings ? 'Saving...' : 'Save business settings'}
-        </button>
-      ) : null}
     </div>
   );
 };

@@ -1,3 +1,5 @@
+import { buildPublicAppUrl } from "../lib/appUrl";
+import { buildAuthActionErrorMessage, readAuthRedirectState } from "../lib/authRedirects";
 import { getSupabaseClient, requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError } from "../lib/supabaseErrors";
 import { getProfileForUser } from "./auth/getCurrentUserRole";
@@ -11,6 +13,10 @@ function asAuthError(error, fallback = "Authentication failed.") {
 function asNonEmptyText(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function asNormalizedEmail(value) {
+  return asNonEmptyText(value).toLowerCase();
 }
 
 function isNetworkFailure(error) {
@@ -146,7 +152,7 @@ export async function signup({ name, phone, email, password } = {}) {
 export async function requestPasswordReset({ email, redirectTo } = {}) {
   const supabase = requireSupabaseClient();
   const { error } = await supabase.auth.resetPasswordForEmail(String(email || "").trim(), {
-    redirectTo: asNonEmptyText(redirectTo) || undefined,
+    redirectTo: asNonEmptyText(redirectTo) || buildPublicAppUrl("/auth/reset-password"),
   });
 
   if (error) throw asAuthError(error, "Unable to send the password reset email.");
@@ -158,6 +164,23 @@ export async function updatePassword({ password } = {}) {
   const { data, error } = await supabase.auth.updateUser({ password: nextPassword });
 
   if (error) throw asAuthError(error, "Unable to update your password.");
+  return data?.user || null;
+}
+
+export async function updateEmail({ email, redirectTo } = {}) {
+  const supabase = requireSupabaseClient();
+  const nextEmail = asNormalizedEmail(email);
+
+  if (!nextEmail) throw new Error("Enter the new email address you want to use.");
+
+  const { data, error } = await supabase.auth.updateUser(
+    { email: nextEmail },
+    {
+      emailRedirectTo: asNonEmptyText(redirectTo) || buildPublicAppUrl("/auth/email-change"),
+    }
+  );
+
+  if (error) throw asAuthError(error, "Unable to update your email.");
   return data?.user || null;
 }
 
@@ -207,7 +230,10 @@ export async function getSession() {
     return null;
   }
 
-  return session;
+  return {
+    ...session,
+    user: validated.data.user,
+  };
 }
 
 export function onAuthStateChange(callback) {
@@ -222,4 +248,47 @@ export async function requireUser() {
   const user = session?.user || null;
   if (!user) throw new Error("You must be signed in to continue.");
   return user;
+}
+
+export async function completeAuthActionFromRedirect({ expectedType, redirectState } = {}) {
+  const state =
+    redirectState && typeof redirectState === "object"
+      ? redirectState
+      : readAuthRedirectState();
+  const normalizedExpectedType = asNonEmptyText(expectedType).toLowerCase();
+  const normalizedType = asNonEmptyText(state?.type).toLowerCase();
+
+  if (state?.error || state?.errorCode) {
+    throw new Error(buildAuthActionErrorMessage(state, normalizedExpectedType || normalizedType || "recovery"));
+  }
+
+  if (normalizedExpectedType && normalizedType && normalizedExpectedType !== normalizedType) {
+    throw new Error(buildAuthActionErrorMessage({ message: "invalid_action_type" }, normalizedExpectedType));
+  }
+
+  const supabase = requireSupabaseClient();
+
+  if (asNonEmptyText(state?.tokenHash)) {
+    const { data, error } = await supabase.auth.verifyOtp({
+      token_hash: state.tokenHash,
+      type: normalizedExpectedType || normalizedType || "recovery",
+    });
+
+    if (error) {
+      throw new Error(buildAuthActionErrorMessage(error, normalizedExpectedType || normalizedType || "recovery"));
+    }
+
+    return {
+      state,
+      session: data?.session || null,
+      user: data?.user || data?.session?.user || null,
+    };
+  }
+
+  const session = await getSession();
+  return {
+    state,
+    session,
+    user: session?.user || null,
+  };
 }

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   getSession,
   login,
@@ -12,17 +12,9 @@ import {
 import { getProfileForUser, normalizeAppRole } from "../services/auth/getCurrentUserRole";
 import { recordStaffOwnerLogout } from "../services/auth/loginAuditService";
 import { clearAllSessionData } from "../services/sessionService";
-import { requireSupabaseClient } from "../lib/supabase";
+import { getSupabaseClient, requireSupabaseClient } from "../lib/supabase";
 
 const AuthContext = createContext(null);
-
-function hasPasswordRecoveryParams() {
-  if (typeof window === "undefined") return false;
-
-  const search = String(window.location.search || "");
-  const hash = String(window.location.hash || "");
-  return search.includes("type=recovery") || hash.includes("type=recovery");
-}
 
 async function getProfileForSession(session) {
   if (!session?.user) return null;
@@ -35,131 +27,256 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
   const [sessionStatus, setSessionStatus] = useState("loading"); // loading | no_session | authenticated | invalid_session | backend_unavailable
   const [authError, setAuthError] = useState("");
-  const [isRecoveryMode, setIsRecoveryMode] = useState(() => hasPasswordRecoveryParams());
+
+  const isMountedRef = useRef(true);
+  const sessionRef = useRef(null);
+  const profileRef = useRef(null);
+  const syncPromiseRef = useRef(null);
+  const lastSyncOutcomeRef = useRef("loading");
+
+  const assignSession = useCallback((nextSession) => {
+    sessionRef.current = nextSession || null;
+    setSession(nextSession || null);
+  }, []);
+
+  const assignProfile = useCallback((nextProfile) => {
+    profileRef.current = nextProfile || null;
+    setProfile(nextProfile || null);
+  }, []);
+
+  const applyAuthenticatedState = useCallback(
+    (nextSession, nextProfile) => {
+      assignSession(nextSession);
+      assignProfile(nextProfile);
+      setAuthError("");
+      setSessionStatus("authenticated");
+      lastSyncOutcomeRef.current = "authenticated";
+    },
+    [assignProfile, assignSession]
+  );
+
+  const clearResolvedState = useCallback(
+    ({ status = "no_session", error = "" } = {}) => {
+      assignSession(null);
+      assignProfile(null);
+      setSessionStatus(status);
+      setAuthError(error);
+      lastSyncOutcomeRef.current = status;
+    },
+    [assignProfile, assignSession]
+  );
+
+  const refreshProfile = useCallback(
+    async (sessionOverride = sessionRef.current) => {
+      if (!sessionOverride?.user) {
+        assignProfile(null);
+        return null;
+      }
+
+      const nextProfile = await getProfileForSession(sessionOverride);
+      if (!isMountedRef.current) return nextProfile;
+
+      applyAuthenticatedState(sessionOverride, nextProfile);
+      return nextProfile;
+    },
+    [applyAuthenticatedState, assignProfile]
+  );
+
+  const syncSessionState = useCallback(
+    async ({ showLoading = false } = {}) => {
+      if (syncPromiseRef.current) return syncPromiseRef.current;
+      if (showLoading) setIsLoading(true);
+
+      const task = (async () => {
+        try {
+          const nextSession = await getSession();
+          if (!isMountedRef.current) return nextSession;
+
+          if (!nextSession?.user) {
+            clearResolvedState({ status: "no_session", error: "" });
+            return null;
+          }
+
+          const nextProfile = await getProfileForSession(nextSession);
+          if (!isMountedRef.current) return nextSession;
+
+          applyAuthenticatedState(nextSession, nextProfile);
+          return nextSession;
+        } catch (error) {
+          if (!isMountedRef.current) return null;
+
+          if (error?.kind === "backend_unavailable") {
+            setSessionStatus("backend_unavailable");
+            setAuthError(error?.message || "Supabase is unavailable. We'll retry automatically.");
+            lastSyncOutcomeRef.current = "backend_unavailable";
+            return sessionRef.current;
+          }
+
+          clearResolvedState({
+            status: "backend_unavailable",
+            error: error?.message || "Unable to validate your session right now.",
+          });
+          return null;
+        } finally {
+          syncPromiseRef.current = null;
+          if (isMountedRef.current && showLoading) setIsLoading(false);
+        }
+      })();
+
+      syncPromiseRef.current = task;
+      return task;
+    },
+    [applyAuthenticatedState, clearResolvedState]
+  );
 
   useEffect(() => {
     let cancelled = false;
-    let localSession = null;
+    isMountedRef.current = true;
 
     const restore = async () => {
       setIsLoading(true);
       setAuthError("");
       setSessionStatus("loading");
+
       try {
         const supabase = requireSupabaseClient();
         const local = await supabase.auth.getSession();
-        localSession = local?.data?.session || null;
-        const hadLocalSession = Boolean(localSession);
+        const hadLocalSession = Boolean(local?.data?.session);
+        const restored = await syncSessionState();
 
-        const restored = await getSession();
         if (cancelled) return;
 
-        const restoredProfile = restored?.user ? await getProfileForSession(restored) : null;
-        if (cancelled) return;
-
-        setSession(restored);
-        setProfile(restoredProfile);
-        setIsRecoveryMode(hasPasswordRecoveryParams());
         if (restored?.user) {
           setSessionStatus("authenticated");
+          setAuthError("");
         } else if (hadLocalSession) {
-          setSessionStatus("invalid_session");
-          setAuthError("Your session expired. Please sign in again.");
-        } else {
-          setSessionStatus("no_session");
+          clearResolvedState({
+            status: "invalid_session",
+            error: "Your session expired. Please sign in again.",
+          });
+        } else if (lastSyncOutcomeRef.current !== "backend_unavailable" && sessionRef.current?.user == null) {
+          clearResolvedState({ status: "no_session", error: "" });
         }
       } catch (error) {
         if (cancelled) return;
+
         if (error?.kind === "backend_unavailable") {
-          setSession((prev) => prev || localSession || null);
           setSessionStatus("backend_unavailable");
           setAuthError(error?.message || "Supabase is unavailable. We'll keep your session for now.");
+          lastSyncOutcomeRef.current = "backend_unavailable";
         } else {
-          setSession(null);
-          setProfile(null);
-          setSessionStatus("backend_unavailable");
-          setAuthError(error?.message || "Unable to reach Supabase to validate your session.");
+          clearResolvedState({
+            status: "backend_unavailable",
+            error: error?.message || "Unable to reach Supabase to validate your session.",
+          });
         }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     };
 
-    restore();
+    void restore();
 
     const subscription = onAuthStateChange((event, nextSession) => {
       if (cancelled) return;
 
-      if (event === "PASSWORD_RECOVERY") {
-        setIsRecoveryMode(true);
+      if (event === "INITIAL_SESSION") {
+        return;
       }
 
-      if (event === "SIGNED_OUT") {
-        setSession(null);
-        setProfile(null);
+      if (event === "SIGNED_OUT" || !nextSession?.user) {
+        clearResolvedState({ status: "no_session", error: "" });
+        return;
+      }
+
+      if (event === "TOKEN_REFRESHED") {
+        assignSession(nextSession);
+        setSessionStatus("authenticated");
         setAuthError("");
-        setSessionStatus("no_session");
-        setIsRecoveryMode(false);
-        return;
-      }
 
-      if (!nextSession?.user) {
-        setSession(null);
-        setProfile(null);
-        setSessionStatus("no_session");
-        return;
-      }
-
-      // Treat auth state changes as untrusted until validated with the backend.
-      void (async () => {
-        try {
-          const validated = await getSession();
-          if (cancelled) return;
-          const nextProfile = validated?.user ? await getProfileForSession(validated) : null;
-          if (cancelled) return;
-
-          setSession(validated);
-          setProfile(nextProfile);
-          if (validated?.user) {
-            setAuthError("");
-            setSessionStatus("authenticated");
-          } else {
-            setProfile(null);
-            setSessionStatus("invalid_session");
-            setAuthError("Your session expired. Please sign in again.");
-          }
-        } catch (err) {
-          if (cancelled) return;
-          if (err?.kind === "backend_unavailable") {
-            setSession((prev) => prev || null);
-            setSessionStatus("backend_unavailable");
-            setAuthError(err?.message || "Supabase is unavailable. We'll retry automatically.");
-          } else {
-            setSession(null);
-            setProfile(null);
-            setSessionStatus("backend_unavailable");
-            setAuthError(err?.message || "Unable to validate your session right now.");
-          }
+        if (!profileRef.current || profileRef.current.id !== nextSession.user.id) {
+          void refreshProfile(nextSession).catch(() => {
+            // Keep the current role until the next background refresh succeeds.
+          });
         }
-      })();
+        return;
+      }
+
+      if (
+        event !== "USER_UPDATED" &&
+        sessionRef.current?.access_token &&
+        sessionRef.current.access_token === nextSession.access_token &&
+        profileRef.current?.id === nextSession.user.id
+      ) {
+        assignSession(nextSession);
+        setSessionStatus("authenticated");
+        setAuthError("");
+        return;
+      }
+
+      void syncSessionState();
     });
 
     return () => {
       cancelled = true;
+      isMountedRef.current = false;
       subscription?.unsubscribe?.();
     };
-  }, []);
+  }, [assignSession, clearResolvedState, refreshProfile, syncSessionState]);
 
-  const refreshProfile = useCallback(async () => {
-    if (!session?.user) {
-      setProfile(null);
-      return null;
-    }
+  useEffect(() => {
+    if (!session?.user?.id) return undefined;
 
-    const next = await getProfileForSession(session);
-    setProfile(next);
-    return next;
-  }, [session]);
+    const refreshInBackground = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void refreshProfile().catch(() => {
+        // Keep the last confirmed role/profile visible if a background refresh fails.
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+      refreshInBackground();
+    };
+
+    window.addEventListener("focus", refreshInBackground);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", refreshInBackground);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refreshProfile, session?.user?.id]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return undefined;
+
+    const { client } = getSupabaseClient();
+    if (!client) return undefined;
+
+    const channel = client
+      .channel(`profiles:self:${session.user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${session.user.id}`,
+        },
+        () => {
+          void refreshProfile().catch(() => {
+            // Realtime is best-effort; fall back to focus/refresh checks if this fails.
+          });
+        }
+      );
+
+    channel.subscribe();
+
+    return () => {
+      void channel.unsubscribe();
+    };
+  }, [refreshProfile, session?.user?.id]);
 
   const isAuthenticated = Boolean(session?.user);
   const role = profile ? normalizeAppRole(profile.role, null) : null;
@@ -174,6 +291,8 @@ export function AuthProvider({ children }) {
     return {
       id: authUser.id,
       email: authUser.email || "",
+      pendingEmail: authUser.new_email || "",
+      emailChangeSentAt: authUser.email_change_sent_at || "",
       name,
       role: profile ? normalizeAppRole(profile.role, null) : null,
       customerCode: profile?.customerCode ?? null,
@@ -182,18 +301,18 @@ export function AuthProvider({ children }) {
     };
   }, [profile, session?.user]);
 
-  const signIn = useCallback(async ({ email, password }) => {
-    setAuthError("");
-    setIsRecoveryMode(false);
-    const result = await login({ email, password });
-    if (result?.session) setSession(result.session);
-    if (result?.profile) setProfile(result.profile);
-    return result;
-  }, []);
+  const signIn = useCallback(
+    async ({ email, password }) => {
+      setAuthError("");
+      const result = await login({ email, password });
+      if (result?.session && result?.profile) applyAuthenticatedState(result.session, result.profile);
+      return result;
+    },
+    [applyAuthenticatedState]
+  );
 
   const signUp = useCallback(async ({ name, phone, email, password }) => {
     setAuthError("");
-    setIsRecoveryMode(false);
     await signup({ name, phone, email, password });
   }, []);
 
@@ -202,25 +321,31 @@ export function AuthProvider({ children }) {
     await requestPasswordReset({ email, redirectTo });
   }, []);
 
-  const confirmPasswordReset = useCallback(async ({ password }) => {
-    setAuthError("");
-    const user = await updatePassword({ password });
-    setIsRecoveryMode(false);
-    return user;
-  }, []);
+  const confirmPasswordReset = useCallback(
+    async ({ password }) => {
+      setAuthError("");
+      const updatedUser = await updatePassword({ password });
+      await syncSessionState();
+      return updatedUser;
+    },
+    [syncSessionState]
+  );
+
+  const refreshSession = useCallback(async () => {
+    const nextSession = await syncSessionState();
+    return nextSession?.user || null;
+  }, [syncSessionState]);
 
   const signOut = useCallback(async () => {
     setAuthError("");
     try {
-      await recordStaffOwnerLogout(profile);
+      await recordStaffOwnerLogout(profileRef.current);
       await logout();
     } finally {
       clearAllSessionData();
-      setProfile(null);
-      setSession(null);
-      setIsRecoveryMode(false);
+      clearResolvedState({ status: "no_session", error: "" });
     }
-  }, [profile]);
+  }, [clearResolvedState]);
 
   const value = useMemo(
     () => ({
@@ -234,7 +359,6 @@ export function AuthProvider({ children }) {
       loading: isLoading,
       sessionStatus,
       error: authError,
-      isRecoveryMode,
       login: signIn,
       logout: signOut,
       signup: signUp,
@@ -244,16 +368,17 @@ export function AuthProvider({ children }) {
       confirmPasswordReset,
       signOut,
       refreshProfile,
+      refreshSession,
     }),
     [
       authError,
       confirmPasswordReset,
       isAuthenticated,
       isLoading,
-      isRecoveryMode,
       profile,
-      role,
       refreshProfile,
+      refreshSession,
+      role,
       sendPasswordReset,
       session,
       sessionStatus,

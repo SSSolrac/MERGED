@@ -31,7 +31,9 @@ export type BusinessSettings = {
   updatedAt: string;
 };
 
-type BusinessSettingsInput = Omit<BusinessSettings, 'updatedAt'>;
+export type BusinessSettingsSaveInput = Omit<BusinessSettings, 'updatedAt'> & {
+  updatedByUserId?: string | null;
+};
 
 const asText = (value: unknown): string => {
   if (typeof value === 'string') return value.trim();
@@ -105,9 +107,8 @@ export const businessSettingsService = {
     return mapBusinessSettingsRow(data);
   },
 
-  async saveBusinessSettings(settings: BusinessSettingsInput): Promise<BusinessSettings> {
+  async saveBusinessSettings(settings: BusinessSettingsSaveInput): Promise<BusinessSettings> {
     const supabase = requireSupabaseClient();
-    const { data: authData } = await supabase.auth.getUser();
 
     const payload = {
       id: 1,
@@ -132,7 +133,7 @@ export const businessSettingsService = {
       service_fee_pct: Number.isFinite(settings.serviceFeePct) ? settings.serviceFeePct : 0,
       tax_pct: Number.isFinite(settings.taxPct) ? settings.taxPct : 0,
       kitchen_cutoff: asText(settings.kitchenCutoff) || DEFAULT_ORDER_WINDOW_STORAGE_VALUE,
-      updated_by: authData?.user?.id || null,
+      updated_by: asText(settings.updatedByUserId) || null,
     };
 
     const { data, error } = await supabase.from('business_settings').upsert(payload, { onConflict: 'id' }).select('*').single();

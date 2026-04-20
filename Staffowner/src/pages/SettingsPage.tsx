@@ -1,9 +1,13 @@
-import { type ChangeEvent, type FormEvent, useEffect, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { getErrorMessage } from '@/lib/errors';
 import { authService } from '@/services/authService';
-import { businessSettingsService } from '@/services/businessSettingsService';
+import {
+  businessSettingsService,
+  type BusinessSettings,
+  type BusinessSettingsSaveInput,
+} from '@/services/businessSettingsService';
 import {
   campaignAnnouncementService,
   type CampaignAnnouncement,
@@ -67,6 +71,8 @@ export const SettingsPage = () => {
   const [announcementSource, setAnnouncementSource] = useState<CampaignAnnouncementSource>('fallback');
   const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(true);
   const [isSavingAnnouncements, setIsSavingAnnouncements] = useState(false);
+  const saveRequestLockRef = useRef(false);
+  const lastSavedBusinessSettingsRef = useRef('');
 
   const toDateTimeLocal = (value: string): string => {
     if (!value) return '';
@@ -95,27 +101,7 @@ export const SettingsPage = () => {
         setIsLoadingSettings(true);
         const settings = await businessSettingsService.getBusinessSettings();
         if (cancelled) return;
-        setCafeName(settings.cafeName);
-        setHours(settings.businessHours);
-        setContact(settings.contactNumber);
-        setEmail(settings.businessEmail);
-        setAddress(settings.cafeAddress);
-        setFacebookHandle(settings.facebookHandle);
-        setInstagramHandle(settings.instagramHandle);
-        setLogoUrl(settings.logoUrl);
-        setEnableQrph(settings.enableQrph);
-        setEnableGcash(settings.enableGcash);
-        setEnableMariBank(settings.enableMariBank);
-        setEnableBdo(settings.enableBdo);
-        setEnableCash(settings.enableCash);
-        setDineIn(settings.enableDineIn);
-        setPickup(settings.enablePickup);
-        setTakeout(settings.enableTakeout);
-        setDelivery(settings.enableDelivery);
-        setDeliveryRadius(settings.deliveryRadiusKm);
-        setServiceFeePct(settings.serviceFeePct);
-        setTaxPct(settings.taxPct);
-        setKitchenCutoff(settings.kitchenCutoff);
+        applySavedBusinessSettings(settings);
       } catch (error) {
         if (cancelled) return;
         toast.error(getErrorMessage(error, 'Unable to load business settings.'));
@@ -223,60 +209,114 @@ export const SettingsPage = () => {
     }
   };
 
+  const toSafeNumber = (value: number) => (Number.isFinite(value) ? value : 0);
+
+  const buildBusinessSettingsDraft = (settings?: BusinessSettings): Omit<BusinessSettingsSaveInput, 'updatedByUserId'> => {
+    if (settings) {
+      return {
+        cafeName: settings.cafeName,
+        businessHours: settings.businessHours,
+        contactNumber: settings.contactNumber,
+        businessEmail: settings.businessEmail,
+        cafeAddress: settings.cafeAddress,
+        facebookHandle: settings.facebookHandle,
+        instagramHandle: settings.instagramHandle,
+        logoUrl: settings.logoUrl,
+        enableQrph: settings.enableQrph,
+        enableGcash: settings.enableGcash,
+        enableMariBank: settings.enableMariBank,
+        enableBdo: settings.enableBdo,
+        enableCash: settings.enableCash,
+        enableDineIn: settings.enableDineIn,
+        enablePickup: settings.enablePickup,
+        enableTakeout: settings.enableTakeout,
+        enableDelivery: settings.enableDelivery,
+        deliveryRadiusKm: toSafeNumber(settings.deliveryRadiusKm),
+        serviceFeePct: toSafeNumber(settings.serviceFeePct),
+        taxPct: toSafeNumber(settings.taxPct),
+        kitchenCutoff: settings.kitchenCutoff,
+      };
+    }
+
+    return {
+      cafeName,
+      businessHours: hours,
+      contactNumber: contact,
+      businessEmail: email,
+      cafeAddress: address,
+      facebookHandle,
+      instagramHandle,
+      logoUrl,
+      enableQrph,
+      enableGcash,
+      enableMariBank,
+      enableBdo,
+      enableCash,
+      enableDineIn: dineIn,
+      enablePickup: pickup,
+      enableTakeout: takeout,
+      enableDelivery: delivery,
+      deliveryRadiusKm: toSafeNumber(deliveryRadius),
+      serviceFeePct: toSafeNumber(serviceFeePct),
+      taxPct: toSafeNumber(taxPct),
+      kitchenCutoff,
+    };
+  };
+
+  const serializeBusinessSettingsDraft = (draft: Omit<BusinessSettingsSaveInput, 'updatedByUserId'>) => JSON.stringify(draft);
+
+  const applySavedBusinessSettings = (settings: BusinessSettings) => {
+    setCafeName(settings.cafeName);
+    setHours(settings.businessHours);
+    setContact(settings.contactNumber);
+    setEmail(settings.businessEmail);
+    setAddress(settings.cafeAddress);
+    setFacebookHandle(settings.facebookHandle);
+    setInstagramHandle(settings.instagramHandle);
+    setLogoUrl(settings.logoUrl);
+    setEnableQrph(settings.enableQrph);
+    setEnableGcash(settings.enableGcash);
+    setEnableMariBank(settings.enableMariBank);
+    setEnableBdo(settings.enableBdo);
+    setEnableCash(settings.enableCash);
+    setDineIn(settings.enableDineIn);
+    setPickup(settings.enablePickup);
+    setTakeout(settings.enableTakeout);
+    setDelivery(settings.enableDelivery);
+    setDeliveryRadius(settings.deliveryRadiusKm);
+    setServiceFeePct(settings.serviceFeePct);
+    setTaxPct(settings.taxPct);
+    setKitchenCutoff(settings.kitchenCutoff);
+    lastSavedBusinessSettingsRef.current = serializeBusinessSettingsDraft(buildBusinessSettingsDraft(settings));
+  };
+
   const handleSaveBusinessSettings = async () => {
+    if (saveRequestLockRef.current || isSavingSettings || isLoadingSettings || isUploadingLogo) return;
+
     try {
+      if (serializeBusinessSettingsDraft(buildBusinessSettingsDraft()) === lastSavedBusinessSettingsRef.current) {
+        return;
+      }
+
+      saveRequestLockRef.current = true;
       setIsSavingSettings(true);
       const saved = await businessSettingsService.saveBusinessSettings({
-        cafeName,
-        businessHours: hours,
-        contactNumber: contact,
-        businessEmail: email,
-        cafeAddress: address,
-        facebookHandle,
-        instagramHandle,
-        logoUrl,
-        enableQrph,
-        enableGcash,
-        enableMariBank,
-        enableBdo,
-        enableCash,
-        enableDineIn: dineIn,
-        enablePickup: pickup,
-        enableTakeout: takeout,
-        enableDelivery: delivery,
-        deliveryRadiusKm: deliveryRadius,
-        serviceFeePct,
-        taxPct,
-        kitchenCutoff,
+        ...buildBusinessSettingsDraft(),
+        updatedByUserId: user?.id || null,
       });
-
-      setCafeName(saved.cafeName);
-      setHours(saved.businessHours);
-      setContact(saved.contactNumber);
-      setEmail(saved.businessEmail);
-      setAddress(saved.cafeAddress);
-      setFacebookHandle(saved.facebookHandle);
-      setInstagramHandle(saved.instagramHandle);
-      setLogoUrl(saved.logoUrl);
-      setEnableQrph(saved.enableQrph);
-      setEnableGcash(saved.enableGcash);
-      setEnableMariBank(saved.enableMariBank);
-      setEnableBdo(saved.enableBdo);
-      setEnableCash(saved.enableCash);
-      setDineIn(saved.enableDineIn);
-      setPickup(saved.enablePickup);
-      setTakeout(saved.enableTakeout);
-      setDelivery(saved.enableDelivery);
-      setDeliveryRadius(saved.deliveryRadiusKm);
-      setServiceFeePct(saved.serviceFeePct);
-      setTaxPct(saved.taxPct);
-      setKitchenCutoff(saved.kitchenCutoff);
+      applySavedBusinessSettings(saved);
       toast.success('Business settings saved.');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to save business settings.'));
     } finally {
+      saveRequestLockRef.current = false;
       setIsSavingSettings(false);
     }
+  };
+
+  const handleBusinessSettingsSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleSaveBusinessSettings();
   };
 
   const handleLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -342,6 +382,9 @@ export const SettingsPage = () => {
 
   const isBusinessSettingsBusy = isLoadingSettings || isSavingSettings || isUploadingLogo;
   const isAnnouncementsBusy = isLoadingAnnouncements || isSavingAnnouncements;
+  const hasBusinessSettingsChanges =
+    !isLoadingSettings && serializeBusinessSettingsDraft(buildBusinessSettingsDraft()) !== lastSavedBusinessSettingsRef.current;
+  const saveStatusLabel = hasBusinessSettingsChanges ? 'Unsaved changes ready to save.' : 'All settings saved.';
   const announcementSourceLabel =
     announcementSource === 'campaign_table'
       ? 'campaign_announcements table'
@@ -352,94 +395,107 @@ export const SettingsPage = () => {
   return (
     <div className="space-y-4 max-w-4xl">
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h2 className="text-xl font-semibold">Business Settings</h2>
-        <p className="text-sm text-[#6B7280]">Configure cafe operations and owner-level controls.</p>
-        {isLoadingSettings ? <p className="text-sm text-[#6B7280]">Loading business settings...</p> : null}
+        <form className="space-y-3" onSubmit={handleBusinessSettingsSubmit}>
+          <h2 className="text-xl font-semibold">Business Settings</h2>
+          <p className="text-sm text-[#6B7280]">Configure cafe operations and owner-level controls.</p>
+          {isLoadingSettings ? <p className="text-sm text-[#6B7280]">Loading business settings...</p> : null}
 
-        <label className="block text-sm">
-          Cafe Name
-          <input
-            className="block border rounded mt-1 px-2 py-1 w-full"
-            value={cafeName}
-            onChange={(e) => setCafeName(e.target.value)}
-            disabled={isBusinessSettingsBusy}
-          />
-        </label>
+          <label className="block text-sm">
+            Cafe Name
+            <input
+              className="block border rounded mt-1 px-2 py-1 w-full"
+              value={cafeName}
+              onChange={(e) => setCafeName(e.target.value)}
+              disabled={isBusinessSettingsBusy}
+            />
+          </label>
 
-        <div className="grid md:grid-cols-2 gap-3">
-          <label className="block text-sm">
-            Business Hours
-            <textarea
-              className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Contact Number
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Business Email
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Cafe Address
-            <textarea
-              className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Facebook Page
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={facebookHandle}
-              onChange={(e) => setFacebookHandle(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <label className="block text-sm">
-            Instagram Handle
-            <input
-              className="block border rounded mt-1 px-2 py-1 w-full"
-              value={instagramHandle}
-              onChange={(e) => setInstagramHandle(e.target.value)}
-              disabled={isBusinessSettingsBusy}
-            />
-          </label>
-          <div className="block text-sm md:col-span-2">
-            <span className="block">Logo / Branding picture</span>
-            <div className="mt-1 flex flex-wrap items-center gap-3 rounded border p-3">
-              <input
-                type="file"
-                accept="image/*"
-                className="block text-sm"
-                onChange={handleLogoUpload}
+          <div className="grid md:grid-cols-2 gap-3">
+            <label className="block text-sm">
+              Business Hours
+              <textarea
+                className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
                 disabled={isBusinessSettingsBusy}
               />
-              <span className="text-xs text-[#6B7280]">
-                {isUploadingLogo ? 'Uploading...' : 'Upload a logo or branding image for the customer storefront.'}
-              </span>
-              {logoUrl ? (
-                <img src={logoUrl} alt="Current cafe branding" className="h-16 w-16 rounded border object-cover" />
-              ) : null}
+            </label>
+            <label className="block text-sm">
+              Contact Number
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Business Email
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Cafe Address
+              <textarea
+                className="block border rounded mt-1 px-2 py-1 w-full min-h-[72px]"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Facebook Page
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={facebookHandle}
+                onChange={(e) => setFacebookHandle(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <label className="block text-sm">
+              Instagram Handle
+              <input
+                className="block border rounded mt-1 px-2 py-1 w-full"
+                value={instagramHandle}
+                onChange={(e) => setInstagramHandle(e.target.value)}
+                disabled={isBusinessSettingsBusy}
+              />
+            </label>
+            <div className="block text-sm md:col-span-2">
+              <span className="block">Logo / Branding picture</span>
+              <div className="mt-1 flex flex-wrap items-center gap-3 rounded border p-3">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="block text-sm"
+                  onChange={handleLogoUpload}
+                  disabled={isBusinessSettingsBusy}
+                />
+                <span className="text-xs text-[#6B7280]">
+                  {isUploadingLogo ? 'Uploading...' : 'Upload a logo or branding image for the customer storefront.'}
+                </span>
+                {logoUrl ? (
+                  <img src={logoUrl} alt="Current cafe branding" className="h-16 w-16 rounded border object-cover" />
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2 disabled:opacity-60"
+              disabled={isBusinessSettingsBusy || !hasBusinessSettingsChanges}
+            >
+              {isSavingSettings ? 'Saving...' : 'Save business details'}
+            </button>
+            {!isLoadingSettings ? <p className="text-xs text-[#6B7280]">{saveStatusLabel}</p> : null}
+          </div>
+        </form>
       </section>
 
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
@@ -548,48 +604,61 @@ export const SettingsPage = () => {
       </section>
 
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h3 className="font-medium">Payment & Service Rules</h3>
-        <p className="text-sm text-[#6B7280]">
-          Customer checkout reads these availability toggles from <code>business_settings</code>. Delivery coverage itself is
-          managed from the dedicated Delivery Coverage page.
-        </p>
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Available order types</p>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label><input type="checkbox" checked={dineIn} onChange={(e) => setDineIn(e.target.checked)} /> Dine-in</label>
-            <label><input type="checkbox" checked={pickup} onChange={(e) => setPickup(e.target.checked)} /> Pickup</label>
-            <label><input type="checkbox" checked={takeout} onChange={(e) => setTakeout(e.target.checked)} /> Takeout</label>
-            <label><input type="checkbox" checked={delivery} onChange={(e) => setDelivery(e.target.checked)} /> Delivery</label>
-          </div>
-          <p className="text-xs text-[#6B7280]">
-            Polygon coverage, fixed barangay labels, and allowed puroks are controlled in Admin &gt; Delivery Coverage. The
-            legacy radius field remains in the schema for compatibility but does not drive polygon validation anymore.
+        <form className="space-y-3" onSubmit={handleBusinessSettingsSubmit}>
+          <h3 className="font-medium">Payment & Service Rules</h3>
+          <p className="text-sm text-[#6B7280]">
+            Customer checkout reads these availability toggles from <code>business_settings</code>. Delivery coverage itself is
+            managed from the dedicated Delivery Coverage page.
           </p>
-        </div>
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Enabled payment methods</p>
-        </div>
-        <div className="flex flex-wrap gap-4 text-sm">
-          <label><input type="checkbox" checked={enableQrph} onChange={(e) => setEnableQrph(e.target.checked)} /> QRPH</label>
-          <label><input type="checkbox" checked={enableGcash} onChange={(e) => setEnableGcash(e.target.checked)} /> GCash</label>
-          <label><input type="checkbox" checked={enableMariBank} onChange={(e) => setEnableMariBank(e.target.checked)} /> MariBank</label>
-          <label><input type="checkbox" checked={enableBdo} onChange={(e) => setEnableBdo(e.target.checked)} /> BDO</label>
-          <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
-        </div>
-        <div className="grid md:grid-cols-3 gap-3">
-          <label className="text-sm">
-            Service Fee (%)
-            <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={serviceFeePct} onChange={(e) => setServiceFeePct(Number(e.target.value))} />
-          </label>
-          <label className="text-sm">
-            Tax (%)
-            <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} />
-          </label>
-          <label className="text-sm">
-            Kitchen cut-off time
-            <input type="time" className="block border rounded mt-1 px-2 py-1 w-full" value={kitchenCutoff} onChange={(e) => setKitchenCutoff(e.target.value)} />
-          </label>
-        </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Available order types</p>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <label><input type="checkbox" checked={dineIn} onChange={(e) => setDineIn(e.target.checked)} /> Dine-in</label>
+              <label><input type="checkbox" checked={pickup} onChange={(e) => setPickup(e.target.checked)} /> Pickup</label>
+              <label><input type="checkbox" checked={takeout} onChange={(e) => setTakeout(e.target.checked)} /> Takeout</label>
+              <label><input type="checkbox" checked={delivery} onChange={(e) => setDelivery(e.target.checked)} /> Delivery</label>
+            </div>
+            <p className="text-xs text-[#6B7280]">
+              Polygon coverage, fixed barangay labels, and allowed puroks are controlled in Admin &gt; Delivery Coverage. The
+              legacy radius field remains in the schema for compatibility but does not drive polygon validation anymore.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Enabled payment methods</p>
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label><input type="checkbox" checked={enableQrph} onChange={(e) => setEnableQrph(e.target.checked)} /> QRPH</label>
+            <label><input type="checkbox" checked={enableGcash} onChange={(e) => setEnableGcash(e.target.checked)} /> GCash</label>
+            <label><input type="checkbox" checked={enableMariBank} onChange={(e) => setEnableMariBank(e.target.checked)} /> MariBank</label>
+            <label><input type="checkbox" checked={enableBdo} onChange={(e) => setEnableBdo(e.target.checked)} /> BDO</label>
+            <label><input type="checkbox" checked={enableCash} onChange={(e) => setEnableCash(e.target.checked)} /> Cash</label>
+          </div>
+          <div className="grid md:grid-cols-3 gap-3">
+            <label className="text-sm">
+              Service Fee (%)
+              <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={serviceFeePct} onChange={(e) => setServiceFeePct(Number(e.target.value))} />
+            </label>
+            <label className="text-sm">
+              Tax (%)
+              <input type="number" min={0} className="block border rounded mt-1 px-2 py-1 w-full" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} />
+            </label>
+            <label className="text-sm">
+              Kitchen cut-off time
+              <input type="time" className="block border rounded mt-1 px-2 py-1 w-full" value={kitchenCutoff} onChange={(e) => setKitchenCutoff(e.target.value)} />
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2 disabled:opacity-60"
+              disabled={isBusinessSettingsBusy || !hasBusinessSettingsChanges}
+            >
+              {isSavingSettings ? 'Saving...' : 'Save checkout settings'}
+            </button>
+            {!isLoadingSettings ? <p className="text-xs text-[#6B7280]">{saveStatusLabel}</p> : null}
+          </div>
+        </form>
       </section>
 
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
@@ -658,13 +727,6 @@ export const SettingsPage = () => {
         )}
       </section>
 
-      <button
-        className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2"
-        onClick={handleSaveBusinessSettings}
-        disabled={isBusinessSettingsBusy}
-      >
-        {isSavingSettings ? 'Saving...' : 'Save business settings'}
-      </button>
     </div>
   );
 };
