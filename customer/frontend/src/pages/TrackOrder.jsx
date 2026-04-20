@@ -9,6 +9,7 @@ import {
   getStatusLabel,
 } from "../services/orderService";
 import { syncCustomerNotifications } from "../services/notificationService";
+import { useAuth } from "../context/AuthContext";
 import "./TrackOrder.css";
 
 function formatTimestamp(value) {
@@ -17,6 +18,7 @@ function formatTimestamp(value) {
 }
 
 export default function TrackOrder() {
+  const { isAuthenticated } = useAuth();
   const { order, isLoading, error, steps, currentStepIndex, loadLatest, lookupByOrderId } = useOrderTracking();
   const [searchId, setSearchId] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -27,9 +29,9 @@ export default function TrackOrder() {
   }, [loadLatest]);
 
   useEffect(() => {
-    if (!order) return;
+    if (!order || !isAuthenticated) return;
     syncCustomerNotifications();
-  }, [order]);
+  }, [isAuthenticated, order]);
 
   const cancellationState = useMemo(() => getOrderCancellationState(order), [order]);
   const cancellationReason = useMemo(() => getOrderCancellationReason(order), [order]);
@@ -156,7 +158,7 @@ export default function TrackOrder() {
       ) : null}
 
       <div className="track-actions">
-        <Link to="/order-history">View order history</Link>
+        {isAuthenticated ? <Link to="/order-history">View order history</Link> : <Link to="/order">Start another order</Link>}
       </div>
     </div>
   );

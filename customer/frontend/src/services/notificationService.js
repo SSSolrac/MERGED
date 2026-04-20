@@ -51,6 +51,21 @@ function writeStore(items) {
   localStorage.setItem(NOTIFICATION_STORE_KEY, JSON.stringify(items));
 }
 
+async function hasAuthenticatedCustomer() {
+  const session = await getSession().catch(() => null);
+  return Boolean(session?.user?.id);
+}
+
+function clearAccountNotificationCacheForGuest() {
+  writeStore([]);
+  inFlightSync = null;
+  lastSyncAt = 0;
+}
+
+export function clearCustomerNotifications() {
+  clearAccountNotificationCacheForGuest();
+}
+
 function readNewItemMetadata() {
   try {
     const parsed = JSON.parse(localStorage.getItem(NEW_ITEM_METADATA_KEY) || "{}");
@@ -321,6 +336,13 @@ function buildNewItemNotifications(items) {
 }
 
 export async function syncCustomerNotifications({ force = false } = {}) {
+  // Guests only get order-specific tracking. Account-level order history,
+  // loyalty, promo, and global notification reads stay behind auth.
+  if (!(await hasAuthenticatedCustomer())) {
+    clearAccountNotificationCacheForGuest();
+    return [];
+  }
+
   if (!force && inFlightSync) return inFlightSync;
   if (!force && Date.now() - lastSyncAt < NOTIFICATION_SYNC_TTL_MS) return getCustomerNotifications();
 

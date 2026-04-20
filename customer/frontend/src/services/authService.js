@@ -2,6 +2,7 @@ import { getSupabaseClient, requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError } from "../lib/supabaseErrors";
 import { getProfileForUser } from "./auth/getCurrentUserRole";
 import { recordStaffOwnerLogin } from "./auth/loginAuditService";
+import { normalizeGuestPhone } from "./guestIdentity";
 
 function asAuthError(error, fallback = "Authentication failed.") {
   return asSupabaseError(error, { fallbackMessage: fallback });
@@ -103,10 +104,11 @@ export async function login({ email, password } = {}) {
   };
 }
 
-export async function signup({ name, email, password } = {}) {
+export async function signup({ name, phone, email, password } = {}) {
   const supabase = requireSupabaseClient();
   const trimmedName = String(name || "").trim();
   const trimmedEmail = String(email || "").trim();
+  const normalizedPhone = normalizeGuestPhone(phone);
 
   if (await checkCustomerEmailExists(supabase, trimmedEmail)) {
     throw new Error("Email already exists. Please log in or use a different email.");
@@ -118,6 +120,7 @@ export async function signup({ name, email, password } = {}) {
     options: {
       data: {
         ...(trimmedName ? { name: trimmedName, full_name: trimmedName } : {}),
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
       },
     },
   });

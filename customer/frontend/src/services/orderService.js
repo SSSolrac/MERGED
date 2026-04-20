@@ -9,6 +9,7 @@ import {
   labelToCanonicalPaymentMethod,
 } from "../constants/canonical";
 import { validateCheckout } from "./checkoutValidation";
+import { getStoredGuestLastOrder, normalizeGuestEmail, normalizeGuestPhone } from "./guestIdentity";
 
 export { validateCheckout };
 
@@ -438,7 +439,7 @@ function resolveMenuSnapshot(item, menuSnapshot) {
 }
 
 export async function createOrder(orderPayload) {
-  await requireUser();
+  const user = await getUserOrNull();
   const supabase = requireSupabaseClient();
 
   const validation = await validateCheckout(orderPayload);
@@ -455,6 +456,11 @@ export async function createOrder(orderPayload) {
     paymentMethod === "cash" ? null : String(orderPayload.receiptImageUrl || "").trim() || null;
 
   const rawItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
+  const hasLoyaltyRewardItems = rawItems.some((item) => String(item?.loyaltyRewardItemId || item?.loyalty_reward_item_id || "").trim());
+  if (hasLoyaltyRewardItems && !user) {
+    throw new Error("Create an account or log in before claiming loyalty rewards.");
+  }
+
   const menuSnapshot = await fetchMenuSnapshot(rawItems);
 
   const lineItems = rawItems.map((item, index) => {
@@ -513,10 +519,12 @@ export async function createOrder(orderPayload) {
     phone: orderPayload.customer?.phone || "",
     email: orderPayload.customer?.email || "",
     address: orderPayload.customer?.address || "",
+    guestPhoneNormalized: user ? null : normalizeGuestPhone(orderPayload.customer?.phone || ""),
+    guestEmail: user ? null : normalizeGuestEmail(orderPayload.customer?.email || ""),
     ...(orderPayload.deliveryMeta && typeof orderPayload.deliveryMeta === "object" ? orderPayload.deliveryMeta : {}),
   };
 
-  const { data, error } = await supabase.rpc("create_customer_order", {
+  const rpcPayload = {
     p_order_type: canonicalType,
     p_payment_method: paymentMethod,
     p_subtotal: subtotal,
@@ -527,7 +535,18 @@ export async function createOrder(orderPayload) {
     p_delivery_address: deliveryAddress,
     p_items: lineItems,
     p_placed_at: placedAt,
-  });
+  };
+
+  const { data, error } = await supabase.rpc(
+    "create_customer_order",
+    user
+      ? rpcPayload
+      : {
+          ...rpcPayload,
+          p_guest_phone_normalized: deliveryAddress.guestPhoneNormalized,
+          p_guest_email: deliveryAddress.guestEmail,
+        }
+  );
 
   if (error) {
     // Detect missing/undeployed RPC to surface an actionable message.
@@ -539,10 +558,20 @@ export async function createOrder(orderPayload) {
 
     if (normalized.kind === "missing_rpc" || normalized.kind === "missing_relation") {
       const err = new Error(
-        "Order system is not fully deployed. Please apply unified_schema.sql and delivery_area_schema.sql so create_customer_order and delivery validations are available."
+        !user
+          ? "Guest checkout needs the backend guest-order migration/RPC deployed before anonymous orders can be placed."
+          : "Order system is not fully deployed. Please apply unified_schema.sql and delivery_area_schema.sql so create_customer_order and delivery validations are available."
       );
-      err.kind = normalized.kind;
+      err.kind = !user ? "missing_guest_order_backend" : normalized.kind;
       err.relation = normalized.relation || "create_customer_order";
+      throw err;
+    }
+
+    if (!user && /Authentication required|p_guest_phone_normalized|p_guest_email/i.test(String(error?.message || ""))) {
+      const err = new Error(
+        "Guest checkout needs the backend guest-order migration/RPC deployed before anonymous orders can be placed."
+      );
+      err.kind = "missing_guest_order_backend";
       throw err;
     }
 
@@ -596,7 +625,11 @@ export async function cancelOrder(order, note = "Cancelled by customer while pen
 
 export async function getLatestOrder() {
   const user = await getUserOrNull();
-  if (!user) return null;
+  if (!user) {
+    const lastGuestOrder = getStoredGuestLastOrder();
+    const guestOrderRef = lastGuestOrder?.orderCode || lastGuestOrder?.orderId || "";
+    return guestOrderRef ? getOrderById(guestOrderRef) : null;
+  }
 
   const supabase = requireSupabaseClient();
   const { data: rows, error } = await supabase
@@ -642,7 +675,27 @@ async function getOrderRowByIdOrCode(orderIdOrCode, userId) {
 export async function getOrderById(orderIdOrCode) {
   if (!orderIdOrCode) return null;
   const user = await getUserOrNull();
-  if (!user) return null;
+  if (!user) {
+    const supabase = requireSupabaseClient();
+    const { data, error } = await supabase.rpc("get_guest_order_for_tracking", {
+      p_order_ref: String(orderIdOrCode).trim(),
+    });
+
+    if (error) {
+      const normalized = asDbError(error, "Unable to look up this guest order.", {
+        relation: "get_guest_order_for_tracking",
+        operation: "rpc",
+      });
+      if (normalized.kind === "missing_rpc" || normalized.kind === "missing_relation") return null;
+      throw normalized;
+    }
+
+    const payload = data || {};
+    const orderRow = payload.order || null;
+    const itemRows = Array.isArray(payload.items) ? payload.items : [];
+    const historyRows = Array.isArray(payload.history) ? payload.history : [];
+    return attachRelatedData([orderRow], itemRows, historyRows)[0] || null;
+  }
 
   const row = await getOrderRowByIdOrCode(String(orderIdOrCode).trim(), user.id);
   if (!row) return null;

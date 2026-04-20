@@ -265,8 +265,10 @@ set search_path = public
 as $$
 declare
   full_name text;
+  profile_phone text;
 begin
   full_name := coalesce(new.raw_user_meta_data->>'name', '');
+  profile_phone := coalesce(new.phone, new.raw_user_meta_data->>'phone', '');
 
   -- SECURITY: never trust client-provided role metadata on public signup.
   -- All new users start as 'customer'. Elevated roles must be granted server-side
@@ -286,7 +288,7 @@ begin
     public.generate_customer_code(),
     full_name,
     coalesce(new.email, ''),
-    coalesce(new.phone, '')
+    profile_phone
   )
   on conflict (id) do nothing;
 
@@ -319,7 +321,7 @@ select
   public.generate_customer_code(),
   coalesce(au.raw_user_meta_data->>'name', ''),
   coalesce(au.email, ''),
-  coalesce(au.phone, '')
+  coalesce(au.phone, au.raw_user_meta_data->>'phone', '')
 from auth.users au
 left join public.profiles p on p.id = au.id
 where p.id is null

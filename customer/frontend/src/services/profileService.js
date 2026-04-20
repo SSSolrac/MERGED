@@ -2,6 +2,7 @@ import { requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError, isSupabaseNoRowsError } from "../lib/supabaseErrors";
 import { getSession } from "./authService";
 import { normalizeAppRole } from "./auth/getCurrentUserRole";
+import { normalizeGuestPhone } from "./guestIdentity";
 
 const PROFILE_IMAGE_BUCKET = "menu-images";
 const MAX_PROFILE_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -133,7 +134,7 @@ export async function saveCustomerProfile(profile) {
   const payload = {
     name: String(profile?.name || "").trim(),
     email: String(profile?.email || user.email || "").trim(),
-    phone: String(profile?.phone || "").trim(),
+    phone: normalizeGuestPhone(profile?.phone || "") || String(profile?.phone || "").trim(),
     preferences: currentPreferences,
     updated_at: new Date().toISOString(),
   };

@@ -107,7 +107,7 @@ function App() {
 
   const handleLogin = async (credentials) => {
     if (credentials.isSignup) {
-      await signUp({ name: credentials.name, email: credentials.email, password: credentials.password });
+      await signUp({ name: credentials.name, phone: credentials.phone, email: credentials.email, password: credentials.password });
       setShowAuthModal(false);
       navigate("/", { replace: true });
       return;
@@ -164,7 +164,7 @@ function App() {
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
           <Route path="/profile/info" element={<CustomerRoute><Profile view="info" /></CustomerRoute>} />
-          <Route path="/profile/loyalty" element={<CustomerRoute><Profile view="loyalty" /></CustomerRoute>} />
+          <Route path="/profile/loyalty" element={<Profile view="loyalty" />} />
           <Route path="/order-history" element={<CustomerRoute><OrderHistory /></CustomerRoute>} />
           <Route path="/staff" element={<StaffRoute><StaffDashboardLayout /></StaffRoute>}>
             {staffOwnerChildRoutes("/staff")}

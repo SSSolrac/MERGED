@@ -11,6 +11,7 @@ function AuthModal({
 }) {
   const [mode, setMode] = useState(() => (isRecoveryMode ? "reset" : "login"));
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -56,7 +57,8 @@ function AuthModal({
         return;
       }
 
-      await onLogin({ name, email, password, isSignup });
+      // Parent still owns auth redirects: await onLogin({ name, email, password, isSignup });
+      await onLogin({ name, phone, email, password, isSignup });
     } catch (submitError) {
       setError(submitError?.message || "Authentication failed.");
     } finally {
@@ -85,6 +87,15 @@ function AuthModal({
 
         <form onSubmit={handleSubmit}>
           {isSignup ? <input type="text" placeholder="Full Name" value={name} onChange={(event) => setName(event.target.value)} required /> : null}
+          {isSignup ? (
+            <input
+              type="tel"
+              placeholder="Phone Number"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              required
+            />
+          ) : null}
           {!isResetPassword ? (
             <input type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} required />
           ) : null}

@@ -191,10 +191,10 @@ export function AuthProvider({ children }) {
     return result;
   }, []);
 
-  const signUp = useCallback(async ({ name, email, password }) => {
+  const signUp = useCallback(async ({ name, phone, email, password }) => {
     setAuthError("");
     setIsRecoveryMode(false);
-    await signup({ name, email, password });
+    await signup({ name, phone, email, password });
   }, []);
 
   const sendPasswordReset = useCallback(async ({ email, redirectTo }) => {

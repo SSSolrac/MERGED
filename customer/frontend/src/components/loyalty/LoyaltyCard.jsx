@@ -19,6 +19,7 @@ function getRewardActionLabel(reward, isRedeeming, stampsNeeded) {
 function LoyaltyCard({
   loyaltyData,
   onRedeemReward,
+  isAuthenticated = true,
   redeemingRewardId = "",
   latteRewardOptions = [],
   selectedLatteItemIds = {},
@@ -34,6 +35,17 @@ function LoyaltyCard({
   const earnedStamps = Math.min(stampCount, TOTAL_STAMPS);
   const unlockedRewards = Array.isArray(availableRewards) ? availableRewards : [];
   const rewards = Array.isArray(allRewards) ? allRewards : [];
+
+  if (!isAuthenticated) {
+    return (
+      <section className="loyalty-card" aria-label="Customer loyalty card">
+        <div className="loyalty-card__header">
+          <h2>Paws & Perks Loyalty Card</h2>
+          <p>Create an account to access your loyalty card and rewards.</p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="loyalty-card" aria-label="Customer loyalty card">
@@ -98,7 +110,7 @@ function LoyaltyCard({
                 <button
                   type="button"
                   className="loyalty-redeem-btn"
-                  disabled={!canRedeem || isRedeeming}
+                  disabled={!isAuthenticated || !canRedeem || isRedeeming}
                   onClick={() => onRedeemReward?.(reward)}
                 >
                   {getRewardActionLabel(reward, isRedeeming, stampsNeeded)}

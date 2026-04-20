@@ -1,6 +1,7 @@
 import { requireSupabaseClient } from "../lib/supabase";
 import { asSupabaseError } from "../lib/supabaseErrors";
 import { getSession } from "./authService";
+import { normalizeGuestEmail, normalizeGuestPhone } from "./guestIdentity";
 import { resolveMenuItemImage } from "../utils/menuImages";
 
 export const FREE_LATTE_CHOICES = ["Cafe Latte", "Matcha Latte", "Spanish Latte"];
@@ -170,7 +171,7 @@ function toMs(value) {
 }
 
 async function getUserOrNull() {
-  const session = await getSession();
+  const session = await getSession().catch(() => null);
   return session?.user || null;
 }
 
@@ -340,6 +341,8 @@ export async function getFreeLatteRewardOptions() {
 export async function getCustomerLoyaltyData() {
   const supabase = requireSupabaseClient();
   const user = await getUserOrNull();
+  // Guests accrue progress silently through guest order records, but cannot read
+  // loyalty accounts, stamp events, redemptions, or reward inventory.
   if (!user) return null;
 
   const [accountResult, rewardsResult, redemptionsResult, stampEventsResult, pendingRewardItemsResult] = await Promise.all([
@@ -456,4 +459,36 @@ export async function redeemLoyaltyReward(rewardId, options = "") {
   }
 
   return normalizeRedeemResult(data);
+}
+
+export async function mergeGuestLoyaltyIntoAccount({ phone, email } = {}) {
+  const supabase = requireSupabaseClient();
+  const user = await getUserOrNull();
+  if (!user) return { merged: false, reason: "guest" };
+
+  const phoneNormalized = normalizeGuestPhone(phone);
+  const emailNormalized = normalizeGuestEmail(email || user.email);
+  if (!phoneNormalized && !emailNormalized) return { merged: false, reason: "missing_guest_identity" };
+
+  const { data, error } = await supabase.rpc("merge_guest_orders_into_customer", {
+    p_guest_phone_normalized: phoneNormalized || null,
+    p_guest_email: emailNormalized || null,
+  });
+
+  if (error) {
+    const normalized = asDbError(error, "Unable to merge guest loyalty history.", {
+      relation: "merge_guest_orders_into_customer",
+      operation: "rpc",
+    });
+
+    // Backend support may not be deployed yet; callers should continue showing
+    // the authenticated card based on existing account data.
+    if (normalized.kind === "missing_rpc" || normalized.kind === "missing_relation" || normalized.kind === "missing_column") {
+      return { merged: false, reason: normalized.kind };
+    }
+
+    throw normalized;
+  }
+
+  return data || { merged: true };
 }

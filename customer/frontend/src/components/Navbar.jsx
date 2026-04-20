@@ -6,7 +6,7 @@ import profileIcon from "../assets/profile.png";
 import "./Navbar.css";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { getUnreadNotificationCount, syncCustomerNotifications } from "../services/notificationService";
+import { clearCustomerNotifications, getUnreadNotificationCount, syncCustomerNotifications } from "../services/notificationService";
 import MiniCartPanel from "./MiniCartPanel";
 import MiniNotificationsPanel from "./MiniNotificationsPanel";
 
@@ -28,6 +28,7 @@ function Navbar({ onSignOut, onOpenModal }) {
   useEffect(() => {
     if (!isAuthenticated) {
       const timeoutId = window.setTimeout(() => {
+        clearCustomerNotifications();
         setUnreadCount(0);
         setIsNotificationsOpen(false);
       }, 0);
@@ -89,6 +90,8 @@ function Navbar({ onSignOut, onOpenModal }) {
   }, [closeMiniCart, isMiniCartOpen, isNotificationsOpen, isProfileMenuOpen]);
 
   const handleToggleNotifications = () => {
+    // Account notification history is authenticated-only; guests use order tracking.
+    if (!isAuthenticated) return;
     closeMiniCart();
     setIsProfileMenuOpen(false);
     setIsNotificationsOpen((prev) => !prev);

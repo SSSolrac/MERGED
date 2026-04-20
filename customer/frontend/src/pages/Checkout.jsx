@@ -9,6 +9,7 @@ import { DEFAULT_PUBLIC_BUSINESS_SETTINGS, getPublicBusinessSettings } from "../
 import { labelToCanonicalOrderType } from "../constants/canonical";
 import { PAYMENT_METHOD_OPTIONS, getPaymentQrAsset, paymentMethodToLabel } from "../utils/paymentMethods";
 import { getActiveDeliveryConfig, validateDeliveryAddressOnServer } from "../services/deliveryAreaService";
+import { saveGuestLastOrder, saveGuestOrderIdentity } from "../services/guestIdentity";
 import {
   parseDeliveryAddress,
   validateDeliveryAddress,
@@ -259,10 +260,11 @@ export default function Checkout() {
   const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;
   const isCashPayment = effectivePaymentMethod === "cash";
   const hasLoyaltyRewardItems = cart.some(isLoyaltyRewardCartItem);
+  const canUseLoyaltyRewardItems = isAuthenticated;
   const hasRegularOrderItems = cart.some((item) => !isLoyaltyRewardCartItem(item));
   const canClaimLoyaltyRewardsWithOrderType =
-    !hasLoyaltyRewardItems || ["dine_in", "pickup", "takeout"].includes(canonicalOrderType);
-  const hasOrderForLoyaltyReward = !hasLoyaltyRewardItems || hasRegularOrderItems;
+    !hasLoyaltyRewardItems || (canUseLoyaltyRewardItems && ["dine_in", "pickup", "takeout"].includes(canonicalOrderType));
+  const hasOrderForLoyaltyReward = !hasLoyaltyRewardItems || (canUseLoyaltyRewardItems && hasRegularOrderItems);
   const hasName = Boolean(form.name.trim());
   const isPhoneValid = /^9\d{9}$/.test(form.phone);
   const hasReceipt = isFreeOrder || isCashPayment || Boolean(receiptFile);
@@ -308,7 +310,7 @@ export default function Checkout() {
 
   const payload = useMemo(
     () => ({
-      customerId: user?.id || "guest",
+      customerId: user?.id || null,
       customer: {
         name: form.name,
         phone: normalizedPhone,
@@ -401,7 +403,9 @@ export default function Checkout() {
       if (!hasOrderForLoyaltyReward) {
         setErrors((prev) => ({
           ...prev,
-          form: "Free latte rewards must be claimed with a pickup, dine-in, or takeout order. Add at least one regular menu item first.",
+          form: isAuthenticated
+            ? "Free latte rewards must be claimed with a pickup, dine-in, or takeout order. Add at least one regular menu item first."
+            : "Create an account or log in before claiming loyalty rewards.",
         }));
         return;
       }
@@ -515,9 +519,20 @@ export default function Checkout() {
         profileUpdate.addresses = [normalizedAddress];
       }
 
-      await saveCustomerProfile(profileUpdate);
-      await createOrder(payloadWithReceipt);
-      await syncCustomerNotifications();
+      if (isAuthenticated) {
+        await saveCustomerProfile(profileUpdate);
+      } else {
+        // Guest checkout stays frictionless; store normalized identity only for
+        // backend guest-order merge/backfill when the customer later registers.
+        saveGuestOrderIdentity({
+          phone: normalizedPhone,
+          email: payloadWithReceipt.customer.email,
+        });
+      }
+
+      const createdOrder = await createOrder(payloadWithReceipt);
+      if (!isAuthenticated) saveGuestLastOrder(createdOrder);
+      if (isAuthenticated) await syncCustomerNotifications();
       clearCart();
       removeReceipt();
       navigate("/order-success");
@@ -544,16 +559,6 @@ export default function Checkout() {
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="checkout-state">
-        <h1>Checkout</h1>
-        <p>Please sign in to place an order.</p>
-        <Link to="/">Go back</Link>
-      </div>
-    );
-  }
-
   return (
     <div className="checkout-page">
       <div className="checkout-header">
@@ -561,7 +566,7 @@ export default function Checkout() {
         <Link to="/order">Back to Menu</Link>
       </div>
       <p className="profile-session">
-        Ordering as <strong>{user?.email || form.name || "Authenticated user"}</strong>
+        Ordering as <strong>{user?.email || form.name || "Guest"}</strong>
       </p>
 
       <form className="checkout-layout" onSubmit={submit}>
@@ -605,7 +610,9 @@ export default function Checkout() {
           <p className="field-hint">Available order types are pulled from owner-managed business settings.</p>
           {hasLoyaltyRewardItems ? (
             <p className={canClaimLoyaltyRewardsWithOrderType && hasOrderForLoyaltyReward ? "field-hint" : "field-error"}>
-              Free latte rewards can only be claimed with a pickup, dine-in, or takeout order that includes at least one regular menu item.
+              {isAuthenticated
+                ? "Free latte rewards can only be claimed with a pickup, dine-in, or takeout order that includes at least one regular menu item."
+                : "Create an account or log in before claiming loyalty rewards."}
             </p>
           ) : null}
           {!hasAvailableOrderTypes && !isLoadingCheckoutSettings ? (

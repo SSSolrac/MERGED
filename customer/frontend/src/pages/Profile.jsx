@@ -6,6 +6,7 @@ import {
   getCustomerLoyaltyData,
   getFreeLatteRewardOptions,
   isLatteReward,
+  mergeGuestLoyaltyIntoAccount,
   redeemLoyaltyReward,
 } from "../services/loyaltyService";
 import { getCustomerProfile, saveCustomerProfile } from "../services/profileService";
@@ -34,7 +35,7 @@ function isRewardCartItem(item) {
 }
 
 function Profile({ linkComponent: LinkComponent, view = "info" }) {
-  const { user, session, refreshProfile } = useAuth();
+  const { user, session, refreshProfile, isAuthenticated } = useAuth();
   const { addItem, cart, openMiniCart } = useCart();
   const [formData, setFormData] = useState(blankProfile);
   const [addressFields, setAddressFields] = useState(blankAddressFields);
@@ -52,9 +53,13 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   const hasClaimableOrderCart = useMemo(() => cart.some((item) => !isRewardCartItem(item)), [cart]);
 
   const loadLoyaltyData = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoyaltyData(null);
+      return;
+    }
     const data = await getCustomerLoyaltyData();
     setLoyaltyData(data);
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +94,15 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
         });
         setLatteRewardOptions(Array.isArray(latteOptions) ? latteOptions : []);
 
+        // Authenticated profile load is where prior guest orders can be linked
+        // once a phone/email exists; guests still cannot see the loyalty card.
+        if (isAuthenticated && (mergedProfile.phone || mergedProfile.email)) {
+          await mergeGuestLoyaltyIntoAccount({
+            phone: mergedProfile.phone,
+            email: mergedProfile.email,
+          }).catch(() => null);
+        }
+
         await loadLoyaltyData();
       } catch (loadError) {
         if (cancelled) return;
@@ -105,7 +119,7 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
     return () => {
       cancelled = true;
     };
-  }, [loadLoyaltyData, user?.email]);
+  }, [isAuthenticated, loadLoyaltyData, user?.email]);
 
   useEffect(() => {
     if (view !== "loyalty" || !user?.id) return undefined;
@@ -297,6 +311,10 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
       };
 
       const savedProfile = await saveCustomerProfile(profileToSave);
+      await mergeGuestLoyaltyIntoAccount({
+        phone: savedProfile?.phone || profileToSave.phone,
+        email: savedProfile?.email || profileToSave.email,
+      }).catch(() => null);
       setFormData({
         ...blankProfile,
         email: user?.email || "",
@@ -321,6 +339,11 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   };
 
   const handleRedeemReward = async (reward) => {
+    if (!isAuthenticated) {
+      setError("Create an account to redeem rewards.");
+      return;
+    }
+
     const rewardId = String(reward?.id || "").trim();
     if (!rewardId) return;
 
@@ -384,19 +407,24 @@ function Profile({ linkComponent: LinkComponent, view = "info" }) {
   return (
     <div className="profile-page">
       <h1>{isLoyaltyView ? "Loyalty and Perks" : "Profile Info"}</h1>
-      <p className="profile-session">
-        Signed in as <strong>{user?.email || session?.user?.email}</strong>
-      </p>
+      {isAuthenticated ? (
+        <p className="profile-session">
+          Signed in as <strong>{user?.email || session?.user?.email}</strong>
+        </p>
+      ) : null}
 
       {error ? <p className="field-error profile-top-error">{error}</p> : null}
       {message ? <p className="profile-message profile-top-message">{message}</p> : null}
 
       {isLoyaltyView ? (
         <>
-          {loyaltyData ? (
+          {!isAuthenticated ? (
+            <div className="loyalty-loading">Create an account to access your loyalty card and rewards.</div>
+          ) : loyaltyData ? (
             <LoyaltyCard
               loyaltyData={loyaltyData}
               onRedeemReward={handleRedeemReward}
+              isAuthenticated={isAuthenticated}
               redeemingRewardId={redeemingRewardId}
               latteRewardOptions={latteRewardOptions}
               selectedLatteItemIds={selectedLatteItemIds}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   getCustomerNotifications,
@@ -7,6 +7,7 @@ import {
   markNotificationRead,
   syncCustomerNotifications
 } from "../services/notificationService";
+import { useAuth } from "../context/AuthContext";
 import "./Notifications.css";
 
 function formatDate(value) {
@@ -15,11 +16,20 @@ function formatDate(value) {
 }
 
 export default function Notifications() {
+  const { isAuthenticated } = useAuth();
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
+    if (!isAuthenticated) {
+      // Guests cannot read account/global notifications or loyalty history.
+      setItems([]);
+      setError("");
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError("");
     try {
@@ -31,11 +41,11 @@ export default function Notifications() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     loadNotifications();
-  }, []);
+  }, [loadNotifications]);
 
   const onMarkAllRead = () => {
     markAllNotificationsRead();
@@ -46,6 +56,21 @@ export default function Notifications() {
     markNotificationRead(id);
     setItems(getCustomerNotifications());
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="notifications-page">
+        <div className="notifications-state notifications-guest-cta">
+          <h1>Notifications</h1>
+          <p>Create an account or log in to view notifications.</p>
+          <div className="notifications-guest-actions">
+            <Link to="/" state={{ openAuth: true }}>Create Account / Log In</Link>
+            <Link to="/track-order">Track an order</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) return <div className="notifications-state">Loading notifications...</div>;
   if (error) return <div className="notifications-state notifications-error">{error}</div>;

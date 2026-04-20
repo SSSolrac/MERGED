@@ -9,6 +9,7 @@ import {
   markNotificationRead,
   syncCustomerNotifications,
 } from "../services/notificationService";
+import { useAuth } from "../context/AuthContext";
 import "./MiniNotificationsPanel.css";
 
 function formatDate(value) {
@@ -18,6 +19,7 @@ function formatDate(value) {
 
 export default function MiniNotificationsPanel({ onClose, onUnreadCountChange }) {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -27,6 +29,14 @@ export default function MiniNotificationsPanel({ onClose, onUnreadCountChange })
   }, [onUnreadCountChange]);
 
   const loadNotifications = useCallback(async () => {
+    if (!isAuthenticated) {
+      // Guests track a specific order from Track Order, not account notifications.
+      setItems([]);
+      setIsLoading(false);
+      onClose?.();
+      return;
+    }
+
     setIsLoading(true);
     setError("");
     try {
@@ -39,7 +49,7 @@ export default function MiniNotificationsPanel({ onClose, onUnreadCountChange })
       syncUnreadCount();
       setIsLoading(false);
     }
-  }, [syncUnreadCount]);
+  }, [isAuthenticated, onClose, syncUnreadCount]);
 
   useEffect(() => {
     loadNotifications();
