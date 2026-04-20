@@ -9,6 +9,7 @@ import { profileService } from '@/services/profileService';
 export const ProfilePage = () => {
   const { user, refreshProfile } = useAuth();
   const canEditJobTitle = user?.role === 'owner';
+  const canManageCredentials = user?.role === 'owner';
   const [name, setName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -72,6 +73,10 @@ export const ProfilePage = () => {
 
   const updatePassword = async (event: FormEvent) => {
     event.preventDefault();
+    if (!canManageCredentials) {
+      toast.error('Only owners can change staff-side passwords.');
+      return;
+    }
     try {
       setIsUpdatingPassword(true);
       await authService.updatePassword(password);
@@ -158,10 +163,17 @@ export const ProfilePage = () => {
               />
             </label>
           ) : null}
-          <label className="text-sm md:col-span-2">
-            Email
-            <input className="mt-1 block w-full rounded border px-2 py-1 bg-slate-50" value={user?.email || ''} readOnly />
-          </label>
+          {canManageCredentials ? (
+            <label className="text-sm md:col-span-2">
+              Email
+              <input className="mt-1 block w-full rounded border px-2 py-1 bg-slate-50" value={user?.email || ''} readOnly />
+            </label>
+          ) : (
+            <div className="text-sm md:col-span-2">
+              <p className="font-medium text-[#1F2937]">Email</p>
+              <p className="mt-1 rounded border bg-slate-50 px-3 py-2 text-[#6B7280]">{user?.email || 'No email assigned'}</p>
+            </div>
+          )}
           <div className="md:col-span-2">
             <button className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isLoading || isSavingProfile} type="submit">
               {isSavingProfile ? 'Saving...' : 'Save profile'}
@@ -170,26 +182,28 @@ export const ProfilePage = () => {
         </form>
       </section>
 
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <div>
-          <h3 className="font-medium">Password</h3>
-          <p className="text-sm text-[#6B7280]">Update your password for this account.</p>
-        </div>
-        <form onSubmit={updatePassword} className="space-y-2">
-          <input
-            required
-            minLength={8}
-            type="password"
-            placeholder="New password"
-            className="w-full rounded border px-2 py-1"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <button className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingPassword}>
-            {isUpdatingPassword ? 'Updating...' : 'Change password'}
-          </button>
-        </form>
-      </section>
+      {canManageCredentials ? (
+        <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
+          <div>
+            <h3 className="font-medium">Password</h3>
+            <p className="text-sm text-[#6B7280]">Update your password for this account.</p>
+          </div>
+          <form onSubmit={updatePassword} className="space-y-2">
+            <input
+              required
+              minLength={8}
+              type="password"
+              placeholder="New password"
+              className="w-full rounded border px-2 py-1"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            <button className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingPassword}>
+              {isUpdatingPassword ? 'Updating...' : 'Change password'}
+            </button>
+          </form>
+        </section>
+      ) : null}
     </div>
   );
 };

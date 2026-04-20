@@ -201,6 +201,19 @@ test("auth modal: successful login redirect is parent-controlled", async () => {
   );
 });
 
+test("staff profile: only owners can manage staff-side credentials", async () => {
+  const profilePageSrc = await readSource("src/staff/pages/ProfilePage.tsx");
+  assert.ok(profilePageSrc.includes("const canManageCredentials = user?.role === 'owner';"), "Staff profile page should gate credential controls by owner role.");
+  assert.ok(profilePageSrc.includes("Only owners can change staff-side passwords."), "Staff profile page should block non-owner password submissions.");
+  assert.ok(profilePageSrc.includes("No email assigned"), "Staff profile page should render email as plain text for staff accounts.");
+  assert.ok(profilePageSrc.includes("{canManageCredentials ? ("), "Staff profile page should only render password controls for owners.");
+
+  const staffAuthSrc = await readSource("src/staff/services/authService.ts");
+  assert.ok(staffAuthSrc.includes(".from('profiles')"), "Staff auth service should verify the signed-in profile before changing a password.");
+  assert.ok(staffAuthSrc.includes("select('role')"), "Staff auth service should check the current profile role before changing a password.");
+  assert.ok(staffAuthSrc.includes("Only owners can change staff-side passwords."), "Staff auth service should reject password changes from non-owner accounts.");
+});
+
 test("staff settings and menu management use image uploads instead of raw URL fields", async () => {
   const settingsSrc = await readSource("src/staff/pages/SettingsPage.tsx");
   assert.ok(settingsSrc.includes("uploadBrandingAsset"), "Business settings should upload branding images.");
