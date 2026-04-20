@@ -75,6 +75,17 @@ test("checkout: customer app reads owner-managed availability settings", async (
   assert.ok(src.includes("getOrderWindowStatus(currentTime, checkoutSettings)"), "Checkout should enforce the owner-managed cutoff schedule.");
 });
 
+test("checkout: delivery orders calculate and require a delivery fee quote", async () => {
+  const checkoutSrc = await readSource("src/pages/Checkout.jsx");
+  assert.ok(checkoutSrc.includes("calculateDeliveryFeeQuote"), "Checkout should calculate a delivery fee quote from the selected pin.");
+  assert.ok(checkoutSrc.includes("const grandTotal = Math.max(cartSubtotal + summaryDeliveryFee, 0);"), "Checkout total should add the delivery fee.");
+  assert.ok(checkoutSrc.includes("Delivery Fee"), "Checkout summary should show the delivery fee row.");
+
+  const orderServiceSrc = await readSource("src/services/orderService.js");
+  assert.ok(orderServiceSrc.includes("p_delivery_fee"), "Order service should send delivery fee to the order RPC.");
+  assert.ok(orderServiceSrc.includes("...(rawDeliveryMeta || {})"), "Order service should preserve delivery fee metadata in the delivery payload.");
+});
+
 test("delivery coverage: checkout only renders the map from a ready live config", async () => {
   const src = await readSource("src/pages/Checkout.jsx");
   assert.ok(src.includes("isDeliveryConfigReady"), "Checkout should gate delivery map rendering on a ready live config.");
@@ -342,7 +353,7 @@ test("notifications: read state hides customer items and preserves staff history
 
 test("checkout: zero-total orders use a receipt-free payment path", async () => {
   const checkoutSrc = await readSource("src/pages/Checkout.jsx");
-  assert.ok(checkoutSrc.includes("const isFreeOrder = Number(total || 0) <= 0;"), "Checkout should detect zero-total orders.");
+  assert.ok(checkoutSrc.includes("const isFreeOrder = (!requiresDeliveryAddress || deliveryFeeQuote.isReady) && grandTotal <= 0;"), "Checkout should detect free orders after delivery fees are applied.");
   assert.ok(
     checkoutSrc.includes('const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;'),
     "Free orders should use a receipt-free payment path."
@@ -484,6 +495,9 @@ test("schema: order RPC enforces receipt + totals + item code integrity", async 
   assert.ok(schema.includes("Receipt upload is required for non-cash payments."), "Schema should provide non-cash receipt error.");
   assert.ok(schema.includes("coalesce(trim(x.menu_item_code), '') = ''"), "Schema must require menu item codes for order line items.");
   assert.ok(schema.includes("Order totals do not match order items."), "Schema must reject mismatched order totals.");
+  assert.ok(schema.includes("p_delivery_fee numeric default 0"), "Schema order RPC should accept delivery fee input.");
+  assert.ok(schema.includes("Delivery fee is required for delivery orders."), "Schema should require a delivery fee for delivery orders.");
+  assert.ok(schema.includes("Delivery fee can only be applied to delivery orders."), "Schema should reject delivery fees on non-delivery orders.");
   assert.ok(schema.includes("orders_receipt_required_for_non_cash"), "Schema should include table-level receipt constraint for non-cash orders.");
 });
 

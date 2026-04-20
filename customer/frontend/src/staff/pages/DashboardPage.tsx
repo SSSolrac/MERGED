@@ -84,7 +84,7 @@ const deriveAccountingParts = (order: Order) => {
   const subtotal = Number.isFinite(order.subtotal) ? Math.max(0, order.subtotal) : 0;
   const discountTotal = Number.isFinite(order.discountTotal) ? Math.max(0, order.discountTotal) : 0;
   const totalAmount = resolveOrderAmount(order);
-  const grossSales = subtotal > 0 ? subtotal : Math.max(totalAmount + discountTotal, totalAmount);
+  const grossSales = Math.max(totalAmount + discountTotal, subtotal, totalAmount);
   const refunded = isRefunded ? (totalAmount > 0 ? totalAmount : Math.max(grossSales - discountTotal, 0)) : 0;
   const netSales = isCancelled ? 0 : Math.max(grossSales - discountTotal - refunded, 0);
 

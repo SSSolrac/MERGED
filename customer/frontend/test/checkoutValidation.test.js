@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { validateCheckout } from "../src/services/checkoutValidation.js";
+import { DELIVERY_PICKUP_POINT } from "../src/services/deliveryFeeService.js";
 
 function basePayload(overrides = {}) {
   return {
@@ -11,6 +12,25 @@ function basePayload(overrides = {}) {
     customer: { name: "Test User", phone: "+639171234567", address: "Pasig City" },
     receiptImageUrl: "data:image/png;base64,ZmFrZQ==",
     currentDate: "2026-04-20T02:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function baseDeliveryMeta(overrides = {}) {
+  return {
+    selectedPurokId: "purok-1",
+    latitude: 13.9442,
+    longitude: 121.6114,
+    deliveryFee: 49,
+    distanceKm: 1.4,
+    pickupLatLng: {
+      lat: DELIVERY_PICKUP_POINT.lat,
+      lng: DELIVERY_PICKUP_POINT.lng,
+    },
+    dropoffLatLng: {
+      lat: 13.9442,
+      lng: 121.6114,
+    },
     ...overrides,
   };
 }
@@ -57,6 +77,22 @@ test("delivery requires active purok + map pin metadata", async () => {
   assert.ok(result.errors.mapPin);
 });
 
+test("delivery requires fee and distance metadata", async () => {
+  const payload = basePayload({
+    orderType: "delivery",
+    customer: { name: "A", phone: "+639171234567", address: "Lucena City" },
+    deliveryMeta: baseDeliveryMeta({
+      deliveryFee: 0,
+      distanceKm: null,
+      pickupLatLng: null,
+      dropoffLatLng: null,
+    }),
+  });
+  const result = await validateCheckout(payload);
+  assert.equal(result.isValid, false);
+  assert.ok(result.errors.deliveryFee);
+});
+
 test("receipt is optional for cash and required for non-cash", async () => {
   const missingReceiptCash = await validateCheckout(basePayload({ paymentMethod: "cash", receiptImageUrl: "" }));
   assert.equal(missingReceiptCash.isValid, true);
@@ -93,6 +129,18 @@ test("valid payload passes", async () => {
   const result = await validateCheckout(basePayload());
   assert.equal(result.isValid, true);
   assert.deepEqual(result.errors, {});
+});
+
+test("valid delivery payload with delivery fee passes", async () => {
+  const result = await validateCheckout(
+    basePayload({
+      orderType: "delivery",
+      customer: { name: "A", phone: "+639171234567", address: "Lucena City" },
+      deliveryMeta: baseDeliveryMeta(),
+    })
+  );
+  assert.equal(result.isValid, true);
+  assert.equal(Boolean(result.errors.deliveryFee), false);
 });
 
 test("non-cash still requires valid payment method", async () => {

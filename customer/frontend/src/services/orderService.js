@@ -8,6 +8,7 @@ import {
   labelToCanonicalOrderType,
   labelToCanonicalPaymentMethod,
 } from "../constants/canonical";
+import { DELIVERY_BASE_FEE, normalizeLatLngPoint } from "./deliveryFeeService.js";
 import { validateCheckout } from "./checkoutValidation";
 import { getStoredGuestLastOrder, normalizeGuestEmail, normalizeGuestPhone } from "./guestIdentity";
 
@@ -518,7 +519,22 @@ export async function createOrder(orderPayload) {
     (sum, line) => sum + asNumber(line.discount_amount, 0) * Math.max(1, Math.floor(asNumber(line.quantity, 1))),
     0
   );
-  const totalAmount = Math.max(subtotal - discountTotal, 0);
+  const rawDeliveryMeta = orderPayload.deliveryMeta && typeof orderPayload.deliveryMeta === "object" ? orderPayload.deliveryMeta : null;
+  const deliveryFee = canonicalType === "delivery" ? asNumber(rawDeliveryMeta?.deliveryFee ?? 0) : 0;
+  const distanceKm = canonicalType === "delivery" ? asNumber(rawDeliveryMeta?.distanceKm ?? 0, Number.NaN) : Number.NaN;
+  const pickupLatLng = normalizeLatLngPoint(rawDeliveryMeta?.pickupLatLng);
+  const dropoffLatLng = normalizeLatLngPoint(rawDeliveryMeta?.dropoffLatLng);
+
+  if (canonicalType === "delivery") {
+    if (!Number.isFinite(deliveryFee) || deliveryFee < DELIVERY_BASE_FEE) {
+      throw new Error("Delivery fee is missing for this delivery order.");
+    }
+    if (!Number.isFinite(distanceKm) || distanceKm < 0 || !pickupLatLng || !dropoffLatLng) {
+      throw new Error("Delivery location metadata is incomplete for this delivery order.");
+    }
+  }
+
+  const totalAmount = Math.max(subtotal - discountTotal + deliveryFee, 0);
 
   const deliveryAddress = {
     name: orderPayload.customer?.name || "",
@@ -527,7 +543,7 @@ export async function createOrder(orderPayload) {
     address: orderPayload.customer?.address || "",
     guestPhoneNormalized: user ? null : normalizeGuestPhone(orderPayload.customer?.phone || ""),
     guestEmail: user ? null : normalizeGuestEmail(orderPayload.customer?.email || ""),
-    ...(orderPayload.deliveryMeta && typeof orderPayload.deliveryMeta === "object" ? orderPayload.deliveryMeta : {}),
+    ...(rawDeliveryMeta || {}),
   };
 
   const rpcPayload = {
@@ -535,6 +551,7 @@ export async function createOrder(orderPayload) {
     p_payment_method: paymentMethod,
     p_subtotal: subtotal,
     p_discount_total: discountTotal,
+    p_delivery_fee: deliveryFee,
     p_total_amount: totalAmount,
     p_receipt_image_url: normalizedReceiptImageUrl,
     p_notes: orderPayload.notes || null,

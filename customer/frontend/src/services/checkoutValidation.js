@@ -1,4 +1,5 @@
 import { labelToCanonicalOrderType, labelToCanonicalPaymentMethod } from "../constants/canonical.js";
+import { DELIVERY_BASE_FEE, normalizeLatLngPoint } from "./deliveryFeeService.js";
 import { getOrderWindowStatus } from "../utils/orderAvailability.js";
 
 function isLoyaltyRewardCartItem(item) {
@@ -48,6 +49,16 @@ export async function validateCheckout(orderPayload) {
     const longitude = Number(deliveryMeta.longitude);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       errors.mapPin = "Place a valid delivery pin on the map.";
+    }
+
+    const deliveryFee = Number(deliveryMeta.deliveryFee);
+    const distanceKm = Number(deliveryMeta.distanceKm);
+    const pickupLatLng = normalizeLatLngPoint(deliveryMeta.pickupLatLng);
+    const dropoffLatLng = normalizeLatLngPoint(deliveryMeta.dropoffLatLng);
+    if (!Number.isFinite(deliveryFee) || deliveryFee < DELIVERY_BASE_FEE) {
+      errors.deliveryFee = "Delivery fee is still being calculated. Please confirm a valid map pin.";
+    } else if (!Number.isFinite(distanceKm) || distanceKm < 0 || !pickupLatLng || !dropoffLatLng) {
+      errors.deliveryFee = "Delivery distance metadata is incomplete. Please place the pin again.";
     }
   }
 

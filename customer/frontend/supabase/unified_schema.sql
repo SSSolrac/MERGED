@@ -1335,6 +1335,7 @@ create or replace function public.create_customer_order(
   p_payment_method public.payment_method,
   p_subtotal numeric,
   p_discount_total numeric,
+  p_delivery_fee numeric default 0,
   p_total_amount numeric,
   p_items jsonb,
   p_receipt_image_url text default null,
@@ -1354,12 +1355,14 @@ declare
   v_inserted_item_count integer;
   v_payload_subtotal numeric(12,2);
   v_payload_discount_total numeric(12,2);
+  v_payload_delivery_fee numeric(12,2);
   v_payload_total_amount numeric(12,2);
   v_computed_subtotal numeric(12,2);
   v_computed_discount_total numeric(12,2);
   v_computed_total_amount numeric(12,2);
   v_receipt_required boolean;
   v_resolved_items jsonb;
+  v_delivery_address_payload jsonb;
   v_validated_item_count integer;
   v_reward_item_ids uuid[];
   v_reward_item_count integer;
@@ -1386,10 +1389,12 @@ begin
 
   v_payload_subtotal := round(coalesce(p_subtotal, 0)::numeric, 2);
   v_payload_discount_total := round(coalesce(p_discount_total, 0)::numeric, 2);
+  v_payload_delivery_fee := round(coalesce(p_delivery_fee, 0)::numeric, 2);
   v_payload_total_amount := round(coalesce(p_total_amount, 0)::numeric, 2);
 
   if v_payload_subtotal < 0
     or v_payload_discount_total < 0
+    or v_payload_delivery_fee < 0
     or v_payload_total_amount < 0
   then
     raise exception 'Order totals cannot be negative.';
@@ -1397,6 +1402,40 @@ begin
 
   if v_payload_discount_total > v_payload_subtotal then
     raise exception 'Discount total cannot exceed subtotal.';
+  end if;
+
+  if p_order_type = 'delivery' then
+    if v_payload_delivery_fee < 49 then
+      raise exception 'Delivery fee is required for delivery orders.';
+    end if;
+
+    if p_delivery_address is null
+      or jsonb_typeof(p_delivery_address) <> 'object'
+      or nullif(trim(coalesce(p_delivery_address ->> 'address', '')), '') is null
+    then
+      raise exception 'Delivery address is required for delivery orders.';
+    end if;
+
+    if jsonb_typeof(coalesce(p_delivery_address -> 'pickupLatLng', 'null'::jsonb)) <> 'object'
+      or jsonb_typeof(coalesce(p_delivery_address -> 'dropoffLatLng', 'null'::jsonb)) <> 'object'
+      or nullif(trim(coalesce(p_delivery_address ->> 'distanceKm', '')), '') is null
+    then
+      raise exception 'Delivery fee metadata is incomplete.';
+    end if;
+  elsif abs(v_payload_delivery_fee) > 0.01 then
+    raise exception 'Delivery fee can only be applied to delivery orders.';
+  end if;
+
+  v_delivery_address_payload := case
+    when p_delivery_address is null then null
+    when jsonb_typeof(p_delivery_address) = 'object' then p_delivery_address
+    else null
+  end;
+
+  if p_order_type = 'delivery' then
+    v_delivery_address_payload :=
+      coalesce(v_delivery_address_payload, '{}'::jsonb)
+      || jsonb_build_object('deliveryFee', v_payload_delivery_fee);
   end if;
 
   if exists (
@@ -1581,7 +1620,7 @@ begin
           greatest(coalesce(x.unit_price, 0) - coalesce(x.discount_amount, 0), 0) * greatest(coalesce(x.quantity, 1), 1)
         ),
         0
-      )::numeric,
+      )::numeric + v_payload_delivery_fee,
       2
     )
   into
@@ -1631,7 +1670,7 @@ begin
     v_computed_total_amount,
     nullif(trim(coalesce(p_receipt_image_url, '')), ''),
     p_notes,
-    p_delivery_address,
+    v_delivery_address_payload,
     coalesce(p_placed_at, now())
   )
   returning * into v_order;

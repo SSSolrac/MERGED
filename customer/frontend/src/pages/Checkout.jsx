@@ -9,6 +9,7 @@ import { DEFAULT_PUBLIC_BUSINESS_SETTINGS, getPublicBusinessSettings } from "../
 import { labelToCanonicalOrderType } from "../constants/canonical";
 import { PAYMENT_METHOD_OPTIONS, getPaymentQrAsset, paymentMethodToLabel } from "../utils/paymentMethods";
 import { getActiveDeliveryConfig, validateDeliveryAddressOnServer } from "../services/deliveryAreaService";
+import { calculateDeliveryFeeQuote } from "../services/deliveryFeeService";
 import { saveGuestLastOrder, saveGuestOrderIdentity } from "../services/guestIdentity";
 import {
   parseDeliveryAddress,
@@ -241,20 +242,7 @@ export default function Checkout() {
     );
   }, [availablePaymentOptions]);
 
-  const isFreeOrder = Number(total || 0) <= 0;
   const orderWindowStatus = useMemo(() => getOrderWindowStatus(currentTime, checkoutSettings), [checkoutSettings, currentTime]);
-
-  useEffect(() => {
-    if (!isFreeOrder && form.paymentMethod !== "cash") return;
-
-    setErrors((prev) => (prev.receipt ? { ...prev, receipt: "" } : prev));
-
-    if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
-    if (receiptFile || receiptPreviewUrl) {
-      setReceiptFile(null);
-      setReceiptPreviewUrl("");
-    }
-  }, [form.paymentMethod, isFreeOrder, receiptFile, receiptPreviewUrl]);
 
   const normalizedPhone = toPhilippineE164(form.phone);
   const canonicalOrderType = labelToCanonicalOrderType(form.orderType);
@@ -267,8 +255,6 @@ export default function Checkout() {
     deliveryConfig.puroks.length > 0 &&
     Array.isArray(deliveryConfig.polygon) &&
     deliveryConfig.polygon.length >= 3;
-  const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;
-  const isCashPayment = effectivePaymentMethod === "cash";
   const hasLoyaltyRewardItems = cart.some(isLoyaltyRewardCartItem);
   const canUseLoyaltyRewardItems = isAuthenticated;
   const hasRegularOrderItems = cart.some((item) => !isLoyaltyRewardCartItem(item));
@@ -276,11 +262,6 @@ export default function Checkout() {
   const hasOrderForLoyaltyReward = !hasLoyaltyRewardItems || (canUseLoyaltyRewardItems && hasRegularOrderItems);
   const hasName = Boolean(form.name.trim());
   const isPhoneValid = /^9\d{9}$/.test(form.phone);
-  const hasReceipt = isFreeOrder || isCashPayment || Boolean(receiptFile);
-  const hasAvailableOrderTypes = availableOrderTypeOptions.length > 0;
-  const hasAvailablePaymentMethods = isFreeOrder || availablePaymentOptions.length > 0;
-  const isSelectedOrderTypeEnabled = availableOrderTypeOptions.some((option) => option.value === form.orderType);
-  const isSelectedPaymentEnabled = isFreeOrder || availablePaymentOptions.some((option) => option.value === form.paymentMethod);
 
   const deliveryValidation = useMemo(() => {
     if (!deliveryConfig || !isDeliveryConfigReady) {
@@ -304,10 +285,99 @@ export default function Checkout() {
   }, [deliveryConfig, deliveryInput.houseDetails, deliveryInput.latitude, deliveryInput.longitude, deliveryInput.selectedPurokId, isDeliveryConfigReady]);
 
   const hasAddress = !requiresDeliveryAddress || (!isLoadingDeliveryConfig && deliveryValidation.isValid);
+  const deliveryFeeQuote = useMemo(() => {
+    if (!requiresDeliveryAddress) {
+      return {
+        isReady: true,
+        error: "",
+        deliveryFee: 0,
+        distanceKm: 0,
+        breakdown: "",
+        distanceMethod: "haversine",
+        pickupLatLng: null,
+        dropoffLatLng: null,
+      };
+    }
+
+    if (isLoadingDeliveryConfig || !deliveryConfig) {
+      return {
+        isReady: false,
+        error: "Delivery coverage is still loading.",
+        deliveryFee: 0,
+        distanceKm: 0,
+        breakdown: "",
+        distanceMethod: "haversine",
+        pickupLatLng: null,
+        dropoffLatLng: null,
+      };
+    }
+
+    if (!deliveryValidation.isValid) {
+      return {
+        isReady: false,
+        error: "",
+        deliveryFee: 0,
+        distanceKm: 0,
+        breakdown: "",
+        distanceMethod: "haversine",
+        pickupLatLng: null,
+        dropoffLatLng: null,
+      };
+    }
+
+    try {
+      return {
+        ...calculateDeliveryFeeQuote({
+          latitude: deliveryValidation.latitude,
+          longitude: deliveryValidation.longitude,
+        }),
+        isReady: true,
+        error: "",
+      };
+    } catch (error) {
+      return {
+        isReady: false,
+        error: error?.message || "Unable to calculate the delivery fee for this pin.",
+        deliveryFee: 0,
+        distanceKm: 0,
+        breakdown: "",
+        distanceMethod: "haversine",
+        pickupLatLng: null,
+        dropoffLatLng: null,
+      };
+    }
+  }, [deliveryConfig, deliveryValidation, isLoadingDeliveryConfig, requiresDeliveryAddress]);
+  const hasDeliveryFee = !requiresDeliveryAddress || deliveryFeeQuote.isReady;
+  const cartSubtotal = Number(total || 0);
+  const summaryDeliveryFee = requiresDeliveryAddress && deliveryFeeQuote.isReady ? Number(deliveryFeeQuote.deliveryFee || 0) : 0;
+  const grandTotal = Math.max(cartSubtotal + summaryDeliveryFee, 0);
+  const isFreeOrder = (!requiresDeliveryAddress || deliveryFeeQuote.isReady) && grandTotal <= 0;
+
+  useEffect(() => {
+    if (!isFreeOrder && form.paymentMethod !== "cash") return;
+
+    setErrors((prev) => (prev.receipt ? { ...prev, receipt: "" } : prev));
+
+    if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+    if (receiptFile || receiptPreviewUrl) {
+      setReceiptFile(null);
+      setReceiptPreviewUrl("");
+    }
+  }, [form.paymentMethod, isFreeOrder, receiptFile, receiptPreviewUrl]);
+
+  const effectivePaymentMethod = isFreeOrder ? "cash" : form.paymentMethod;
+  const isCashPayment = effectivePaymentMethod === "cash";
+  const hasReceipt = isFreeOrder || isCashPayment || Boolean(receiptFile);
+  const hasAvailableOrderTypes = availableOrderTypeOptions.length > 0;
+  const hasAvailablePaymentMethods = isFreeOrder || availablePaymentOptions.length > 0;
+  const isSelectedOrderTypeEnabled = availableOrderTypeOptions.some((option) => option.value === form.orderType);
+  const isSelectedPaymentEnabled = isFreeOrder || availablePaymentOptions.some((option) => option.value === form.paymentMethod);
+
   const canSubmit =
     hasName &&
     isPhoneValid &&
     hasAddress &&
+    hasDeliveryFee &&
     hasReceipt &&
     !isLoadingCheckoutSettings &&
     hasAvailableOrderTypes &&
@@ -332,9 +402,11 @@ export default function Checkout() {
       paymentMethod: effectivePaymentMethod,
       notes: form.notes,
       items: cart,
-      total,
+      subtotal: cartSubtotal,
+      deliveryFee: summaryDeliveryFee,
+      total: grandTotal,
     }),
-    [canonicalOrderType, cart, checkoutSettings, effectivePaymentMethod, form, normalizedPhone, total, user?.email, user?.id]
+    [canonicalOrderType, cart, cartSubtotal, checkoutSettings, effectivePaymentMethod, form, grandTotal, normalizedPhone, summaryDeliveryFee, user?.email, user?.id]
   );
 
   const handleFieldChange = (key, value) => {
@@ -343,7 +415,7 @@ export default function Checkout() {
       ...prev,
       [key]: "",
       ...(key === "orderType"
-        ? { address: "", houseDetails: "", purok: "", mapPin: "" }
+        ? { address: "", houseDetails: "", purok: "", mapPin: "", deliveryFee: "" }
         : {}),
     }));
   };
@@ -355,7 +427,7 @@ export default function Checkout() {
 
   const handleDeliveryInputChange = (nextValue) => {
     setDeliveryInput((prev) => ({ ...prev, ...nextValue }));
-    setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "" }));
+    setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "", deliveryFee: "" }));
   };
 
   const handleReceiptChange = (event) => {
@@ -437,6 +509,14 @@ export default function Checkout() {
       let deliveryMeta = null;
 
       if (requiresDeliveryAddress) {
+        if (!deliveryFeeQuote.isReady) {
+          setErrors((prev) => ({
+            ...prev,
+            deliveryFee: deliveryFeeQuote.error || "Delivery fee is still being calculated. Please confirm a valid map pin.",
+          }));
+          return;
+        }
+
         if (isLoadingDeliveryConfig || !deliveryConfig) {
           setErrors((prev) => ({ ...prev, address: "Delivery configuration is still loading. Please try again." }));
           return;
@@ -471,6 +551,20 @@ export default function Checkout() {
           return;
         }
 
+        let deliveryQuote = null;
+        try {
+          deliveryQuote = calculateDeliveryFeeQuote({
+            latitude: Number.isFinite(serverValidation.latitude) ? serverValidation.latitude : deliveryValidation.latitude,
+            longitude: Number.isFinite(serverValidation.longitude) ? serverValidation.longitude : deliveryValidation.longitude,
+          });
+        } catch (error) {
+          setErrors((prev) => ({
+            ...prev,
+            deliveryFee: error?.message || "Unable to calculate the delivery fee for this pin.",
+          }));
+          return;
+        }
+
         deliveryMeta = {
           deliveryAreaId: serverValidation.deliveryAreaId || deliveryConfig.id,
           selectedPurokId: serverValidation.selectedPurokId || deliveryValidation.selectedPurok?.id || "",
@@ -485,13 +579,20 @@ export default function Checkout() {
           longitude:
             Number.isFinite(serverValidation.longitude) ? serverValidation.longitude : deliveryValidation.longitude,
           address: normalizedAddress,
+          deliveryFee: deliveryQuote.deliveryFee,
+          distanceKm: deliveryQuote.distanceKm,
+          billedDistanceKm: deliveryQuote.billedDistanceKm,
+          distanceMethod: deliveryQuote.distanceMethod,
+          feeBreakdown: deliveryQuote.breakdown,
+          pickupLatLng: deliveryQuote.pickupLatLng,
+          dropoffLatLng: deliveryQuote.dropoffLatLng,
         };
 
         setForm((prev) => ({ ...prev, address: normalizedAddress }));
-        setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "" }));
+        setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "", deliveryFee: "" }));
       } else {
         normalizedAddress = "";
-        setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "" }));
+        setErrors((prev) => ({ ...prev, address: "", houseDetails: "", purok: "", mapPin: "", deliveryFee: "" }));
       }
 
       if (!isCashPayment && !receiptFile) {
@@ -657,7 +758,15 @@ export default function Checkout() {
                 )
               )}
               {isDeliveryConfigReady ? <p className="field-hint">Only pins inside the configured service polygon can be submitted.</p> : null}
+              {deliveryFeeQuote.isReady ? (
+                <p className="field-hint">
+                  Delivery fee: PHP {Number(deliveryFeeQuote.deliveryFee || 0).toFixed(2)} for {Number(deliveryFeeQuote.distanceKm || 0).toFixed(1)} km. {deliveryFeeQuote.breakdown}
+                </p>
+              ) : requiresDeliveryAddress && !deliveryValidation.isValid ? (
+                <p className="field-hint">Delivery fee will appear once your selected pin is valid inside the service area.</p>
+              ) : null}
               {errors.address ? <p className="field-error">{errors.address}</p> : null}
+              {errors.deliveryFee ? <p className="field-error">{errors.deliveryFee}</p> : null}
             </>
           ) : (
             <>
@@ -768,9 +877,23 @@ export default function Checkout() {
           </div>
           <div className="checkout-summary-footer">
             <hr />
+            <div className="summary-row">
+              <span>Subtotal</span>
+              <span>PHP {cartSubtotal.toFixed(2)}</span>
+            </div>
+            <div className="summary-row">
+              <span>Delivery Fee</span>
+              <span>
+                {requiresDeliveryAddress
+                  ? deliveryFeeQuote.isReady
+                    ? `PHP ${summaryDeliveryFee.toFixed(2)}`
+                    : "Calculating..."
+                  : "PHP 0.00"}
+              </span>
+            </div>
             <div className="summary-row total-row">
               <span>Total</span>
-              <span>PHP {Number(total || 0).toFixed(2)}</span>
+              <span>{requiresDeliveryAddress && !deliveryFeeQuote.isReady ? "Calculating..." : `PHP ${grandTotal.toFixed(2)}`}</span>
             </div>
           </div>
           <button className="checkout-submit" type="submit" disabled={isSubmitting || !canSubmit}>
