@@ -1330,14 +1330,27 @@ end;
 $$;
 
 -- Transactional order creation for customers: ensures orders, items, and initial history are written atomically.
+drop function if exists public.create_customer_order(
+  public.order_type,
+  public.payment_method,
+  numeric,
+  numeric,
+  numeric,
+  jsonb,
+  text,
+  text,
+  jsonb,
+  timestamptz
+);
+
 create or replace function public.create_customer_order(
   p_order_type public.order_type,
   p_payment_method public.payment_method,
   p_subtotal numeric,
   p_discount_total numeric,
   p_delivery_fee numeric default 0,
-  p_total_amount numeric,
-  p_items jsonb,
+  p_total_amount numeric default 0,
+  p_items jsonb default '[]'::jsonb,
   p_receipt_image_url text default null,
   p_notes text default null,
   p_delivery_address jsonb default null,

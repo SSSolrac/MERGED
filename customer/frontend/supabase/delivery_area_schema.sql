@@ -343,13 +343,27 @@ end;
 $$;
 
 -- Re-define customer order RPC with delivery-area validation.
+drop function if exists public.create_customer_order(
+  public.order_type,
+  public.payment_method,
+  numeric,
+  numeric,
+  numeric,
+  jsonb,
+  text,
+  text,
+  jsonb,
+  timestamptz
+);
+
 create or replace function public.create_customer_order(
   p_order_type public.order_type,
   p_payment_method public.payment_method,
   p_subtotal numeric,
   p_discount_total numeric,
-  p_total_amount numeric,
-  p_items jsonb,
+  p_delivery_fee numeric default 0,
+  p_total_amount numeric default 0,
+  p_items jsonb default '[]'::jsonb,
   p_receipt_image_url text default null,
   p_notes text default null,
   p_delivery_address jsonb default null,
@@ -367,6 +381,7 @@ declare
   v_inserted_item_count integer;
   v_payload_subtotal numeric(12,2);
   v_payload_discount_total numeric(12,2);
+  v_payload_delivery_fee numeric(12,2);
   v_payload_total_amount numeric(12,2);
   v_computed_subtotal numeric(12,2);
   v_computed_discount_total numeric(12,2);
@@ -401,10 +416,12 @@ begin
 
   v_payload_subtotal := round(coalesce(p_subtotal, 0)::numeric, 2);
   v_payload_discount_total := round(coalesce(p_discount_total, 0)::numeric, 2);
+  v_payload_delivery_fee := round(coalesce(p_delivery_fee, 0)::numeric, 2);
   v_payload_total_amount := round(coalesce(p_total_amount, 0)::numeric, 2);
 
   if v_payload_subtotal < 0
     or v_payload_discount_total < 0
+    or v_payload_delivery_fee < 0
     or v_payload_total_amount < 0
   then
     raise exception 'Order totals cannot be negative.';
@@ -412,6 +429,12 @@ begin
 
   if v_payload_discount_total > v_payload_subtotal then
     raise exception 'Discount total cannot exceed subtotal.';
+  end if;
+
+  if p_order_type = 'delivery' and v_payload_delivery_fee < 49 then
+    raise exception 'Delivery fee is required for delivery orders.';
+  elsif p_order_type <> 'delivery' and abs(v_payload_delivery_fee) > 0.01 then
+    raise exception 'Delivery fee can only be applied to delivery orders.';
   end if;
 
   if exists (
@@ -564,7 +587,7 @@ begin
           greatest(coalesce(x.unit_price, 0) - coalesce(x.discount_amount, 0), 0) * greatest(coalesce(x.quantity, 1), 1)
         ),
         0
-      )::numeric,
+      )::numeric + v_payload_delivery_fee,
       2
     )
   into
@@ -607,7 +630,8 @@ begin
       'province', v_delivery_validation ->> 'province',
       'country', v_delivery_validation ->> 'country',
       'latitude', (v_delivery_validation ->> 'latitude')::double precision,
-      'longitude', (v_delivery_validation ->> 'longitude')::double precision
+      'longitude', (v_delivery_validation ->> 'longitude')::double precision,
+      'deliveryFee', v_payload_delivery_fee
     );
   end if;
 
@@ -905,6 +929,7 @@ grant execute on function public.validate_delivery_address(jsonb) to authenticat
 grant execute on function public.create_customer_order(
   public.order_type,
   public.payment_method,
+  numeric,
   numeric,
   numeric,
   numeric,
