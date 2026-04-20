@@ -29,6 +29,24 @@ const statusTone = (status: OrderStatus) => {
   return 'neutral';
 };
 
+const asMoney = (value: unknown) => {
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numberValue) ? Math.round(numberValue * 100) / 100 : 0;
+};
+
+const deliveryFeeForOrder = (order: Order) => {
+  if (order.orderType !== 'delivery') return 0;
+
+  const address = order.deliveryAddress;
+  if (address && typeof address === 'object' && !Array.isArray(address)) {
+    const record = address as Record<string, unknown>;
+    const savedFee = asMoney(record.deliveryFee ?? record.delivery_fee);
+    if (savedFee > 0) return savedFee;
+  }
+
+  return Math.max(0, asMoney(order.totalAmount) - Math.max(0, asMoney(order.subtotal) - asMoney(order.discountTotal)));
+};
+
 const customerLabel = (order: Order) => {
   const profileName = order.customer?.name?.trim();
   if (profileName) return profileName;
@@ -196,7 +214,13 @@ export const OrdersPage = () => {
                         disabled={order.paymentStatus === 'paid'}
                         onClick={async () => {
                           const updated = await confirmPayment(order.id);
-                          toast.success(updated.paymentStatus === 'paid' ? 'Payment confirmed.' : 'Payment updated.');
+                          toast.success(
+                            updated.status === 'preparing'
+                              ? 'Payment confirmed. Order moved to preparing.'
+                              : updated.paymentStatus === 'paid'
+                                ? 'Payment confirmed.'
+                                : 'Payment updated.',
+                          );
                         }}
                       >
                         {order.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
@@ -269,6 +293,7 @@ export const OrdersPage = () => {
                 ))}
                 <p>Subtotal: {formatCurrency(selectedOrder.subtotal)}</p>
                 <p>Discount: -{formatCurrency(selectedOrder.discountTotal)}</p>
+                {selectedOrder.orderType === 'delivery' ? <p>Delivery fee: {formatCurrency(deliveryFeeForOrder(selectedOrder))}</p> : null}
                 <p className="font-semibold">Grand total: {formatCurrency(selectedOrder.totalAmount)}</p>
               </div>
             </div>
@@ -329,7 +354,7 @@ export const OrdersPage = () => {
                 onClick={async () => {
                   const updated = await confirmPayment(selectedOrder.id);
                   setSelectedOrder(updated);
-                  toast.success('Payment confirmed.');
+                  toast.success(updated.status === 'preparing' ? 'Payment confirmed. Order moved to preparing.' : 'Payment confirmed.');
                 }}
               >
                 {selectedOrder.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
