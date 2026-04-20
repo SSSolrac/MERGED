@@ -161,6 +161,7 @@ export const OrdersPage = () => {
           <tbody>
             {orders.map((order) => {
               const itemsCount = (order.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
+              const canConfirmPayment = order.paymentStatus !== 'paid' || order.status === 'pending';
               const paymentLabel = order.paymentMethod ? paymentMethodToLabel(order.paymentMethod) : '—';
 
               return (
@@ -211,7 +212,7 @@ export const OrdersPage = () => {
                       </button>
                       <button
                         className="border rounded px-2 py-1 disabled:opacity-50"
-                        disabled={order.paymentStatus === 'paid'}
+                        disabled={!canConfirmPayment}
                         onClick={async () => {
                           const updated = await confirmPayment(order.id);
                           toast.success(
@@ -223,7 +224,7 @@ export const OrdersPage = () => {
                           );
                         }}
                       >
-                        {order.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
+                        {order.paymentStatus === 'paid' && order.status === 'pending' ? 'Move to Preparing' : order.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
                       </button>
                       <button
                         className="border rounded px-2 py-1 disabled:opacity-50"
@@ -350,14 +351,18 @@ export const OrdersPage = () => {
             <div className="flex gap-2">
               <button
                 className="border rounded px-3 py-1 disabled:opacity-50"
-                disabled={selectedOrder.paymentStatus === 'paid'}
+                disabled={selectedOrder.paymentStatus === 'paid' && selectedOrder.status !== 'pending'}
                 onClick={async () => {
                   const updated = await confirmPayment(selectedOrder.id);
                   setSelectedOrder(updated);
                   toast.success(updated.status === 'preparing' ? 'Payment confirmed. Order moved to preparing.' : 'Payment confirmed.');
                 }}
               >
-                {selectedOrder.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
+                {selectedOrder.paymentStatus === 'paid' && selectedOrder.status === 'pending'
+                  ? 'Move to Preparing'
+                  : selectedOrder.paymentStatus === 'paid'
+                    ? 'Paid'
+                    : 'Confirm Payment'}
               </button>
               <button
                 className="border rounded px-3 py-1 disabled:opacity-50"
