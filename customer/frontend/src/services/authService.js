@@ -285,6 +285,36 @@ export async function completeAuthActionFromRedirect({ expectedType, redirectSta
     };
   }
 
+  if (asNonEmptyText(state?.code)) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(state.code);
+    if (error) {
+      throw new Error(buildAuthActionErrorMessage(error, normalizedExpectedType || normalizedType || "recovery"));
+    }
+
+    return {
+      state,
+      session: data?.session || null,
+      user: data?.user || data?.session?.user || null,
+    };
+  }
+
+  if (asNonEmptyText(state?.accessToken) && asNonEmptyText(state?.refreshToken)) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: state.accessToken,
+      refresh_token: state.refreshToken,
+    });
+
+    if (error) {
+      throw new Error(buildAuthActionErrorMessage(error, normalizedExpectedType || normalizedType || "recovery"));
+    }
+
+    return {
+      state,
+      session: data?.session || null,
+      user: data?.user || data?.session?.user || null,
+    };
+  }
+
   const session = await getSession();
   return {
     state,

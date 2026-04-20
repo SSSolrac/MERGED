@@ -5,6 +5,7 @@ import { PaymentQrPreview, StatusChip } from '@/components/ui';
 import { useOrders } from '@/hooks/useOrders';
 import { paymentMethodToLabel } from '@/utils/payment';
 import { formatCurrency } from '@/utils/currency';
+import { formatDeliveryAddress } from '../../../utils/deliveryAddress';
 import type { Order, OrderStatus } from '@/types/order';
 
 const statuses: Array<OrderStatus | 'all'> = [
@@ -253,8 +254,8 @@ export const OrdersPage = () => {
                   {selectedOrder.paymentMethod ? paymentMethodToLabel(selectedOrder.paymentMethod) : '—'}
                 </p>
                 {selectedOrder.orderType === 'delivery' && (
-                  <p>
-                    <strong>Delivery address:</strong> {selectedOrder.deliveryAddress ? JSON.stringify(selectedOrder.deliveryAddress) : 'Not provided'}
+                  <p className="whitespace-normal break-words">
+                    <strong>Delivery address:</strong> {formatDeliveryAddress(selectedOrder.deliveryAddress)}
                   </p>
                 )}
               </div>

@@ -10,6 +10,7 @@ import pattern from "./assets/pattern.png";
 import { useAuth } from "./context/AuthContext";
 import RequireRole from "./auth/RequireRole";
 import { getSafeRouteForRole } from "./auth/roleRoutes";
+import { isAuthActionLink, readAuthRedirectState } from "./lib/authRedirects";
 
 const Menu = lazy(() => import("./pages/Menu"));
 const About = lazy(() => import("./pages/About"));
@@ -101,6 +102,22 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
+
+  useEffect(() => {
+    const authState = readAuthRedirectState();
+    if (!isAuthActionLink(authState)) return;
+
+    const targetPath =
+      authState.type === "recovery"
+        ? "/auth/reset-password"
+        : authState.type === "email_change"
+          ? "/auth/email-change"
+          : "";
+
+    if (!targetPath || location.pathname === targetPath) return;
+
+    navigate(`${targetPath}${location.search}${location.hash}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     const isLanding = location.pathname === "/";

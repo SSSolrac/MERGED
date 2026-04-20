@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildDeliveryAddress,
+  formatDeliveryAddress,
   parseDeliveryAddress,
   validateDeliveryAddress,
 } from "../src/utils/deliveryAddress.js";
@@ -48,6 +49,39 @@ test("parseDeliveryAddress resolves the saved purok from shared delivery config"
 
   assert.equal(parsed.houseDetails, "Unit 5");
   assert.equal(parsed.selectedPurokId, "purok-2");
+});
+
+test("formatDeliveryAddress hides metadata and coordinates from order displays", () => {
+  const formatted = formatDeliveryAddress({
+    name: "Test Customer",
+    email: "test@example.com",
+    houseDetails: "Blk 8 Lot 1",
+    selectedPurokName: "Purok Sampaguita",
+    fixedBarangayName: "Ilayang Iyam",
+    city: "Lucena City",
+    province: "Quezon",
+    country: "Philippines",
+    latitude: 13.936,
+    longitude: 121.624,
+    deliveryAreaId: "area-1",
+    billedDistanceKm: 3,
+    dropoffLatLng: { lat: 13.936, lng: 121.624 },
+  });
+
+  assert.equal(formatted, "Blk 8 Lot 1, Purok Sampaguita, Ilayang Iyam, Lucena City, Quezon, Philippines");
+});
+
+test("formatDeliveryAddress prefers normalized strings and handles missing values", () => {
+  assert.equal(formatDeliveryAddress("Already clean address"), "Already clean address");
+  assert.equal(
+    formatDeliveryAddress({
+      normalizedAddress: "Unit 5, Purok Carmelita, Ilayang Iyam, Lucena City, Quezon, Philippines",
+      latitude: 13.942,
+      longitude: 121.623,
+    }),
+    "Unit 5, Purok Carmelita, Ilayang Iyam, Lucena City, Quezon, Philippines"
+  );
+  assert.equal(formatDeliveryAddress(null), "No delivery address provided");
 });
 
 test("validateDeliveryAddress accepts an active purok with a pin inside the polygon", () => {

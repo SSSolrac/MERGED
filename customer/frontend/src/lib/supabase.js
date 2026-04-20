@@ -57,7 +57,7 @@ export function getSupabaseClient({ env } = {}) {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false,
       },
     });
     cachedClientKey = cacheKey;

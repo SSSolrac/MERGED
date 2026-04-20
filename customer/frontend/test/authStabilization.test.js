@@ -74,13 +74,19 @@ test("auth redirect errors normalize expired link copy", () => {
 
 test("app uses dedicated auth action routes and lazy loading", async () => {
   const appSrc = await readSource("src/App.jsx");
+  const supabaseSrc = await readSource("src/lib/supabase.js");
+  const authServiceSrc = await readSource("src/services/authService.js");
 
   assert.ok(appSrc.includes('path="/auth/reset-password"'), "App should route password reset to a dedicated page.");
+  assert.ok(appSrc.includes('"/auth/reset-password"'), "App should redirect recovery links to the reset-password route.");
   assert.ok(appSrc.includes('path="/auth/email-change"'), "App should route email change confirmations to a dedicated page.");
   assert.ok(appSrc.includes('lazy(() => import("./pages/auth/ResetPasswordPage"))'), "Reset password page should be lazy-loaded.");
   assert.ok(appSrc.includes('lazy(() => import("./pages/auth/EmailChangePage"))'), "Email change page should be lazy-loaded.");
   assert.ok(!appSrc.includes("window.location.origin"), "App should not build auth redirects from window.location.origin directly.");
   assert.ok(!appSrc.includes("isRecoveryMode"), "App should no longer keep password recovery in modal-global state.");
+  assert.ok(supabaseSrc.includes("detectSessionInUrl: false"), "Auth action pages should process Supabase redirect tokens explicitly.");
+  assert.ok(authServiceSrc.includes("exchangeCodeForSession"), "PKCE recovery links should be exchanged on the auth action route.");
+  assert.ok(authServiceSrc.includes("setSession"), "Implicit recovery links should set the recovery session on the auth action route.");
 });
 
 test("customer profile no longer writes auth email directly into profiles", async () => {

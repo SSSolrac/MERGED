@@ -14,6 +14,33 @@ function asNumber(value) {
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
+function asObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value;
+}
+
+function firstText(record, keys) {
+  const safe = asObject(record);
+  if (!safe) return "";
+  for (const key of keys) {
+    const text = asText(safe[key]);
+    if (text) return text;
+  }
+  return "";
+}
+
+function uniqueParts(parts) {
+  const seen = new Set();
+  return parts.filter((part) => {
+    const text = asText(part);
+    if (!text) return false;
+    const key = text.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function getPurokCoordinates(purok) {
   const lat = asNumber(purok?.lat ?? purok?.latitude);
   const lng = asNumber(purok?.lng ?? purok?.longitude);
@@ -84,6 +111,47 @@ export function buildDeliveryAddress({
 
   if (!safeHouse || !safePurok || !safeBarangay) return "";
   return `${safeHouse}, ${safePurok}, ${safeBarangay}, ${safeCity}, ${safeProvince}, ${safeCountry}`;
+}
+
+export function formatDeliveryAddress(address, fallback = "No delivery address provided") {
+  if (typeof address === "string") {
+    return asText(address) || fallback;
+  }
+
+  const record = asObject(address);
+  if (!record) return fallback;
+
+  const preformatted = firstText(record, [
+    "normalizedAddress",
+    "normalized_address",
+    "formattedAddress",
+    "formatted_address",
+    "fullAddress",
+    "full_address",
+    "address",
+  ]);
+  if (preformatted) return preformatted;
+
+  const blockLotHouseUnit = uniqueParts([
+    firstText(record, ["blockLot", "block_lot", "block", "lot", "lotBlock", "lot_block"]),
+    firstText(record, ["houseDetails", "house_details", "house", "houseNo", "house_no", "unit", "unitNo", "unit_no"]),
+  ]).join(" ");
+
+  const streetPurok = uniqueParts([
+    firstText(record, ["street", "streetName", "street_name"]),
+    firstText(record, ["selectedPurokName", "selected_purok_name", "purokName", "purok_name", "purok"]),
+  ]).join(", ");
+
+  const cleanParts = uniqueParts([
+    blockLotHouseUnit,
+    streetPurok,
+    firstText(record, ["fixedBarangayName", "fixed_barangay_name", "barangay", "barangayName", "barangay_name"]),
+    firstText(record, ["city", "municipality"]),
+    firstText(record, ["province", "state"]),
+    firstText(record, ["country"]),
+  ]);
+
+  return cleanParts.length ? cleanParts.join(", ") : fallback;
 }
 
 export function validateDeliveryAddress({
