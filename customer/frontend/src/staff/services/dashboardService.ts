@@ -1,5 +1,5 @@
 import { normalizeError } from '@/lib/errors';
-import { asRecord, mapOrderRow } from '@/lib/mappers';
+import { asRecord, mapOrderItemRow, mapOrderRow } from '@/lib/mappers';
 import { requireSupabaseClient } from '@/lib/supabase';
 import type { DashboardData, DateRangePreset } from '@/types/dashboard';
 import type { Order } from '@/types/order';
@@ -285,6 +285,34 @@ const attachOrderEmployees = async (orders: Order[]): Promise<Order[]> => {
   });
 };
 
+const attachOrderItems = async (orders: Order[]): Promise<Order[]> => {
+  if (!orders.length) return orders;
+
+  const supabase = requireSupabaseClient();
+  const orderIds = orders.map((order) => order.id).filter((id): id is string => Boolean(id) && isUuid(id));
+  if (!orderIds.length) return orders;
+
+  const { data, error } = await supabase
+    .from('order_items')
+    .select('*')
+    .in('order_id', orderIds)
+    .order('created_at', { ascending: true });
+
+  if (error || !Array.isArray(data)) return orders;
+
+  const itemsByOrderId = new Map<string, Order['items']>();
+  data.map(mapOrderItemRow).forEach((item) => {
+    const list = itemsByOrderId.get(item.orderId) ?? [];
+    list.push(item);
+    itemsByOrderId.set(item.orderId, list);
+  });
+
+  return orders.map((order) => ({
+    ...order,
+    items: itemsByOrderId.get(order.id) ?? order.items ?? [],
+  }));
+};
+
 const attachOrderCosts = async (orders: Order[]): Promise<Order[]> => {
   if (!orders.length) return orders;
 
@@ -327,6 +355,56 @@ const attachOrderCosts = async (orders: Order[]): Promise<Order[]> => {
     ...order,
     costOfGoods: isCancelledStatus(order.status) ? 0 : roundMoney(costByOrderId.get(order.id) ?? 0),
   }));
+};
+
+const buildTopItemsFromOrders = (orders: Order[]): DashboardData['topItems'] => {
+  const totals = new Map<string, { quantity: number; revenue: number }>();
+
+  orders.forEach((order) => {
+    if (isCancelledStatus(order.status)) return;
+    (order.items ?? []).forEach((item) => {
+      const itemName = asTrimmed(item.itemName) || 'Unknown item';
+      const quantity = Math.max(0, asNumber(item.quantity));
+      if (quantity <= 0) return;
+      const current = totals.get(itemName) ?? { quantity: 0, revenue: 0 };
+      const lineTotal = Math.max(0, asNumber(item.lineTotal, Math.max(0, asNumber(item.unitPrice) - asNumber(item.discountAmount)) * quantity));
+      current.quantity += quantity;
+      current.revenue += lineTotal;
+      totals.set(itemName, current);
+    });
+  });
+
+  return Array.from(totals.entries())
+    .sort(([, a], [, b]) => b.quantity - a.quantity)
+    .slice(0, 10)
+    .map(([itemName, item]) => ({ itemName, quantity: item.quantity, revenue: roundMoney(item.revenue) }));
+};
+
+const fetchInventoryAlerts = async (): Promise<DashboardData['alerts']> => {
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('id, name, quantity_on_hand, reorder_level, inventory_categories(name)')
+    .eq('is_active', true)
+    .order('quantity_on_hand', { ascending: true })
+    .limit(20);
+
+  if (error || !Array.isArray(data)) return [];
+
+  return data
+    .filter((row) => asNumber(row.quantity_on_hand) <= asNumber(row.reorder_level))
+    .slice(0, 10)
+    .map((row) => {
+      const category = asRecord(row.inventory_categories);
+      const categoryName = asTrimmed(category?.name) || 'Uncategorized';
+      const itemName = asTrimmed(row.name) || 'Inventory item';
+      return {
+        id: asTrimmed(row.id) || itemName,
+        type: 'warning',
+        title: 'Low stock',
+        message: `${itemName} (${categoryName}) is low on stock`,
+      };
+    });
 };
 
 const mapDashboardSummary = (payload: unknown): DashboardData => {
@@ -528,10 +606,11 @@ export const dashboardService = {
 
     const supabase = requireSupabaseClient();
 
-    const [rpcResult, liveOrdersFromTable, importedOrders] = await Promise.all([
+    const [rpcResult, liveOrdersFromTable, importedOrders, inventoryAlerts] = await Promise.all([
       includeFinancialSummary ? supabase.rpc('dashboard_summary', { range_key: range }) : Promise.resolve({ data: null, error: null }),
       fetchLiveOrdersForDashboard(range).catch(() => null),
       includeFinancialSummary ? fetchImportedSalesAsOrders(range).catch(() => []) : Promise.resolve([]),
+      fetchInventoryAlerts().catch(() => []),
     ]);
 
     if (rpcResult.error) throw normalizeError(rpcResult.error, { fallbackMessage: 'Unable to load dashboard summary.' });
@@ -545,12 +624,14 @@ export const dashboardService = {
         ...mapped,
         rangeOrders: mapped.rangeOrders.length ? mapped.rangeOrders : mapped.recentOrders,
       };
+      fallback.alerts = fallback.alerts.length ? fallback.alerts : inventoryAlerts;
       dashboardCache.set(cacheKey, { ts: Date.now(), data: fallback });
       return cloneDashboardData(fallback);
     }
 
     const liveOrdersWithEmployee = liveOrders ? await attachOrderEmployees(liveOrders) : [];
-    const liveOrdersWithRelations = await attachOrderCosts(liveOrdersWithEmployee);
+    const liveOrdersWithItems = await attachOrderItems(liveOrdersWithEmployee);
+    const liveOrdersWithRelations = await attachOrderCosts(liveOrdersWithItems);
     const sortedLiveOrders = [...liveOrdersWithRelations].sort((a, b) => orderTimestampMs(b) - orderTimestampMs(a));
     const combinedOrders = dedupeOrdersById([...sortedLiveOrders, ...importedOrders]).sort((a, b) => orderTimestampMs(b) - orderTimestampMs(a));
 
@@ -562,8 +643,10 @@ export const dashboardService = {
       sales: salesSummary.sales,
       orders: liveOrderSummary.orders,
       salesTrend: salesSummary.salesTrend,
+      topItems: mapped.topItems.length ? mapped.topItems : buildTopItemsFromOrders(combinedOrders),
       rangeOrders: combinedOrders,
       recentOrders: liveRecentOrders.length ? liveRecentOrders : combinedOrders.slice(0, 10),
+      alerts: mapped.alerts.length ? mapped.alerts : inventoryAlerts,
     };
     dashboardCache.set(cacheKey, { ts: Date.now(), data: resolved });
     return cloneDashboardData(resolved);
