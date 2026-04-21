@@ -40,7 +40,7 @@ export const DashboardLayout = () => {
 
   const navItems = useMemo(() => {
     const base = [
-      { section: 'Operations', label: 'Dashboard Overview', path: `${workspaceBasePath}/dashboard`, icon: LayoutDashboard, ownerOnly: true },
+      { section: 'Operations', label: 'Dashboard Overview', path: `${workspaceBasePath}/dashboard`, icon: LayoutDashboard },
       { section: 'Operations', label: 'View Orders', path: `${workspaceBasePath}/orders`, icon: ClipboardList },
       { section: 'Catalog', label: 'Edit Daily Menu', path: `${workspaceBasePath}/daily-menu`, icon: CalendarDays },
       { section: 'Catalog', label: 'Manage Menu Items', path: `${workspaceBasePath}/menu`, icon: Utensils },

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertsPanel, DateRangeFilter, RecentOrdersTable, TopItemsChart } from '@/components/dashboard';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/utils/currency';
 import type { DateRangePreset } from '@/types/dashboard';
 import type { Order } from '@/types/order';
@@ -97,6 +98,8 @@ const deriveAccountingParts = (order: Order) => {
 };
 
 export const DashboardPage = () => {
+  const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const { data, loading, error, selectedRange, setSelectedRange } = useDashboardData();
   const [chartPreset, setChartPreset] = useState<ChartPreset>('area');
   const [groupBy, setGroupBy] = useState<GroupPreset>('days');
@@ -191,7 +194,9 @@ export const DashboardPage = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Dashboard Overview</p>
-            <p className="text-xs text-slate-500">A quick performance overview using your Supabase dashboard summary.</p>
+            <p className="text-xs text-slate-500">
+              {isOwner ? 'A quick performance overview using your Supabase dashboard summary.' : 'Operational overview for active orders and shop activity.'}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <DateRangeFilter value={selectedRange} onChange={setSelectedRange} variant="select" />
@@ -199,15 +204,17 @@ export const DashboardPage = () => {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-5">
-        <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
-        <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Gross profit" value={formatCurrency(grossProfitEstimate)} subtitle={`Estimate (${rangeLabel(selectedRange)})`} />
-      </div>
+      {isOwner ? (
+        <>
+          <div className="grid gap-3 lg:grid-cols-5">
+            <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
+            <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard title="Gross profit" value={formatCurrency(grossProfitEstimate)} subtitle={`Estimate (${rangeLabel(selectedRange)})`} />
+          </div>
 
-      <div className="rounded-lg border bg-white p-4 shadow-sm">
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-medium">Gross sales</h3>
@@ -274,7 +281,9 @@ export const DashboardPage = () => {
             </ResponsiveContainer>
           )}
         </div>
-      </div>
+          </div>
+        </>
+      ) : null}
 
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">

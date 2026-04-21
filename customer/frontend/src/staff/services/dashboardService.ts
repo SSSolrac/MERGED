@@ -6,7 +6,7 @@ import type { Order } from '@/types/order';
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 const DASHBOARD_CACHE_TTL_MS = 10000;
-const dashboardCache = new Map<DateRangePreset, { ts: number; data: DashboardData }>();
+const dashboardCache = new Map<string, { ts: number; data: DashboardData }>();
 
 const startOfToday = () => {
   const now = new Date();
@@ -495,6 +495,16 @@ const cloneDashboardData = (data: DashboardData): DashboardData => ({
   alerts: data.alerts.map((alert) => ({ ...alert })),
 });
 
+const emptyDashboardData = (): DashboardData => ({
+  sales: { today: 0, rangeTotal: 0, averageOrderValue: 0 },
+  orders: { today: 0, rangeTotal: 0, pending: 0, preparing: 0, ready: 0, outForDelivery: 0, completed: 0, cancelled: 0 },
+  topItems: [],
+  salesTrend: [],
+  rangeOrders: [],
+  recentOrders: [],
+  alerts: [],
+});
+
 const dedupeOrdersById = (orders: Order[]) => {
   const seen = new Set<string>();
   return orders.filter((order) => {
@@ -508,8 +518,10 @@ const dedupeOrdersById = (orders: Order[]) => {
 };
 
 export const dashboardService = {
-  async getDashboardData(range: DateRangePreset): Promise<DashboardData> {
-    const cached = dashboardCache.get(range);
+  async getDashboardData(range: DateRangePreset, options: { includeFinancialSummary?: boolean } = {}): Promise<DashboardData> {
+    const includeFinancialSummary = options.includeFinancialSummary !== false;
+    const cacheKey = `${range}:${includeFinancialSummary ? 'financial' : 'operations'}`;
+    const cached = dashboardCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < DASHBOARD_CACHE_TTL_MS) {
       return cloneDashboardData(cached.data);
     }
@@ -517,14 +529,14 @@ export const dashboardService = {
     const supabase = requireSupabaseClient();
 
     const [rpcResult, liveOrdersFromTable, importedOrders] = await Promise.all([
-      supabase.rpc('dashboard_summary', { range_key: range }),
+      includeFinancialSummary ? supabase.rpc('dashboard_summary', { range_key: range }) : Promise.resolve({ data: null, error: null }),
       fetchLiveOrdersForDashboard(range).catch(() => null),
-      fetchImportedSalesAsOrders(range).catch(() => []),
+      includeFinancialSummary ? fetchImportedSalesAsOrders(range).catch(() => []) : Promise.resolve([]),
     ]);
 
     if (rpcResult.error) throw normalizeError(rpcResult.error, { fallbackMessage: 'Unable to load dashboard summary.' });
 
-    const mapped = mapDashboardSummary(rpcResult.data);
+    const mapped = includeFinancialSummary ? mapDashboardSummary(rpcResult.data) : emptyDashboardData();
     const rpcDerivedOrders = mapped.rangeOrders.length ? mapped.rangeOrders : mapped.recentOrders;
     const rpcLiveOrders = rpcDerivedOrders.filter((order) => !isImportedOrder(order));
     const liveOrders = liveOrdersFromTable ?? (rpcLiveOrders.length ? rpcLiveOrders : null);
@@ -533,7 +545,7 @@ export const dashboardService = {
         ...mapped,
         rangeOrders: mapped.rangeOrders.length ? mapped.rangeOrders : mapped.recentOrders,
       };
-      dashboardCache.set(range, { ts: Date.now(), data: fallback });
+      dashboardCache.set(cacheKey, { ts: Date.now(), data: fallback });
       return cloneDashboardData(fallback);
     }
 
@@ -553,7 +565,7 @@ export const dashboardService = {
       rangeOrders: combinedOrders,
       recentOrders: liveRecentOrders.length ? liveRecentOrders : combinedOrders.slice(0, 10),
     };
-    dashboardCache.set(range, { ts: Date.now(), data: resolved });
+    dashboardCache.set(cacheKey, { ts: Date.now(), data: resolved });
     return cloneDashboardData(resolved);
   },
 };

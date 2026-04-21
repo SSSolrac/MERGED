@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertsPanel, DateRangeFilter, RecentOrdersTable, TopItemsChart } from '@/components/dashboard';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/utils/currency';
 import type { DateRangePreset } from '@/types/dashboard';
 import type { Order } from '@/types/order';
@@ -97,6 +98,8 @@ const deriveAccountingParts = (order: Order) => {
 };
 
 export const DashboardPage = () => {
+  const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const { data, loading, error, selectedRange, setSelectedRange } = useDashboardData();
   const [chartPreset, setChartPreset] = useState<ChartPreset>('area');
   const [groupBy, setGroupBy] = useState<GroupPreset>('days');
@@ -192,7 +195,9 @@ export const DashboardPage = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Dashboard Overview</p>
-            <p className="text-xs text-slate-500">A quick performance overview using your Supabase dashboard summary.</p>
+            <p className="text-xs text-slate-500">
+              {isOwner ? 'A quick performance overview using your Supabase dashboard summary.' : 'Operational overview for active orders and shop activity.'}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <DateRangeFilter value={selectedRange} onChange={setSelectedRange} variant="select" />
@@ -200,82 +205,86 @@ export const DashboardPage = () => {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-5">
-        <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
-        <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
-        <SummaryCard title="Net profit" value={formatCurrency(netProfitEstimate)} subtitle={`After menu item costs (${rangeLabel(selectedRange)})`} />
-      </div>
-
-      <div className="rounded-lg border bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-medium">Gross sales</h3>
-            <p className="text-xs text-slate-500">Filtered by date selection.</p>
+      {isOwner ? (
+        <>
+          <div className="grid gap-3 lg:grid-cols-5">
+            <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
+            <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard title="Net profit" value={formatCurrency(netProfitEstimate)} subtitle={`After menu item costs (${rangeLabel(selectedRange)})`} />
           </div>
-          <div className="flex items-center gap-2">
-            <label className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-slate-600">
-              <span>Chart</span>
-              <select className="bg-transparent outline-none" value={chartPreset} onChange={(event) => setChartPreset(event.target.value as ChartPreset)}>
-                <option value="area">Area</option>
-                <option value="line">Line</option>
-                <option value="bar">Bar</option>
-              </select>
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-slate-600">
-              <span>Group</span>
-              <select className="bg-transparent outline-none" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupPreset)}>
-                <option value="days">Days</option>
-                <option value="weeks">Weeks</option>
-                <option value="months">Months</option>
-              </select>
-            </label>
-          </div>
-        </div>
 
-        <div className="mt-4 h-72">
-          {salesSeries.length === 0 ? (
-            <div className="h-full flex items-center justify-center">
-              <p className="text-sm text-slate-500">No sales data available for this filter yet.</p>
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-medium">Gross sales</h3>
+                <p className="text-xs text-slate-500">Filtered by date selection.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-slate-600">
+                  <span>Chart</span>
+                  <select className="bg-transparent outline-none" value={chartPreset} onChange={(event) => setChartPreset(event.target.value as ChartPreset)}>
+                    <option value="area">Area</option>
+                    <option value="line">Line</option>
+                    <option value="bar">Bar</option>
+                  </select>
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-slate-600">
+                  <span>Group</span>
+                  <select className="bg-transparent outline-none" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupPreset)}>
+                    <option value="days">Days</option>
+                    <option value="weeks">Weeks</option>
+                    <option value="months">Months</option>
+                  </select>
+                </label>
+              </div>
             </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              {chartPreset === 'line' ? (
-                <LineChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                  <Line type="monotone" dataKey="sales" stroke="#FF8FA3" strokeWidth={2} dot={false} />
-                </LineChart>
-              ) : chartPreset === 'bar' ? (
-                <BarChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                  <Bar dataKey="sales" fill="#FF8FA3" radius={[4, 4, 0, 0]} />
-                </BarChart>
+
+            <div className="mt-4 h-72">
+              {salesSeries.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-sm text-slate-500">No sales data available for this filter yet.</p>
+                </div>
               ) : (
-                <AreaChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
-                  <defs>
-                    <linearGradient id="grossSalesFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#FF8FA3" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="#FF8FA3" stopOpacity={0.05} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                  <Area type="monotone" dataKey="sales" stroke="#FF8FA3" fill="url(#grossSalesFill)" strokeWidth={2} />
-                </AreaChart>
+                <ResponsiveContainer width="100%" height="100%">
+                  {chartPreset === 'line' ? (
+                    <LineChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                      <Line type="monotone" dataKey="sales" stroke="#FF8FA3" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  ) : chartPreset === 'bar' ? (
+                    <BarChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                      <Bar dataKey="sales" fill="#FF8FA3" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  ) : (
+                    <AreaChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                      <defs>
+                        <linearGradient id="grossSalesFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#FF8FA3" stopOpacity={0.25} />
+                          <stop offset="100%" stopColor="#FF8FA3" stopOpacity={0.05} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                      <Area type="monotone" dataKey="sales" stroke="#FF8FA3" fill="url(#grossSalesFill)" strokeWidth={2} />
+                    </AreaChart>
+                  )}
+                </ResponsiveContainer>
               )}
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">

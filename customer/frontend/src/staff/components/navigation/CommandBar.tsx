@@ -10,7 +10,7 @@ export const CommandBar = () => {
   const workspaceBasePath = location.pathname.startsWith('/owner') ? '/owner' : '/staff';
 
   const links = useMemo(() => [
-    ...(isOwner ? [{ label: 'Dashboard Overview', path: `${workspaceBasePath}/dashboard` }] : []),
+    { label: 'Dashboard Overview', path: `${workspaceBasePath}/dashboard` },
     { label: 'View Orders', path: `${workspaceBasePath}/orders` },
     { label: 'Edit Daily Menu', path: `${workspaceBasePath}/daily-menu` },
     { label: 'Manage Menu Items', path: `${workspaceBasePath}/menu` },
