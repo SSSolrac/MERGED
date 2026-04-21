@@ -225,6 +225,22 @@ test("staff profile: only owners can manage staff-side credentials", async () =>
   assert.ok(staffAuthSrc.includes("Only owners can change staff-side passwords."), "Staff auth service should reject password changes from non-owner accounts.");
 });
 
+test("staff workspace: dashboard data is owner-only", async () => {
+  const appSrc = await readSource("src/App.jsx");
+  const roleRoutesSrc = await readSource("src/auth/roleRoutes.js");
+  const layoutSrc = await readSource("src/staff/components/dashboard/DashboardLayout.tsx");
+  const commandBarSrc = await readSource("src/staff/components/navigation/CommandBar.tsx");
+  const mobileNavSrc = await readSource("src/staff/components/navigation/MobileNav.tsx");
+  const schema = await readSchema();
+
+  assert.ok(roleRoutesSrc.includes('if (normalized === "staff") return "/staff/orders";'), "Staff logins should land on operational orders, not dashboard data.");
+  assert.ok(appSrc.includes('<Route path="dashboard" element={<OwnerRoute><DashboardPage /></OwnerRoute>} />'), "Dashboard route should be owner-only.");
+  assert.ok(layoutSrc.includes("Dashboard Overview") && layoutSrc.includes("ownerOnly: true"), "Dashboard nav item should be owner-only.");
+  assert.ok(commandBarSrc.includes("...(isOwner ? [{ label: 'Dashboard Overview'"), "Quick search should hide dashboard from staff.");
+  assert.ok(mobileNavSrc.includes("isOwner ? (") && mobileNavSrc.includes("Overview"), "Mobile nav should hide overview from staff.");
+  assert.ok(schema.includes("not public.is_owner()"), "Dashboard summary RPC should reject non-owner callers.");
+});
+
 test("staff settings and menu management use image uploads instead of raw URL fields", async () => {
   const settingsSrc = await readSource("src/staff/pages/SettingsPage.tsx");
   assert.ok(settingsSrc.includes("uploadBrandingAsset"), "Business settings should upload branding images.");

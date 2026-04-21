@@ -3,7 +3,7 @@ import { normalizeAppRole } from "../services/auth/getCurrentUserRole";
 export function getSafeRouteForRole(role) {
   const normalized = normalizeAppRole(role, null);
   if (normalized === "owner") return "/owner/dashboard";
-  if (normalized === "staff") return "/staff/dashboard";
+  if (normalized === "staff") return "/staff/orders";
   return "/";
 }
 

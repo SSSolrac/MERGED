@@ -243,13 +243,10 @@ export const CustomersLoyaltyPage = () => {
         <KPICard title="Total stamps" value={String(loyaltySummary.totalStampsIssued)} subtitle="Aggregate stamp count" />
       </section>
 
-      <section className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 rounded-lg border bg-white dark:bg-slate-800 p-4 overflow-auto">
+      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 overflow-auto">
           <table className="w-full text-sm min-w-[920px]"><thead><tr className="text-left"><th>Name</th><th>Email</th><th>Stamps</th><th>Available Rewards</th><th>Redeemed</th><th>Status</th><th>Action</th></tr></thead><tbody>
             {filtered.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardCountLabels(customer) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
           </tbody></table>
-        </div>
-        <aside className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3"><h3 className="font-medium">Customer Loyalty Snapshot</h3></aside>
       </section>
 
       {selected && (

@@ -3454,8 +3454,8 @@ declare
   start_ts timestamptz;
   result jsonb;
 begin
-  -- Only staff/owner should be able to call this RPC.
-  if auth.uid() is not null and not public.is_owner_or_staff() then
+  -- Only owners should be able to call this RPC.
+  if auth.uid() is not null and not public.is_owner() then
     raise exception 'Access denied.';
   end if;
 

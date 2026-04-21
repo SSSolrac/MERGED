@@ -69,11 +69,11 @@ function OwnerRoute({ children }) {
   return <RequireRole roles={["owner"]}>{children}</RequireRole>;
 }
 
-function staffOwnerChildRoutes(basePath) {
+function staffOwnerChildRoutes(basePath, { ownerWorkspace = false } = {}) {
   return (
     <>
-      <Route index element={<Navigate to={`${basePath}/dashboard`} replace />} />
-      <Route path="dashboard" element={<DashboardPage />} />
+      <Route index element={<Navigate to={`${basePath}/${ownerWorkspace ? "dashboard" : "orders"}`} replace />} />
+      <Route path="dashboard" element={<OwnerRoute><DashboardPage /></OwnerRoute>} />
       <Route path="orders" element={<StaffOrdersPage />} />
       <Route path="daily-menu" element={<DailyMenuPage />} />
       <Route path="menu" element={<MenuManagementPage />} />
@@ -201,7 +201,7 @@ function App() {
               {staffOwnerChildRoutes("/staff")}
             </Route>
             <Route path="/owner" element={<OwnerRoute><StaffDashboardLayout /></OwnerRoute>}>
-              {staffOwnerChildRoutes("/owner")}
+              {staffOwnerChildRoutes("/owner", { ownerWorkspace: true })}
             </Route>
           </Routes>
         </Suspense>
