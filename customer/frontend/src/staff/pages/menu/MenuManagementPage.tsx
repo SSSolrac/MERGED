@@ -1,6 +1,6 @@
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Image, StatusChip } from '@/components/ui';
+import { Button, EmptyState, Image, SectionCard, StatusChip } from '@/components/ui';
 import { getErrorMessage } from '@/lib/errors';
 import { useMenuCategories } from '@/hooks/useMenuCategories';
 import { useMenuItems } from '@/hooks/useMenuItems';
@@ -63,6 +63,8 @@ type MenuItemGroup = {
 };
 
 const LIMITED_ITEM_SENTINEL = '9999-12-31T23:59:00.000Z';
+const MENU_GROUP_PREVIEW_LIMIT = 10;
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const asTrimmed = (value: string | null | undefined) => String(value || '').trim();
 const asNumberOrZero = (value: string | number | null | undefined) => {
   const next = Number(value);
@@ -153,8 +155,10 @@ const getMenuItemDiscountLabel = (item: MenuItem) => {
 
 const validateMenuItemDraft = (draft: MenuItem) => {
   if (!asTrimmed(draft.name)) return 'Menu item name is required.';
+  if (asTrimmed(draft.name).length < 2) return 'Menu item name must be at least 2 characters.';
   if (!asTrimmed(draft.categoryId)) return 'Category is required.';
   if (!Number.isFinite(draft.price) || draft.price < 0) return 'Price must be zero or higher.';
+  if (draft.price === 0) return 'Price must be greater than zero.';
   if (!Number.isFinite(draft.cost) || draft.cost < 0) return 'Item cost must be zero or higher.';
   if (!Number.isFinite(draft.discount) || draft.discount < 0) return 'Discount must be zero or higher.';
   if (draft.price > 0 && draft.discount > draft.price) return 'Discount cannot be greater than price.';
@@ -175,6 +179,9 @@ export const MenuManagementPage = () => {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingCategoryImage, setIsUploadingCategoryImage] = useState(false);
   const [isMenuItemModalOpen, setIsMenuItemModalOpen] = useState(false);
+  const [savedMenuImageUrl, setSavedMenuImageUrl] = useState('');
+  const [lastSaveMessage, setLastSaveMessage] = useState('');
+  const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>([]);
   const [activeEditorTab, setActiveEditorTab] = useState<MenuEditorTab>('discount-tools');
   const [bulkDiscountMode, setBulkDiscountMode] = useState<DiscountMode>('amount');
   const [bulkDiscountInput, setBulkDiscountInput] = useState('0');
@@ -212,6 +219,7 @@ export const MenuManagementPage = () => {
     () => (activeCategoryTab === 'all' ? groupedMenuItems : groupedMenuItems.filter((group) => group.id === activeCategoryTab)),
     [activeCategoryTab, groupedMenuItems],
   );
+  const expandedGroupSet = useMemo(() => new Set(expandedGroupIds), [expandedGroupIds]);
   const bulkSelectableItems = useMemo(() => {
     const needle = asTrimmed(bulkItemQuery).toLowerCase();
     if (!needle) return items;
@@ -259,6 +267,10 @@ export const MenuManagementPage = () => {
   }, [activeCategoryTab, groupedMenuItems]);
 
   useEffect(() => {
+    setExpandedGroupIds((current) => current.filter((id) => groupedMenuItems.some((group) => group.id === id)));
+  }, [groupedMenuItems]);
+
+  useEffect(() => {
     if (!isMenuItemModalOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -279,6 +291,7 @@ export const MenuManagementPage = () => {
     setDraftDiscountMode('none');
     setDraftPriceInput('');
     setMenuItemError('');
+    setSavedMenuImageUrl('');
   };
 
   const handleOpenCreateMenuItemModal = () => {
@@ -348,6 +361,12 @@ export const MenuManagementPage = () => {
       toast.error(validationError);
       return;
     }
+    if (!categories.some((category) => category.id === preparedDraft.categoryId)) {
+      const message = 'Select a valid category before saving this menu item.';
+      setMenuItemError(message);
+      toast.error(message);
+      return;
+    }
 
     try {
       setMenuItemError('');
@@ -358,7 +377,9 @@ export const MenuManagementPage = () => {
         description: asTrimmed(preparedDraft.description) || null,
         imageUrl: asTrimmed(preparedDraft.imageUrl) || null,
       });
-      toast.success(draft.id ? 'Menu item updated.' : 'Menu item created.');
+      const message = draft.id ? `Saved changes to ${asTrimmed(preparedDraft.name)}.` : `Created ${asTrimmed(preparedDraft.name)}.`;
+      setLastSaveMessage(message);
+      toast.success(message);
       setIsMenuItemModalOpen(false);
       resetMenuItemDraft();
     } catch (error) {
@@ -372,6 +393,18 @@ export const MenuManagementPage = () => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      const message = 'Menu image must be an image file.';
+      setMenuItemError(message);
+      toast.error(message);
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      const message = 'Menu image must be 5 MB or smaller.';
+      setMenuItemError(message);
+      toast.error(message);
+      return;
+    }
 
     try {
       setIsUploadingImage(true);
@@ -392,6 +425,14 @@ export const MenuManagementPage = () => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Category image must be an image file.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      toast.error('Category image must be 5 MB or smaller.');
+      return;
+    }
 
     try {
       setIsUploadingCategoryImage(true);
@@ -452,6 +493,7 @@ export const MenuManagementPage = () => {
     setDraftDiscountMode(normalizeAmount(item.discount) > 0 ? item.discountType : 'none');
     setDraftPriceInput(formatPriceInput(normalizedPrice));
     setMenuItemError('');
+    setSavedMenuImageUrl(asTrimmed(item.imageUrl));
     setIsMenuItemModalOpen(true);
   };
 
@@ -568,20 +610,32 @@ export const MenuManagementPage = () => {
   };
 
   const bulkPreviewLabel = getDiscountDisplayLabel(bulkDiscountMode, asNumberOrZero(bulkDiscountInput));
+  const menuImageStatus = (() => {
+    const imageUrl = asTrimmed(draft.imageUrl);
+    if (isUploadingImage) return { label: 'Uploading', tone: 'warning' as const };
+    if (!imageUrl) return { label: 'No image', tone: 'neutral' as const };
+    if (draft.id && imageUrl === savedMenuImageUrl) return { label: 'Already saved', tone: 'success' as const };
+    return { label: 'Uploaded', tone: 'info' as const };
+  })();
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h2 className="text-lg font-semibold">Manage Menu Items</h2>
-        <p className="text-sm text-[#6B7280]">Add, edit, and validate menu items with optional image upload support.</p>
+      <SectionCard
+        title="Manage Menu Items"
+        subtitle="Add, edit, and validate menu items with optional image upload support."
+        actions={
+          <Button variant="secondary" onClick={handleOpenCreateMenuItemModal}>
+            Add Menu Item
+          </Button>
+        }
+        contentClassName="space-y-3"
+      >
         {categoriesLoading ? <p className="text-sm text-[#6B7280]">Loading categories...</p> : null}
         {categoriesError ? <p className="text-sm text-red-600">{categoriesError}</p> : null}
+        {lastSaveMessage ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{lastSaveMessage}</p> : null}
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-medium">Menu Item Editor</h3>
-          <button className="border rounded px-3 py-1 text-sm" onClick={handleOpenCreateMenuItemModal}>
-            Add New Menu Item
-          </button>
         </div>
         <p className="text-xs text-[#6B7280]">Use the popup editor for adding or updating menu items.</p>
         <div className="space-y-2">
@@ -650,12 +704,12 @@ export const MenuManagementPage = () => {
                       value={bulkItemQuery}
                       onChange={(event) => setBulkItemQuery(event.target.value)}
                     />
-                    <button className="border rounded px-2 py-1 text-sm" type="button" onClick={selectAllVisibleBulkItems}>
+                    <Button variant="outline" size="sm" type="button" onClick={selectAllVisibleBulkItems}>
                       Select Visible
-                    </button>
-                    <button className="border rounded px-2 py-1 text-sm" type="button" onClick={clearBulkSelection}>
+                    </Button>
+                    <Button variant="outline" size="sm" type="button" onClick={clearBulkSelection}>
                       Clear Selection
-                    </button>
+                    </Button>
                   </div>
                   <div className="max-h-44 overflow-auto space-y-1 pr-1">
                     {!bulkSelectableItems.length ? <p className="text-xs text-[#6B7280]">No items match this filter.</p> : null}
@@ -671,12 +725,12 @@ export const MenuManagementPage = () => {
                 </div>
               ) : null}
               <div className="flex gap-2">
-                <button className="border rounded px-3 py-1" onClick={handleApplyBulkDiscount} disabled={isApplyingBulkDiscount}>
+                <Button variant="secondary" onClick={handleApplyBulkDiscount} disabled={isApplyingBulkDiscount}>
                   {isApplyingBulkDiscount ? 'Applying...' : bulkScope === 'all' ? 'Apply To All Items' : 'Apply To Selected Items'}
-                </button>
-                <button className="border rounded px-3 py-1" onClick={handleClearAllDiscounts} disabled={isApplyingBulkDiscount}>
+                </Button>
+                <Button variant="outline" onClick={handleClearAllDiscounts} disabled={isApplyingBulkDiscount}>
                   {bulkScope === 'all' ? 'Clear All Discounts' : 'Clear Selected Discounts'}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
@@ -698,19 +752,18 @@ export const MenuManagementPage = () => {
                       </p>
                       <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p>
                     </div>
-                    <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
+                    <Button variant="outline" size="sm" onClick={() => handleEditMenuItem(item)}>
                       Edit discount
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
             </div>
           ) : null}
         </div>
-      </section>
+      </SectionCard>
 
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h3 className="font-medium">Manage Categories</h3>
+      <SectionCard title="Manage Categories" subtitle="Keep customer-facing menu groups organized." contentClassName="space-y-3">
         <div className="grid md:grid-cols-3 gap-2">
           <input
             className="border rounded px-2 py-1"
@@ -753,16 +806,14 @@ export const MenuManagementPage = () => {
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="border rounded px-3 py-1" onClick={handleSaveCategory}>
-            Save Category
-          </button>
+          <Button variant="secondary" onClick={handleSaveCategory}>Save Category</Button>
           {categoryDraft.id ? (
-            <button className="border rounded px-3 py-1" onClick={() => setCategoryDraft(defaultCategoryDraft)}>
+            <Button variant="outline" onClick={() => setCategoryDraft(defaultCategoryDraft)}>
               Cancel Edit
-            </button>
+            </Button>
           ) : null}
         </div>
-        <div className="space-y-2">
+        <div className="max-h-80 space-y-2 overflow-auto pr-1">
           {categories.map((category) => (
             <div key={category.id} className="border rounded p-2 text-sm flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -778,25 +829,25 @@ export const MenuManagementPage = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="border rounded px-2 py-1" onClick={() => setCategoryDraft(category)}>
+                <Button variant="outline" size="sm" onClick={() => setCategoryDraft(category)}>
                   Edit
-                </button>
-                <button className="border rounded px-2 py-1" onClick={() => handleDeleteCategory(category.id)}>
+                </Button>
+                <Button variant="danger" size="sm" onClick={() => handleDeleteCategory(category.id)}>
                   Delete
-                </button>
+                </Button>
               </div>
             </div>
           ))}
         </div>
-      </section>
+      </SectionCard>
 
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-4">
+      <SectionCard title="Menu List" subtitle="Showing 10 items per category by default to keep the page scannable." contentClassName="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-medium">Manage Menu Items</h3>
           <input className="border rounded px-2 py-1 text-sm" placeholder="Search item name" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
         <div className="space-y-4">
-          {!filtered.length ? <p className="text-sm text-[#6B7280]">No menu items match your search.</p> : null}
+          {!filtered.length ? <EmptyState title="No menu items found" message="Try another search or add a new menu item." /> : null}
           {categoryTabs.length > 1 ? (
             <div className="space-y-2">
               <p className="text-sm font-medium">Menu Categories</p>
@@ -819,13 +870,17 @@ export const MenuManagementPage = () => {
               </div>
             </div>
           ) : null}
-          {visibleGroupedMenuItems.map((group) => (
+          <div className="max-h-[640px] space-y-4 overflow-auto pr-1">
+          {visibleGroupedMenuItems.map((group) => {
+            const isExpanded = expandedGroupSet.has(group.id);
+            const visibleItems = isExpanded ? group.items : group.items.slice(0, MENU_GROUP_PREVIEW_LIMIT);
+            return (
             <div key={group.id} className="rounded border border-dashed p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="font-semibold text-sm">{group.name}</h4>
                 <StatusChip label={`${group.items.length} item${group.items.length === 1 ? '' : 's'}`} tone="neutral" />
               </div>
-              {group.items.map((item) => (
+              {visibleItems.map((item) => (
                 <div key={item.id} className="border rounded p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
                   <div className="flex-1 min-w-[260px]">
                     <p className="font-medium">
@@ -848,29 +903,41 @@ export const MenuManagementPage = () => {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 items-center">
-                    <button className="border rounded px-2 py-1" onClick={() => handleEditMenuItem(item)}>
+                    <Button variant="outline" size="sm" onClick={() => handleEditMenuItem(item)}>
                       Edit
-                    </button>
-                    <button className="border rounded px-2 py-1" onClick={() => handleDeleteMenuItem(item.id)}>
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => handleDeleteMenuItem(item.id)}>
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
+              {group.items.length > MENU_GROUP_PREVIEW_LIMIT ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setExpandedGroupIds((current) => (current.includes(group.id) ? current.filter((id) => id !== group.id) : [...current, group.id]))
+                  }
+                >
+                  {isExpanded ? 'Show Less' : `Show All ${group.items.length}`}
+                </Button>
+              ) : null}
             </div>
-          ))}
+          )})}
+          </div>
         </div>
-      </section>
+      </SectionCard>
 
       {isMenuItemModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button className="absolute inset-0 bg-black/40" onClick={handleCloseMenuItemModal} aria-label="Close menu item editor overlay" />
-          <div className="relative w-full max-w-4xl rounded-lg border bg-white p-4 space-y-3 shadow-xl">
+          <div className="relative w-full max-w-4xl rounded-lg border bg-white p-4 space-y-3 shadow-xl max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between gap-3">
-              <h4 className="font-medium">{draft.id ? `Edit Menu Item: ${draft.name}` : 'Add New Menu Item'}</h4>
-              <button className="border rounded px-2 py-1 text-sm" onClick={handleCloseMenuItemModal} aria-label="Close menu item editor">
+              <h4 className="font-medium">{draft.id ? draft.name || 'Edit Menu Item' : 'Add Menu Item'}</h4>
+              <Button variant="outline" size="sm" onClick={handleCloseMenuItemModal} aria-label="Close menu item editor">
                 Close
-              </button>
+              </Button>
             </div>
 
             {menuItemError ? <p className="text-sm text-red-600">{menuItemError}</p> : null}
@@ -1032,17 +1099,18 @@ export const MenuManagementPage = () => {
                   disabled={isUploadingImage}
                 />
               </label>
-              <p className="text-xs text-[#6B7280]">{isUploadingImage ? 'Uploading image...' : 'Uploads use Supabase Storage bucket "menu-images".'}</p>
+              <StatusChip label={menuImageStatus.label} tone={menuImageStatus.tone} />
+              <p className="text-xs text-[#6B7280]">Uploads use Supabase Storage bucket "menu-images". JPG, PNG, or WebP under 5 MB.</p>
               {draft.imageUrl ? <Image src={draft.imageUrl} alt={draft.name || 'menu image'} className="h-14 w-14 rounded object-cover border" /> : null}
             </div>
 
             <div className="flex gap-2">
-              <button className="border rounded px-3 py-1" onClick={handleSaveMenuItem}>
-                {draft.id ? 'Update Menu Item' : 'Add New Menu Item'}
-              </button>
-              <button className="border rounded px-3 py-1" onClick={handleCloseMenuItemModal}>
+              <Button variant="secondary" onClick={handleSaveMenuItem}>
+                {draft.id ? 'Save Changes' : 'Save'}
+              </Button>
+              <Button variant="outline" onClick={handleCloseMenuItemModal}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         </div>

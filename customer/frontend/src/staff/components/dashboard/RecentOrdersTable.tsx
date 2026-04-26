@@ -1,4 +1,5 @@
 import { formatCurrency } from '@/utils/currency';
+import { EmptyState } from '@/components/ui';
 import type { Order } from '@/types/order';
 
 const customerLabel = (order: Order) => {
@@ -20,6 +21,8 @@ const customerLabel = (order: Order) => {
 export const RecentOrdersTable = ({ title, rows }: { title: string; rows: Order[] }) => (
   <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3 overflow-auto">
     <h3 className="font-medium">{title}</h3>
+    {!rows.length ? <EmptyState title="No recent orders" message="Recent orders will appear when customers place orders." /> : null}
+    {rows.length ? (
     <table className="w-full text-sm min-w-[640px]">
       <thead>
         <tr className="text-left">
@@ -42,5 +45,6 @@ export const RecentOrdersTable = ({ title, rows }: { title: string; rows: Order[
         ))}
       </tbody>
     </table>
+    ) : null}
   </section>
 );

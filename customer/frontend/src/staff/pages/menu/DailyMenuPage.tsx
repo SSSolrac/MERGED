@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { Button, EmptyState, SectionCard, StatusChip } from '@/components/ui';
 import { useDailyMenu } from '@/hooks/useDailyMenu';
 import { useMenuItems } from '@/hooks/useMenuItems';
 import type { DailyMenu, DailyMenuItem } from '@/types/dailyMenu';
@@ -35,6 +36,8 @@ export const DailyMenuPage = () => {
   const selectedMenuItemIds = useMemo(() => new Set(draft.items.map((item) => item.menuItemId)), [draft.items]);
   const selectedMenuItem = menuItemToAdd ? byId.get(menuItemToAdd) : null;
   const isSelectedItemAlreadyAdded = Boolean(menuItemToAdd && selectedMenuItemIds.has(menuItemToAdd));
+  const previewItems = draft.items.slice(0, 5);
+  const previewOverflowCount = Math.max(0, draft.items.length - previewItems.length);
 
   if (loading) return <p>Loading daily menu...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
@@ -60,18 +63,12 @@ export const DailyMenuPage = () => {
 
   return (
     <div className="grid lg:grid-cols-2 gap-4">
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">Edit Daily Menu</h2>
-            <p className="text-sm text-[#6B7280] dark:text-slate-300">Build and publish daily menus from canonical daily menu tables.</p>
-          </div>
-          <span
-            className={`text-xs px-2 py-1 rounded ${draft.isPublished ? 'bg-green-100 text-green-700' : 'bg-[#FFE4E8] text-slate-700'}`}
-          >
-            {draft.isPublished ? 'Published' : 'Draft'}
-          </span>
-        </div>
+      <SectionCard
+        title="Edit Daily Menu"
+        subtitle="Build and publish the customer-facing Menu of the Day."
+        actions={<StatusChip label={draft.isPublished ? 'Published' : 'Draft'} tone={draft.isPublished ? 'success' : 'neutral'} />}
+        contentClassName="space-y-4"
+      >
 
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="text-sm">
@@ -97,9 +94,9 @@ export const DailyMenuPage = () => {
                   </option>
                 ))}
               </select>
-              <button className="border rounded px-2 py-1" onClick={addItem} disabled={!menuItemToAdd || isSelectedItemAlreadyAdded}>
+              <Button variant="secondary" size="sm" onClick={addItem} disabled={!menuItemToAdd || isSelectedItemAlreadyAdded}>
                 {isSelectedItemAlreadyAdded ? 'Already Added' : 'Add Menu Item'}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -117,30 +114,30 @@ export const DailyMenuPage = () => {
               </span>
             </div>
             {draft.items.length ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="max-h-72 space-y-2 overflow-auto pr-1">
                 {draft.items.map((item) => {
                   const menuItem = byId.get(item.menuItemId);
                   const label = menuItem ? menuItem.name : item.menuItemId;
                   return (
-                    <span key={`pill-${item.menuItemId}`} className="inline-flex items-center gap-2 rounded-full bg-[#FFE4E8] px-3 py-1 text-sm text-slate-700">
-                      {label}
-                      <button className="text-xs underline" onClick={() => removeItem(item.menuItemId)} type="button">
+                    <div key={`selected-${item.menuItemId}`} className="flex items-center justify-between gap-3 rounded border bg-white p-2 text-sm">
+                      <span className="font-medium">{label}</span>
+                      <Button variant="outline" size="sm" onClick={() => removeItem(item.menuItemId)} type="button">
                         Remove
-                      </button>
-                    </span>
+                      </Button>
+                    </div>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-sm text-[#6B7280]">No items selected yet. Choose an item above, then click Add Menu Item.</p>
+              <EmptyState title="No items selected" message="Choose an item above, then add it to the Menu of the Day." />
             )}
           </div>
 
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            className="border rounded px-3 py-1"
+          <Button
+            variant="outline"
             disabled={saving}
             onClick={async () => {
               const saved = await saveDraft({ ...draft, menuDate });
@@ -149,9 +146,9 @@ export const DailyMenuPage = () => {
             }}
           >
             Save Daily Menu Draft
-          </button>
-          <button
-            className="border rounded px-3 py-1"
+          </Button>
+          <Button
+            variant="secondary"
             disabled={saving}
             onClick={async () => {
               const saved = await publish({ ...draft, menuDate });
@@ -160,9 +157,9 @@ export const DailyMenuPage = () => {
             }}
           >
             Publish Daily Menu
-          </button>
-          <button
-            className="border rounded px-3 py-1"
+          </Button>
+          <Button
+            variant="outline"
             disabled={saving}
             onClick={async () => {
               const saved = await unpublish();
@@ -171,9 +168,9 @@ export const DailyMenuPage = () => {
             }}
           >
             Unpublish Daily Menu
-          </button>
-          <button
-            className="border rounded px-3 py-1"
+          </Button>
+          <Button
+            variant="danger"
             disabled={saving}
             onClick={async () => {
               const saved = await clearMenu();
@@ -182,17 +179,18 @@ export const DailyMenuPage = () => {
             }}
           >
             Clear Daily Menu
-          </button>
+          </Button>
         </div>
-      </section>
+      </SectionCard>
 
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-        <h3 className="font-semibold">Owner Preview</h3>
-        <p className="text-sm">Date: {menuDate}</p>
-        <p className="text-sm">State: {draft.isPublished ? 'Live for customers' : 'Not currently visible to customers'}</p>
+      <SectionCard
+        title="Menu of the Day Preview"
+        subtitle={`${menuDate} - ${draft.isPublished ? 'Live for customers' : 'Not currently visible to customers'}`}
+        contentClassName="space-y-3"
+      >
         <div className="space-y-2">
           {draft.items.length ? (
-            draft.items.map((item) => {
+            previewItems.map((item) => {
               const menuItem = byId.get(item.menuItemId);
               const label = menuItem ? menuItem.name : item.menuItemId;
               return (
@@ -202,10 +200,11 @@ export const DailyMenuPage = () => {
               );
             })
           ) : (
-            <p className="text-sm text-[#6B7280]">No selected items to preview yet.</p>
+            <EmptyState title="No preview yet" message="Add menu items to show a useful owner preview." />
           )}
+          {previewOverflowCount > 0 ? <p className="text-sm text-[#6B7280]">+{previewOverflowCount} more item{previewOverflowCount === 1 ? '' : 's'} selected.</p> : null}
         </div>
-      </section>
+      </SectionCard>
     </div>
   );
 };

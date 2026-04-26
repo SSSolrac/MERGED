@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DateRangeFilter } from '@/components/dashboard';
-import { PaymentQrPreview, StatusChip } from '@/components/ui';
+import { Button, EmptyState, PaginationControls, PaymentQrPreview, SectionCard, StatusChip } from '@/components/ui';
 import { useOrders } from '@/hooks/useOrders';
 import { paymentMethodToLabel } from '@/utils/payment';
 import { formatCurrency } from '@/utils/currency';
@@ -21,6 +21,7 @@ const statuses: Array<OrderStatus | 'all'> = [
 ];
 
 const statusUpdateOptions: OrderStatus[] = statuses.filter((value): value is OrderStatus => value !== 'all');
+const PAGE_SIZE = 10;
 
 const statusTone = (status: OrderStatus) => {
   if (status === 'completed' || status === 'delivered') return 'success';
@@ -63,11 +64,18 @@ const customerLabel = (order: Order) => {
   return 'Guest';
 };
 
+const formatDate = (value: string | null | undefined) => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString();
+};
+
 export const OrdersPage = () => {
   const { orders, loading, error, query, status, range, setQuery, setStatus, setRange, getOrderById, confirmPayment, updateStatus } =
     useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [expandedReceiptUrl, setExpandedReceiptUrl] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const requestCancellationReason = (orderCode: string) => {
     const response = window.prompt(`Enter cancellation reason for ${orderCode}:`, '');
@@ -98,18 +106,24 @@ export const OrdersPage = () => {
         .map((item) => ({ status: item, total: orders.filter((order) => order.status === item).length })),
     [orders],
   );
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(orders.length / PAGE_SIZE)), [orders.length]);
+  const visibleOrders = useMemo(() => orders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [orders, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, status, range]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   if (loading) return <p>Loading orders...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
+      <SectionCard title="View Orders" subtitle="Track order progress, confirm payments, and update status in the shared backend." contentClassName="space-y-3">
         <div className="flex flex-wrap items-end gap-3 justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">View Orders</h2>
-            <p className="text-sm text-[#6B7280]">Track order progress, confirm payments, and update status in the shared backend.</p>
-          </div>
           <DateRangeFilter value={range} onChange={setRange} />
         </div>
 
@@ -142,13 +156,18 @@ export const OrdersPage = () => {
             </div>
           ))}
         </div>
-      </section>
+      </SectionCard>
 
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 overflow-auto">
-        <table className="w-full text-sm min-w-[1120px]">
+      <SectionCard title="Order History" subtitle="Showing 10 orders by default. Open details for full customer, payment, and item information.">
+        {!visibleOrders.length ? (
+          <EmptyState title="No orders found" message="Try another status, date range, or search term." />
+        ) : (
+          <div className="overflow-auto">
+        <table className="w-full text-sm min-w-[1220px]">
           <thead>
             <tr className="text-left">
               <th>Order</th>
+              <th>Date</th>
               <th>Customer</th>
               <th>Type</th>
               <th>Items</th>
@@ -159,15 +178,17 @@ export const OrdersPage = () => {
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => {
+            {visibleOrders.map((order) => {
               const itemsCount = (order.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
-              const paymentLabel = order.paymentMethod ? paymentMethodToLabel(order.paymentMethod) : '—';
+              const paymentLabel = order.paymentMethod ? paymentMethodToLabel(order.paymentMethod) : '-';
+              const orderType = String(order.orderType || 'takeout').replaceAll('_', ' ');
 
               return (
                 <tr className="border-t" key={order.id}>
                   <td className="font-medium">{order.code}</td>
+                  <td>{formatDate(order.placedAt || order.createdAt)}</td>
                   <td>{customerLabel(order)}</td>
-                  <td className="capitalize">{order.orderType.replaceAll('_', ' ')}</td>
+                  <td className="capitalize">{orderType}</td>
                   <td>{itemsCount} items</td>
                   <td>{formatCurrency(order.totalAmount)}</td>
                   <td>
@@ -195,22 +216,24 @@ export const OrdersPage = () => {
                     </div>
                   </td>
                   <td className="capitalize">
-                    {order.paymentStatus} · {paymentLabel}
+                    {order.paymentStatus} - {paymentLabel}
                   </td>
                   <td>
                     <div className="flex flex-wrap gap-2 items-center">
-                      <button
-                        className="border rounded px-2 py-1"
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={async () => {
                           const full = await getOrderById(order.id);
                           setSelectedOrder(full);
                           setExpandedReceiptUrl(null);
                         }}
                       >
-                        View Order Details
-                      </button>
-                      <button
-                        className="border rounded px-2 py-1 disabled:opacity-50"
+                        View Details
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         disabled={order.paymentStatus === 'paid'}
                         onClick={async () => {
                           const updated = await confirmPayment(order.id);
@@ -218,16 +241,17 @@ export const OrdersPage = () => {
                         }}
                       >
                         {order.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
-                      </button>
-                      <button
-                        className="border rounded px-2 py-1 disabled:opacity-50"
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
                         disabled={order.status === 'cancelled'}
                         onClick={async () => {
                           await cancelOrderWithReason(order);
                         }}
                       >
                         {order.status === 'cancelled' ? 'Cancelled' : 'Cancel Order'}
-                      </button>
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -235,22 +259,26 @@ export const OrdersPage = () => {
             })}
           </tbody>
         </table>
-      </section>
+          </div>
+        )}
+        <PaginationControls page={page} totalPages={totalPages} totalItems={orders.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="orders" />
+      </SectionCard>
 
       {selectedOrder && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-20">
           <div className="w-full max-w-4xl rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">Order details: {selectedOrder.code}</h3>
-              <button
-                className="border rounded px-2 py-1"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setSelectedOrder(null);
                   setExpandedReceiptUrl(null);
                 }}
               >
                 Close
-              </button>
+              </Button>
             </div>
 
             <div className="grid md:grid-cols-2 gap-3 text-sm">
@@ -269,7 +297,7 @@ export const OrdersPage = () => {
                 </p>
                 <p className="capitalize">
                   <strong>Payment:</strong> {selectedOrder.paymentStatus} via{' '}
-                  {selectedOrder.paymentMethod ? paymentMethodToLabel(selectedOrder.paymentMethod) : '—'}
+                  {selectedOrder.paymentMethod ? paymentMethodToLabel(selectedOrder.paymentMethod) : '-'}
                 </p>
                 {selectedOrder.orderType === 'delivery' && (
                   <p className="whitespace-normal break-words">
@@ -282,7 +310,7 @@ export const OrdersPage = () => {
                 <p className="font-medium">Amount Breakdown</p>
                 {(selectedOrder.items ?? []).map((item) => (
                   <p key={item.id}>
-                    {item.quantity} × {item.itemName} · {formatCurrency(item.lineTotal || item.quantity * item.unitPrice)}
+                    {item.quantity} x {item.itemName} - {formatCurrency(item.lineTotal || item.quantity * item.unitPrice)}
                   </p>
                 ))}
                 <p>Subtotal: {formatCurrency(selectedOrder.subtotal)}</p>
@@ -309,13 +337,9 @@ export const OrdersPage = () => {
                         className="h-36 rounded border object-cover cursor-zoom-in"
                       />
                     </button>
-                    <button
-                      type="button"
-                      className="border rounded px-2 py-1 text-xs"
-                      onClick={() => setExpandedReceiptUrl(selectedOrder.receiptImageUrl)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => setExpandedReceiptUrl(selectedOrder.receiptImageUrl)}>
                       Enlarge receipt
-                    </button>
+                    </Button>
                   </div>
                 ) : (
                   <p className="text-sm text-[#6B7280]">No proof attached yet.</p>
@@ -342,8 +366,8 @@ export const OrdersPage = () => {
             </div>
 
             <div className="flex gap-2">
-              <button
-                className="border rounded px-3 py-1 disabled:opacity-50"
+              <Button
+                variant="secondary"
                 disabled={selectedOrder.paymentStatus === 'paid'}
                 onClick={async () => {
                   const updated = await confirmPayment(selectedOrder.id);
@@ -352,16 +376,16 @@ export const OrdersPage = () => {
                 }}
               >
                 {selectedOrder.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
-              </button>
-              <button
-                className="border rounded px-3 py-1 disabled:opacity-50"
+              </Button>
+              <Button
+                variant="danger"
                 disabled={selectedOrder.status === 'cancelled'}
                 onClick={async () => {
                   await cancelOrderWithReason(selectedOrder);
                 }}
               >
                 {selectedOrder.status === 'cancelled' ? 'Cancelled' : 'Cancel Order'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -378,9 +402,9 @@ export const OrdersPage = () => {
           >
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">Receipt preview</h3>
-              <button type="button" className="border rounded px-2 py-1" onClick={() => setExpandedReceiptUrl(null)}>
+              <Button variant="outline" size="sm" onClick={() => setExpandedReceiptUrl(null)}>
                 Close
-              </button>
+              </Button>
             </div>
             <img
               src={expandedReceiptUrl}

@@ -2,7 +2,7 @@ export const DailyMenuPreview = ({ menuDate, isPublished, items }: { menuDate: s
   <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-4">
     <div className="flex items-center justify-between">
       <div>
-        <h3 className="font-medium">Current Menu of the Day</h3>
+        <h3 className="font-medium">Menu of the Day</h3>
         <p className="text-sm text-[#6B7280]">Date: {menuDate}</p>
       </div>
       <span className={`text-xs px-2 py-1 rounded ${isPublished ? 'bg-green-100 text-green-700' : 'bg-[#FFE4E8] text-slate-700'}`}>
@@ -11,11 +11,13 @@ export const DailyMenuPreview = ({ menuDate, isPublished, items }: { menuDate: s
     </div>
 
     <div className="space-y-2">
-      {items.map((item) => (
+      {items.slice(0, 5).map((item) => (
         <div key={item} className="border rounded p-3">
           <p className="font-medium">{item}</p>
         </div>
       ))}
+      {items.length > 5 ? <p className="text-sm text-[#6B7280]">+{items.length - 5} more item{items.length - 5 === 1 ? '' : 's'}.</p> : null}
+      {!items.length ? <p className="text-sm text-[#6B7280]">No Menu of the Day selected yet.</p> : null}
     </div>
   </section>
 );

@@ -1,7 +1,7 @@
 import type { CustomerProfile } from '@/types/customer';
 import type { DailyMenu, DailyMenuItem } from '@/types/dailyMenu';
 import type { Ingredient, RecipeLine } from '@/types/ingredient';
-import type { InventoryCategory, InventoryItem } from '@/types/inventory';
+import type { InventoryCategory, InventoryItem, InventoryMovement, InventoryRecipeLine } from '@/types/inventory';
 import type { LoyaltyAccount, Reward } from '@/types/loyalty';
 import type { MenuCategory, MenuItem } from '@/types/menuItem';
 import type { Order, OrderItem, OrderStatusHistoryItem, PaymentMethod, PaymentStatus } from '@/types/order';
@@ -34,6 +34,15 @@ const readJobTitle = (value: unknown) => {
 const asDiscountType = (value: unknown): MenuItem['discountType'] => {
   const text = asString(value, '').trim().toLowerCase();
   return text === 'percent' ? 'percent' : 'amount';
+};
+const asInventoryItemType = (value: unknown): InventoryItem['itemType'] => {
+  const text = asString(value, '').trim().toLowerCase();
+  return text === 'finished_product' ? 'finished_product' : 'raw_material';
+};
+const asInventoryMovementType = (value: unknown): InventoryMovement['movementType'] => {
+  const text = asString(value, '').trim().toLowerCase();
+  if (text === 'stock_out' || text === 'waste' || text === 'production') return text;
+  return 'stock_in';
 };
 
 const asIsoString = (value: unknown, fallback: string) => {
@@ -179,9 +188,43 @@ export const mapInventoryItemRow = (row: unknown): InventoryItem => {
     reorderLevel: asNumber(r.reorder_level, 0),
     displayQuantity: r.display_quantity == null ? null : asString(r.display_quantity, ''),
     notes: r.notes == null ? null : asString(r.notes, ''),
+    itemType: asInventoryItemType(r.item_type),
+    recipeYieldQuantity: Math.max(1, asNumber(r.recipe_yield_quantity, 1)),
     isActive: asBoolean(r.is_active, true),
     createdAt: asIsoString(r.created_at, now),
     updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
+  };
+};
+
+export const mapInventoryRecipeLineRow = (row: unknown): InventoryRecipeLine => {
+  const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: asString(r.id, ''),
+    finishedItemId: asString(r.finished_item_id, ''),
+    rawItemId: asString(r.raw_item_id, ''),
+    quantityRequired: asNumber(r.quantity_required, 0),
+    unit: r.unit == null ? null : asString(r.unit, ''),
+    createdAt: asIsoString(r.created_at, now),
+    updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
+  };
+};
+
+export const mapInventoryMovementRow = (row: unknown): InventoryMovement => {
+  const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: asString(r.id, ''),
+    itemId: asString(r.inventory_item_id, ''),
+    movementType: asInventoryMovementType(r.movement_type),
+    quantityDelta: asNumber(r.quantity_delta, 0),
+    quantityBefore: asNumber(r.quantity_before, 0),
+    quantityAfter: asNumber(r.quantity_after, 0),
+    reason: r.reason == null ? null : asString(r.reason, ''),
+    referenceId: r.reference_id == null ? null : asString(r.reference_id, ''),
+    metadata: asRecord(r.metadata),
+    createdBy: r.created_by == null ? null : asString(r.created_by, ''),
+    createdAt: asIsoString(r.created_at, now),
   };
 };
 

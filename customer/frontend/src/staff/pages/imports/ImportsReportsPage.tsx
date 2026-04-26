@@ -4,7 +4,7 @@ import { csvImportService } from '@/services/csvImportService';
 import type { DateRangePreset } from '@/types/dashboard';
 import { formatCurrency } from '@/utils/currency';
 
-const HISTORY_PAGE_SIZE = 8;
+const HISTORY_PAGE_SIZE = 10;
 const SALES_PAGE_SIZE = 10;
 const paginationButtonClass =
   'rounded-lg border border-[#F3D6DB] bg-white px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-[#FFF3F5] disabled:cursor-not-allowed disabled:opacity-50';

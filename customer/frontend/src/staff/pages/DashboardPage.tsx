@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertsPanel, DateRangeFilter, RecentOrdersTable, TopItemsChart } from '@/components/dashboard';
+import { AlertsPanel, DateRangeFilter, RecentOrdersTable, TopItemsChart, type TopItemChartDatum } from '@/components/dashboard';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/utils/currency';
@@ -9,6 +9,7 @@ import type { Order } from '@/types/order';
 
 type ChartPreset = 'area' | 'line' | 'bar';
 type GroupPreset = 'days' | 'weeks' | 'months';
+type FinancialCard = 'gross' | 'refunds' | 'discounts' | 'net' | 'profit';
 
 const toSafeDate = (value: string) => {
   const parsed = new Date(value);
@@ -75,6 +76,23 @@ const resolveOrderAmount = (order: Order) => {
   return Math.max(0, subtotal - discount);
 };
 
+const asMoney = (value: unknown) => {
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numberValue) ? Math.round(numberValue * 100) / 100 : 0;
+};
+const roundCurrency = asMoney;
+
+const deliveryFeeForOrder = (order: Order) => {
+  if (order.orderType !== 'delivery') return 0;
+  const address = order.deliveryAddress;
+  if (address && typeof address === 'object' && !Array.isArray(address)) {
+    const record = address as Record<string, unknown>;
+    const savedFee = asMoney(record.deliveryFee ?? record.delivery_fee);
+    if (savedFee > 0) return savedFee;
+  }
+  return Math.max(0, asMoney(order.totalAmount) - Math.max(0, asMoney(order.subtotal) - asMoney(order.discountTotal)));
+};
+
 const normalizeStatusValue = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
 
 const deriveAccountingParts = (order: Order) => {
@@ -85,14 +103,18 @@ const deriveAccountingParts = (order: Order) => {
   const subtotal = Number.isFinite(order.subtotal) ? Math.max(0, order.subtotal) : 0;
   const discountTotal = Number.isFinite(order.discountTotal) ? Math.max(0, order.discountTotal) : 0;
   const totalAmount = resolveOrderAmount(order);
-  const grossSales = Math.max(totalAmount + discountTotal, subtotal, totalAmount);
+  const deliveryFee = deliveryFeeForOrder(order);
+  const grossSales = Math.max(subtotal, totalAmount + discountTotal - deliveryFee, totalAmount - deliveryFee);
   const refunded = isRefunded ? (totalAmount > 0 ? totalAmount : Math.max(grossSales - discountTotal, 0)) : 0;
-  const netSales = isCancelled ? 0 : Math.max(grossSales - discountTotal - refunded, 0);
+  const cancellations = isCancelled ? Math.max(grossSales - discountTotal + deliveryFee, 0) : 0;
+  const netSales = isCancelled ? 0 : Math.max(grossSales - discountTotal + deliveryFee - refunded, 0);
 
   return {
     grossSales: isCancelled ? 0 : grossSales,
     discountTotal: isCancelled ? 0 : discountTotal,
+    deliveryFee: isCancelled ? 0 : deliveryFee,
     refunded,
+    cancellations,
     netSales,
   };
 };
@@ -103,6 +125,7 @@ export const DashboardPage = () => {
   const { data, loading, error, selectedRange, setSelectedRange } = useDashboardData();
   const [chartPreset, setChartPreset] = useState<ChartPreset>('area');
   const [groupBy, setGroupBy] = useState<GroupPreset>('days');
+  const [selectedFinancialCard, setSelectedFinancialCard] = useState<FinancialCard>('gross');
 
   const rangeLabel = (preset: DateRangePreset) => {
     const map: Record<DateRangePreset, string> = {
@@ -143,23 +166,52 @@ export const DashboardPage = () => {
       }));
   }, [filteredOrders, groupBy]);
 
-  const topItemsForView = useMemo(() => {
-    const fromOrders = new Map<string, number>();
+  const topItemsForView = useMemo<TopItemChartDatum[]>(() => {
+    const fromOrders = new Map<string, { quantity: number; revenue: number; estimatedCost: number; hasCostData: boolean }>();
     filteredOrders.forEach((order) => {
+      const orderRevenue = (order.items ?? []).reduce((sum, item) => {
+        const quantity = Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+        const lineTotal = Number.isFinite(item.lineTotal) && item.lineTotal > 0 ? item.lineTotal : Math.max(0, item.unitPrice - item.discountAmount) * quantity;
+        return sum + lineTotal;
+      }, 0);
+      const orderCost = Number.isFinite(order.costOfGoods) ? Math.max(0, order.costOfGoods ?? 0) : 0;
       (order.items ?? []).forEach((item) => {
         const label = item.itemName?.trim() || 'Unknown item';
-        fromOrders.set(label, (fromOrders.get(label) ?? 0) + (Number.isFinite(item.quantity) ? item.quantity : 0));
+        const quantity = Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+        const revenue = Number.isFinite(item.lineTotal) && item.lineTotal > 0 ? item.lineTotal : Math.max(0, item.unitPrice - item.discountAmount) * quantity;
+        const allocatedCost = orderCost > 0 && orderRevenue > 0 ? (orderCost * revenue) / orderRevenue : 0;
+        const current = fromOrders.get(label) ?? { quantity: 0, revenue: 0, estimatedCost: 0, hasCostData: false };
+        current.quantity += quantity;
+        current.revenue += revenue;
+        current.estimatedCost += allocatedCost;
+        current.hasCostData = current.hasCostData || allocatedCost > 0;
+        fromOrders.set(label, current);
       });
     });
 
     if (!fromOrders.size) {
-      return (data?.topItems ?? []).map((item) => ({ label: item.itemName, value: item.quantity }));
+      return (data?.topItems ?? []).map((item) => ({
+        label: item.itemName,
+        quantity: item.quantity,
+        revenue: item.revenue,
+        estimatedProfit: null,
+        marginPct: null,
+      }));
     }
 
     return Array.from(fromOrders.entries())
-      .sort((a, b) => b[1] - a[1])
+      .sort((a, b) => b[1].quantity - a[1].quantity)
       .slice(0, 10)
-      .map(([label, value]) => ({ label, value }));
+      .map(([label, item]) => {
+        const estimatedProfit = item.hasCostData ? roundCurrency(item.revenue - item.estimatedCost) : null;
+        return {
+          label,
+          quantity: item.quantity,
+          revenue: roundCurrency(item.revenue),
+          estimatedProfit,
+          marginPct: estimatedProfit == null || item.revenue <= 0 ? null : (estimatedProfit / item.revenue) * 100,
+        };
+      });
   }, [data, filteredOrders]);
 
   const recentRows = useMemo(
@@ -176,17 +228,35 @@ export const DashboardPage = () => {
   const grossSales = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).grossSales, 0);
   const refundsTotal = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).refunded, 0);
   const discountsTotal = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).discountTotal, 0);
-  const netSales = Math.max(0, grossSales - refundsTotal - discountsTotal);
+  const deliveryFeesTotal = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).deliveryFee, 0);
+  const cancellationsTotal = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).cancellations, 0);
+  const netSales = filteredOrders.reduce((sum, order) => sum + deriveAccountingParts(order).netSales, 0);
   const costOfGoodsTotal = filteredOrders.reduce((sum, order) => sum + (Number.isFinite(order.costOfGoods) ? Math.max(0, order.costOfGoods ?? 0) : 0), 0);
   const netProfitEstimate = netSales - costOfGoodsTotal;
+  const profitMarginPct = costOfGoodsTotal > 0 && netSales > 0 ? (netProfitEstimate / netSales) * 100 : null;
+  const hasCostData = costOfGoodsTotal > 0;
+  const midpoint = Math.ceil(salesSeries.length / 2);
+  const earlierSales = salesSeries.slice(0, midpoint).reduce((sum, point) => sum + point.sales, 0);
+  const laterSales = salesSeries.slice(midpoint).reduce((sum, point) => sum + point.sales, 0);
+  const insightMessages = [
+    filteredOrders.length >= 2 && laterSales < earlierSales ? 'Profit was lower because sales volume dropped.' : null,
+    hasCostData && profitMarginPct != null && profitMarginPct < 20 && grossSales > 0 ? 'High sales but low profit may indicate high ingredient cost.' : null,
+    'Not enough data yet to link waste changes to profit.',
+  ].filter(Boolean) as string[];
 
-  const SummaryCard = ({ title, value, subtitle }: { title: string; value: string; subtitle: string }) => (
-    <div className="rounded-lg border bg-white p-4 shadow-sm">
+  const SummaryCard = ({ title, value, subtitle, cardKey }: { title: string; value: string; subtitle: string; cardKey: FinancialCard }) => (
+    <button
+      type="button"
+      className={`rounded-lg border bg-white p-4 text-left shadow-sm transition-colors hover:bg-[#FFF3F5] ${
+        selectedFinancialCard === cardKey ? 'border-[#2B7A87] ring-2 ring-[#2B7A87]/20' : ''
+      }`}
+      onClick={() => setSelectedFinancialCard(cardKey)}
+    >
       <p className="text-xs text-slate-500">{title}</p>
       <p className="text-2xl font-semibold tracking-tight">{value}</p>
       <p className="text-xs text-slate-500">{subtitle}</p>
       <div className="mt-3 h-0.5 w-full bg-[#FF8FA3] opacity-70" />
-    </div>
+    </button>
   );
 
   return (
@@ -208,11 +278,66 @@ export const DashboardPage = () => {
       {isOwner ? (
         <>
           <div className="grid gap-3 lg:grid-cols-5">
-            <SummaryCard title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
-            <SummaryCard title="Refunds" value={formatCurrency(refundsTotal)} subtitle={rangeLabel(selectedRange)} />
-            <SummaryCard title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
-            <SummaryCard title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
-            <SummaryCard title="Net profit" value={formatCurrency(netProfitEstimate)} subtitle={`After menu item costs (${rangeLabel(selectedRange)})`} />
+            <SummaryCard cardKey="gross" title="Gross sales" value={formatCurrency(grossSales)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard cardKey="refunds" title="Refunds" value={formatCurrency(refundsTotal + cancellationsTotal)} subtitle="Refunds and cancellations" />
+            <SummaryCard cardKey="discounts" title="Discounts" value={formatCurrency(discountsTotal)} subtitle={`${filteredOrders.length} filtered orders`} />
+            <SummaryCard cardKey="net" title="Net sales" value={formatCurrency(netSales)} subtitle={rangeLabel(selectedRange)} />
+            <SummaryCard
+              cardKey="profit"
+              title="Net profit"
+              value={hasCostData ? formatCurrency(netProfitEstimate) : 'Not enough data yet.'}
+              subtitle={hasCostData ? `After menu item costs (${rangeLabel(selectedRange)})` : 'Cost data unavailable'}
+            />
+          </div>
+
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-medium">Sales Breakdown</h3>
+                <p className="text-sm text-[#6B7280]">Selected card: {selectedFinancialCard.replaceAll('_', ' ')}</p>
+              </div>
+              <p className="text-sm text-[#6B7280]">{filteredOrders.length} order{filteredOrders.length === 1 ? '' : 's'} in range</p>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Gross sales</p>
+                <p className="font-semibold">{formatCurrency(grossSales)}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Discounts</p>
+                <p className="font-semibold">-{formatCurrency(discountsTotal)}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Delivery fees</p>
+                <p className="font-semibold">{formatCurrency(deliveryFeesTotal)}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Refunds / cancellations</p>
+                <p className="font-semibold">-{formatCurrency(refundsTotal + cancellationsTotal)}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Net sales</p>
+                <p className="font-semibold">{formatCurrency(netSales)}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Cost estimate</p>
+                <p className="font-semibold">{hasCostData ? formatCurrency(costOfGoodsTotal) : 'Not enough data yet.'}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Profit estimate</p>
+                <p className="font-semibold">{hasCostData ? formatCurrency(netProfitEstimate) : 'Not enough data yet.'}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-[#6B7280]">Margin</p>
+                <p className="font-semibold">{profitMarginPct == null ? 'Not enough data yet.' : `${profitMarginPct.toFixed(1)}%`}</p>
+              </div>
+            </div>
+            <div className="mt-3 rounded-lg border border-dashed p-3">
+              <p className="text-sm font-medium">Insights</p>
+              <div className="mt-2 space-y-1 text-sm text-[#6B7280]">
+                {insightMessages.length ? insightMessages.map((message) => <p key={message}>{message}</p>) : <p>Not enough data yet.</p>}
+              </div>
+            </div>
           </div>
 
           <div className="rounded-lg border bg-white p-4 shadow-sm">
@@ -288,7 +413,7 @@ export const DashboardPage = () => {
 
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <TopItemsChart title="Top Selling Items (Qty)" data={topItemsForView} />
+          <TopItemsChart title="Top Selling Items" data={topItemsForView} />
         </div>
         <AlertsPanel alerts={data.alerts} />
       </div>

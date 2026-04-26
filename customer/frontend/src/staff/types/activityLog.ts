@@ -8,8 +8,11 @@ export interface ActivityLogEntry {
   actorName: string;
   actorRole: string;
   action: string;
+  entityType?: string;
+  entityId?: string | null;
   entityLabel: string;
   details: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface ActivityLogFilters {

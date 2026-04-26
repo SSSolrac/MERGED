@@ -9,7 +9,7 @@ import {
 } from "../services/orderService";
 import "./OrderHistory.css";
 
-const ORDERS_PER_PAGE = 5;
+const ORDERS_PER_PAGE = 10;
 
 function formatMoney(value) {
   return `PHP ${Number(value || 0).toFixed(2)}`;
@@ -84,14 +84,33 @@ export default function OrderHistory() {
           return (
             <article key={order.id} className="history-card">
               <div className="history-row">
-                <h3>{getOrderReference(order)}</h3>
+                <div>
+                  <h3>{getOrderReference(order)}</h3>
+                  <p className="history-date">{formatDateTime(order.placedAt || order.createdAt)}</p>
+                </div>
                 <span className="status-pill">{getStatusLabel(order.status)}</span>
               </div>
 
-              <p>Placed: {formatDateTime(order.placedAt || order.createdAt)}</p>
-              <p>Payment: {String(order.paymentStatus || "pending")} | {order.paymentMethodLabel}</p>
-              <p>
-                {order.orderTypeLabel} | {order.paymentMethodLabel} | {totalItemQuantity} {itemLabel} | <strong>{formatMoney(order.totalAmount)}</strong>
+              <div className="history-summary-grid">
+                <div>
+                  <span>Customer</span>
+                  <strong>{order.customerName || order.deliveryAddress?.name || "Guest"}</strong>
+                </div>
+                <div>
+                  <span>Status</span>
+                  <strong>{getStatusLabel(order.status)}</strong>
+                </div>
+                <div>
+                  <span>Total</span>
+                  <strong>{formatMoney(order.totalAmount)}</strong>
+                </div>
+                <div>
+                  <span>Payment</span>
+                  <strong>{String(order.paymentStatus || "pending")} - {order.paymentMethodLabel || "Not set"}</strong>
+                </div>
+              </div>
+              <p className="history-items-summary">
+                {order.orderTypeLabel} - {totalItemQuantity} {itemLabel}
               </p>
               {(() => {
                 const cancellationState = getOrderCancellationState(order);
@@ -118,11 +137,19 @@ export default function OrderHistory() {
               </div>
 
               {isExpanded ? (
+                <div className="history-detail-panel">
+                  <h4>Order items</h4>
                 <ul>
                   {orderItems.map((item) => (
                     <li key={item.id}>{item.itemName} x {item.quantity} - {formatMoney(item.lineTotal)}</li>
                   ))}
                 </ul>
+                  <div className="history-detail-totals">
+                    <span>Subtotal: {formatMoney(order.subtotal)}</span>
+                    <span>Discount: -{formatMoney(order.discountTotal)}</span>
+                    <strong>Total: {formatMoney(order.totalAmount)}</strong>
+                  </div>
+                </div>
               ) : null}
             </article>
           );

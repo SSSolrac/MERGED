@@ -53,5 +53,5 @@ export const useActivityLog = () => {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / filters.pageSize)), [total, filters.pageSize]);
 
-  return { filters, setFilters, rows, stats, totalPages, loading, error };
+  return { filters, setFilters, rows, stats, total, totalPages, loading, error };
 };

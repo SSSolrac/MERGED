@@ -59,6 +59,10 @@ type ActivityRow = {
 
 const asString = (value: unknown, fallback = '') => (typeof value === 'string' ? value : value == null ? fallback : String(value));
 const asBoolean = (value: unknown, fallback = false) => (typeof value === 'boolean' ? value : value == null ? fallback : Boolean(value));
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
 const asNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -256,8 +260,11 @@ export const activityLogService = {
             actorName,
             actorRole,
             action: success ? 'Logged in' : 'Failed login attempt',
+            entityType: 'login_history',
+            entityId: id || null,
             entityLabel: 'Staffowner account',
             details: success ? 'Session started.' : 'Credentials were rejected.',
+            metadata: { email: asString(row.email, '').trim(), success },
           });
         }
 
@@ -270,8 +277,11 @@ export const activityLogService = {
             actorName,
             actorRole,
             action: 'Logged out',
+            entityType: 'login_history',
+            entityId: id || null,
             entityLabel: 'Staffowner account',
             details: 'Session ended.',
+            metadata: { email: asString(row.email, '').trim(), logoutAt },
           });
         }
       });
@@ -298,8 +308,11 @@ export const activityLogService = {
           actorName,
           actorRole,
           action: actionForOrderStatus(status),
+          entityType: 'order_status_history',
+          entityId: orderId || null,
           entityLabel: orderCode,
           details: note || (status ? `Status set to ${status}.` : 'Order status changed.'),
+          metadata: { status, note, orderId },
         });
       });
 
@@ -327,8 +340,11 @@ export const activityLogService = {
           actorName,
           actorRole,
           action: 'Imported sales data',
+          entityType: 'sales_import_batches',
+          entityId: id || null,
           entityLabel: code,
           details,
+          metadata: { fileName, totalRows, validRows, invalidRows },
         });
       });
 
@@ -343,6 +359,7 @@ export const activityLogService = {
         const actorRole = profile?.role || asString(row.actor_role, 'unknown').trim() || 'unknown';
         const action = asString(row.action, '').trim() || 'Updated record';
         const entityType = asString(row.entity_type, '').trim();
+        const entityId = asString(row.entity_id, '').trim() || null;
         const entityLabel = asString(row.entity_label, '').trim() || asString(row.entity_id, '').trim() || entityType || 'Record';
         const details = asString(row.details, '').trim() || `Activity recorded on ${entityType || 'system'}.`;
         const type = activityTypeFromEntity(entityType, action);
@@ -355,8 +372,11 @@ export const activityLogService = {
           actorName,
           actorRole,
           action,
+          entityType,
+          entityId,
           entityLabel,
           details,
+          metadata: asRecord(row.metadata),
         });
       });
 
