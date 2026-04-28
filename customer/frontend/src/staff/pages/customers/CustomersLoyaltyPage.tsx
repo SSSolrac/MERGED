@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { toast } from 'sonner';
 import { KPICard } from '@/components/dashboard';
+import { PaginationControls } from '@/components/ui';
 import { useCustomers } from '@/hooks/useCustomers';
 import { loyaltyService, type PendingRewardItem, type SavedInStoreRewardBalance } from '@/services/loyaltyService';
 import { LOYALTY_TOTAL_STAMPS } from '@/types/loyalty';
@@ -9,6 +10,7 @@ import type { Customer } from '@/types/customer';
 
 type RewardFilter = 'All' | 'Ready to redeem' | 'Building progress' | 'New card';
 const rewardFilters: RewardFilter[] = ['All', 'Ready to redeem', 'Building progress', 'New card'];
+const CUSTOMER_PAGE_SIZE = 10;
 
 const rewardReadiness = (customer: Customer): RewardFilter => {
   if (customer.loyalty.availableRewards.length > 0) return 'Ready to redeem';
@@ -39,12 +41,18 @@ export const CustomersLoyaltyPage = () => {
   const [savedInStoreRewards, setSavedInStoreRewards] = useState<SavedInStoreRewardBalance[]>([]);
   const [isLoadingOutstandingRewards, setIsLoadingOutstandingRewards] = useState(false);
   const [rewardActionKey, setRewardActionKey] = useState('');
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => customers.filter((customer) => {
     const byQuery = customer.name.toLowerCase().includes(query.toLowerCase()) || customer.email.toLowerCase().includes(query.toLowerCase());
     const byReward = rewardFilter === 'All' || rewardReadiness(customer) === rewardFilter;
     return byQuery && byReward;
   }), [customers, query, rewardFilter]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / CUSTOMER_PAGE_SIZE)), [filtered.length]);
+  const visibleCustomers = useMemo(
+    () => filtered.slice((page - 1) * CUSTOMER_PAGE_SIZE, page * CUSTOMER_PAGE_SIZE),
+    [filtered, page],
+  );
 
   const loyaltySummary = useMemo(() => ({
     readyToRedeem: customers.filter((customer) => customer.loyalty.availableRewards.length > 0).length,
@@ -52,6 +60,14 @@ export const CustomersLoyaltyPage = () => {
     newCard: customers.filter((customer) => customer.loyalty.stampCount === 0).length,
     totalStampsIssued: customers.reduce((sum, customer) => sum + customer.loyalty.stampCount, 0),
   }), [customers]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, rewardFilter]);
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   const openCustomerDetails = (customer: Customer) => {
     setSelected(customer);
@@ -243,10 +259,21 @@ export const CustomersLoyaltyPage = () => {
         <KPICard title="Total stamps" value={String(loyaltySummary.totalStampsIssued)} subtitle="Aggregate stamp count" />
       </section>
 
-      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 overflow-auto">
+      <section className="rounded-lg border bg-white dark:bg-slate-800 p-4">
+        <div className="max-h-[620px] overflow-auto">
           <table className="w-full text-sm min-w-[920px]"><thead><tr className="text-left"><th>Name</th><th>Email</th><th>Stamps</th><th>Available Rewards</th><th>Redeemed</th><th>Status</th><th>Action</th></tr></thead><tbody>
-            {filtered.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardCountLabels(customer) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
+            {visibleCustomers.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardCountLabels(customer) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
           </tbody></table>
+        </div>
+        {!filtered.length ? <p className="py-3 text-sm text-[#6B7280]">No loyalty records found for the selected filters.</p> : null}
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          totalItems={filtered.length}
+          pageSize={CUSTOMER_PAGE_SIZE}
+          onPageChange={setPage}
+          itemLabel="customers"
+        />
       </section>
 
       {selected && (

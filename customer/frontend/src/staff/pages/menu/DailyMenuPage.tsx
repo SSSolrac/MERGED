@@ -135,51 +135,54 @@ export const DailyMenuPage = () => {
 
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={saving}
-            onClick={async () => {
-              const saved = await saveDraft({ ...draft, menuDate });
-              setDraft(saved);
-              toast.success('Daily menu draft saved.');
-            }}
-          >
-            Save Daily Menu Draft
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={saving}
-            onClick={async () => {
-              const saved = await publish({ ...draft, menuDate });
-              setDraft(saved);
-              toast.success('Daily menu published.');
-            }}
-          >
-            Publish Daily Menu
-          </Button>
-          <Button
-            variant="outline"
-            disabled={saving}
-            onClick={async () => {
-              const saved = await unpublish();
-              setDraft(saved);
-              toast.info('Daily menu unpublished.');
-            }}
-          >
-            Unpublish Daily Menu
-          </Button>
-          <Button
-            variant="danger"
-            disabled={saving}
-            onClick={async () => {
-              const saved = await clearMenu();
-              setDraft(saved);
-              toast.info('Daily menu cleared.');
-            }}
-          >
-            Clear Daily Menu
-          </Button>
+        <div className="rounded-lg border bg-white p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#6B7280]">Daily menu actions</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={async () => {
+                const saved = await saveDraft({ ...draft, menuDate });
+                setDraft(saved);
+                toast.success('Daily menu draft saved.');
+              }}
+            >
+              Save draft
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={saving}
+              onClick={async () => {
+                const saved = await publish({ ...draft, menuDate });
+                setDraft(saved);
+                toast.success('Daily menu published.');
+              }}
+            >
+              Publish
+            </Button>
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={async () => {
+                const saved = await unpublish();
+                setDraft(saved);
+                toast.info('Daily menu unpublished.');
+              }}
+            >
+              Unpublish
+            </Button>
+            <Button
+              variant="danger"
+              disabled={saving}
+              onClick={async () => {
+                const saved = await clearMenu();
+                setDraft(saved);
+                toast.info('Daily menu cleared.');
+              }}
+            >
+              Clear menu
+            </Button>
+          </div>
         </div>
       </SectionCard>
 

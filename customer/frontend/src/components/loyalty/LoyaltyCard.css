@@ -71,6 +71,8 @@
   color: #b79682;
   font-weight: 600;
   padding: 8px;
+  cursor: default;
+  font: inherit;
 }
 
 .stamp-slot__icon {
@@ -99,6 +101,15 @@
 
 .stamp-slot--milestone {
   border-color: #e69bc3;
+}
+
+.stamp-slot--actionable {
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(255, 111, 165, 0.14);
+}
+
+.stamp-slot--actionable:hover {
+  border-color: #ff6fa5;
 }
 
 .stamp-slot__reward {

@@ -250,7 +250,7 @@ export const OrdersPage = () => {
                           await cancelOrderWithReason(order);
                         }}
                       >
-                        {order.status === 'cancelled' ? 'Cancelled' : 'Cancel Order'}
+                        {order.status === 'cancelled' ? 'Cancelled' : 'Cancel order'}
                       </Button>
                     </div>
                   </td>
@@ -277,7 +277,7 @@ export const OrdersPage = () => {
                   setExpandedReceiptUrl(null);
                 }}
               >
-                Close
+                Close details
               </Button>
             </div>
 
@@ -384,7 +384,7 @@ export const OrdersPage = () => {
                   await cancelOrderWithReason(selectedOrder);
                 }}
               >
-                {selectedOrder.status === 'cancelled' ? 'Cancelled' : 'Cancel Order'}
+                {selectedOrder.status === 'cancelled' ? 'Cancelled' : 'Cancel this order'}
               </Button>
             </div>
           </div>
@@ -403,7 +403,7 @@ export const OrdersPage = () => {
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">Receipt preview</h3>
               <Button variant="outline" size="sm" onClick={() => setExpandedReceiptUrl(null)}>
-                Close
+                Close preview
               </Button>
             </div>
             <img

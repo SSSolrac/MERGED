@@ -16,6 +16,10 @@ function getRewardActionLabel(reward, isRedeeming, stampsNeeded) {
   return `${stampsNeeded} more stamp${stampsNeeded === 1 ? "" : "s"}`;
 }
 
+function getRewardForStampSlot(rewards, slotNumber) {
+  return rewards.find((reward) => asNumber(reward?.requiredStamps, 0) === slotNumber) || null;
+}
+
 function LoyaltyCard({
   loyaltyData,
   onRedeemReward,
@@ -67,6 +71,43 @@ function LoyaltyCard({
         </p>
       </div>
 
+      <div className="loyalty-card__grid" aria-label="Loyalty stamp progress">
+        {Array.from({ length: TOTAL_STAMPS }, (_, index) => {
+          const stampNumber = index + 1;
+          const isFilled = stampNumber <= earnedStamps;
+          const reward = getRewardForStampSlot(rewards, stampNumber);
+          const canRedeemReward = Boolean(reward?.canRedeem);
+          const isRedeeming = reward && redeemingRewardId === String(reward.id || "");
+          const className = [
+            "stamp-slot",
+            isFilled ? "stamp-slot--filled" : "",
+            reward ? "stamp-slot--milestone" : "",
+            canRedeemReward ? "stamp-slot--actionable" : "",
+          ].filter(Boolean).join(" ");
+
+          return (
+            <button
+              key={stampNumber}
+              type="button"
+              className={className}
+              disabled={!canRedeemReward || isRedeeming}
+              onClick={() => canRedeemReward && onRedeemReward?.(reward)}
+              aria-label={reward ? `${reward.label}, stamp ${stampNumber}` : `Stamp ${stampNumber}`}
+            >
+              <span className="stamp-slot__icon">{stampNumber}</span>
+              {reward ? (
+                <span className={`stamp-slot__reward ${reward.isUnlocked ? "stamp-slot__reward--unlocked" : ""}`}>
+                  <span>{reward.label}</span>
+                  <small>{isRedeeming ? "Saving..." : canRedeemReward ? "Tap to redeem" : `${Math.max(stampNumber - stampCount, 0)} more`}</small>
+                </span>
+              ) : (
+                <span>Stamp {stampNumber}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="loyalty-card__milestones" aria-label="Available rewards">
         {rewards.length ? (
           rewards.map((reward) => {
@@ -100,7 +141,7 @@ function LoyaltyCard({
                     </div>
                   ) : null}
                   {reward.isRedeemedThisCycle && reward.pendingRewardItemCount ? (
-                    <p className="loyalty-reward-row__hint">Redeemed for this cycle. Add the free drink to your basket below when you’re ready.</p>
+                    <p className="loyalty-reward-row__hint">Redeemed for this cycle. Add the free drink to your basket below when you're ready.</p>
                   ) : null}
                   {reward.isGroomReward && canRedeem ? (
                     <p className="loyalty-reward-row__hint">Free Groom can only be claimed in store. Redeem here to save it to your profile.</p>

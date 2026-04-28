@@ -210,19 +210,6 @@ export default function DeliveryAddressForm({
   const markerSignature = Number.isFinite(latitude) && Number.isFinite(longitude) ? `${latitude}:${longitude}` : "fallback-marker";
   const mapWatchKey = `${asText(config?.id) || "fallback-area"}:${selectedPurokSignature}:${markerSignature}:${polygonSignature}`;
 
-  useEffect(() => {
-    if (typeof console === "undefined" || typeof console.debug !== "function") return;
-    console.debug("[DeliveryAddressForm] customer map inputs", {
-      deliveryConfig: config,
-      center: centerPosition,
-      markerPosition,
-      selectedPurok,
-      selectedPurokPosition,
-      polygonPoints: polygon,
-      polygonPositions,
-    });
-  }, [centerPosition, config, markerPosition, polygon, polygonPositions, selectedPurok, selectedPurokPosition]);
-
   return (
     <div className="delivery-address-form">
       <label>

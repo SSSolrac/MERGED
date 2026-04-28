@@ -77,7 +77,7 @@ export const ActivityLogPage = () => {
         <input className="border rounded px-2 py-2" type="date" value={filters.date} onChange={(event) => setFilters({ ...filters, date: event.target.value, page: 1 })} />
       </SectionCard>
 
-      <SectionCard title="Activity Records" subtitle="Use View Details for timestamp, user/action, affected item, and metadata.">
+      <SectionCard title="Activity Records" subtitle="Use View for timestamp, user/action, affected item, and metadata.">
         {loading ? <p className="text-sm text-[#6B7280]">Loading activity log...</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
@@ -113,7 +113,7 @@ export const ActivityLogPage = () => {
                     <td className="p-2 max-w-[280px] truncate">{row.details || '-'}</td>
                     <td className="p-2">
                       <Button variant="outline" size="sm" onClick={() => setSelectedEntry(row)}>
-                        View Details
+                        View
                       </Button>
                     </td>
                   </tr>

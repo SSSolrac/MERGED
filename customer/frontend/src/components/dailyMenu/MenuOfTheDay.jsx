@@ -1,5 +1,7 @@
 import "./MenuOfTheDay.css";
 
+const DAILY_MENU_ITEM_LIMIT = 5;
+
 function MenuOfTheDay({ menuData }) {
   const hasCategories =
     menuData?.isActive &&
@@ -30,16 +32,26 @@ function MenuOfTheDay({ menuData }) {
       </div>
 
       <div className="daily-menu__categories">
-        {menuData.categories.map((category) => (
-          <article className="daily-menu__category" key={category.name}>
-            <h3>{category.name}</h3>
-            <ul>
-              {category.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </article>
-        ))}
+        {menuData.categories.map((category) => {
+          const visibleItems = category.items.slice(0, DAILY_MENU_ITEM_LIMIT);
+          const hiddenCount = Math.max(0, category.items.length - visibleItems.length);
+
+          return (
+            <article className="daily-menu__category" key={category.name}>
+              <h3>{category.name}</h3>
+              <ul>
+                {visibleItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              {hiddenCount > 0 ? (
+                <p className="daily-menu__overflow">
+                  +{hiddenCount} more item{hiddenCount === 1 ? "" : "s"} today
+                </p>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
     </section>
   );

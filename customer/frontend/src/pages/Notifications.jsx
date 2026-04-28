@@ -10,6 +10,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import "./Notifications.css";
 
+const NOTIFICATIONS_PER_PAGE = 10;
+
 function formatDate(value) {
   if (!value) return "Just now";
   return new Date(value).toLocaleString();
@@ -18,6 +20,7 @@ function formatDate(value) {
 export default function Notifications() {
   const { isAuthenticated } = useAuth();
   const [items, setItems] = useState([]);
+  const [pageIndex, setPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -47,9 +50,14 @@ export default function Notifications() {
     loadNotifications();
   }, [loadNotifications]);
 
+  useEffect(() => {
+    setPageIndex(0);
+  }, [items.length]);
+
   const onMarkAllRead = () => {
     markAllNotificationsRead();
     setItems(getCustomerNotifications());
+    setPageIndex(0);
   };
 
   const onOpenItem = (id) => {
@@ -75,12 +83,21 @@ export default function Notifications() {
   if (isLoading) return <div className="notifications-state">Loading notifications...</div>;
   if (error) return <div className="notifications-state notifications-error">{error}</div>;
 
+  const totalPages = Math.max(1, Math.ceil(items.length / NOTIFICATIONS_PER_PAGE));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = safePageIndex * NOTIFICATIONS_PER_PAGE;
+  const visibleItems = items.slice(pageStart, pageStart + NOTIFICATIONS_PER_PAGE);
+
   return (
     <div className="notifications-page">
       <div className="notifications-header">
         <div>
           <h1>Notifications</h1>
-          <p>Order updates, loyalty awards, promo alerts, and new menu items are listed here.</p>
+          <p>
+            {items.length > NOTIFICATIONS_PER_PAGE
+              ? `Showing ${pageStart + 1}-${Math.min(pageStart + NOTIFICATIONS_PER_PAGE, items.length)} of ${items.length} unread notifications.`
+              : 'Order updates, loyalty awards, promo alerts, and new menu items are listed here.'}
+          </p>
         </div>
         {items.length ? (
           <button type="button" onClick={onMarkAllRead} className="notifications-mark-all">
@@ -96,25 +113,51 @@ export default function Notifications() {
           <Link to="/order">Start an order</Link>
         </div>
       ) : (
-        <div className="notifications-list">
-          {items.map((item) => (
-            <article
-              key={item.id}
-              className={`notification-card ${item.isRead ? "" : "unread"}`}
-              onClick={() => onOpenItem(item.id)}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="notification-top">
-                <span className="notification-type">{getNotificationTypeLabel(item.type)}</span>
-                <span className="notification-time">{formatDate(item.createdAt)}</span>
-              </div>
-              <h3>{item.title}</h3>
-              <p>{item.message}</p>
-              {item.orderId ? <Link to="/track-order">View related order</Link> : null}
-            </article>
-          ))}
-        </div>
+        <>
+          <div className="notifications-list">
+            {visibleItems.map((item) => (
+              <article
+                key={item.id}
+                className={`notification-card ${item.isRead ? "" : "unread"}`}
+                onClick={() => onOpenItem(item.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  onOpenItem(item.id);
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="notification-top">
+                  <span className="notification-type">{getNotificationTypeLabel(item.type)}</span>
+                  <span className="notification-time">{formatDate(item.createdAt)}</span>
+                </div>
+                <h3>{item.title}</h3>
+                <p>{item.message}</p>
+                {item.orderId ? <Link to="/track-order">View related order</Link> : null}
+              </article>
+            ))}
+          </div>
+          {items.length > NOTIFICATIONS_PER_PAGE ? (
+            <div className="notifications-pagination" aria-label="Notifications pagination">
+              <button
+                type="button"
+                disabled={safePageIndex === 0}
+                onClick={() => setPageIndex((current) => Math.max(current - 1, 0))}
+              >
+                Previous
+              </button>
+              <span>Page {safePageIndex + 1} of {totalPages}</span>
+              <button
+                type="button"
+                disabled={safePageIndex >= totalPages - 1}
+                onClick={() => setPageIndex((current) => Math.min(current + 1, totalPages - 1))}
+              >
+                Next
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );

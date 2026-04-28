@@ -951,7 +951,7 @@ export const InventoryTrackerSection = () => {
             </Button>
             {categoryDraft.id ? (
               <Button variant="outline" size="sm" onClick={() => setCategoryDraft(createCategoryDraft())}>
-                Cancel
+                Discard
               </Button>
             ) : null}
           </div>
@@ -1086,10 +1086,10 @@ export const InventoryTrackerSection = () => {
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="secondary" onClick={handleSaveItem}>
-                {itemDraft.id ? 'Save Changes' : 'Save'}
+                {itemDraft.id ? 'Update' : 'Save'}
               </Button>
               <Button variant="outline" onClick={handleCloseItemModal}>
-                Cancel
+                Discard
               </Button>
             </div>
           </div>

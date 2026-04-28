@@ -653,7 +653,7 @@ export const DeliveryCoveragePage = () => {
               />
             </MapContainer>
           </div>
-          <p className="text-xs text-[#6B7280]">Click the map or drag the marker to update this purok’s saved coordinates.</p>
+          <p className="text-xs text-[#6B7280]">Click the map or drag the marker to update this purok's saved coordinates.</p>
         </div>
       </article>
 

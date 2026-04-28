@@ -612,14 +612,14 @@ export const MenuManagementPage = () => {
   const bulkPreviewLabel = getDiscountDisplayLabel(bulkDiscountMode, asNumberOrZero(bulkDiscountInput));
   const menuImageStatus = (() => {
     const imageUrl = asTrimmed(draft.imageUrl);
-    if (isUploadingImage) return { label: 'Uploading', tone: 'warning' as const };
-    if (!imageUrl) return { label: 'No image', tone: 'neutral' as const };
-    if (draft.id && imageUrl === savedMenuImageUrl) return { label: 'Already saved', tone: 'success' as const };
-    return { label: 'Uploaded', tone: 'info' as const };
+    if (isUploadingImage) return { label: 'Uploading image', tone: 'warning' as const };
+    if (!imageUrl) return { label: 'Image not uploaded', tone: 'neutral' as const };
+    if (draft.id && imageUrl === savedMenuImageUrl) return { label: 'Image saved', tone: 'success' as const };
+    return { label: draft.id ? 'Uploaded, update to save' : 'Uploaded, save item to keep', tone: 'info' as const };
   })();
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SectionCard
         title="Manage Menu Items"
         subtitle="Add, edit, and validate menu items with optional image upload support."
@@ -628,23 +628,19 @@ export const MenuManagementPage = () => {
             Add Menu Item
           </Button>
         }
-        contentClassName="space-y-3"
+        contentClassName="space-y-2"
       >
         {categoriesLoading ? <p className="text-sm text-[#6B7280]">Loading categories...</p> : null}
         {categoriesError ? <p className="text-sm text-red-600">{categoriesError}</p> : null}
-        {lastSaveMessage ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{lastSaveMessage}</p> : null}
+        {lastSaveMessage ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">{lastSaveMessage}</p> : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-medium">Menu Item Editor</h3>
-        </div>
-        <p className="text-xs text-[#6B7280]">Use the popup editor for adding or updating menu items.</p>
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             {menuEditorTabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
-                className={`min-w-[160px] rounded border px-3 py-2 text-left text-sm ${
+                className={`min-w-[150px] rounded border px-2 py-1.5 text-left text-sm ${
                   activeEditorTab === tab.id ? 'border-[#F3B8C8] bg-[#FFE4E8] text-[#C94F7C]' : 'bg-white text-[#4B5563]'
                 }`}
                 onClick={() => setActiveEditorTab(tab.id)}
@@ -656,9 +652,9 @@ export const MenuManagementPage = () => {
           </div>
 
           {activeEditorTab === 'discount-tools' ? (
-            <div className="rounded border border-dashed p-3 space-y-3">
+            <div className="rounded border border-dashed p-2 space-y-2">
               <h4 className="font-medium text-sm">Apply Discount</h4>
-              <div className="grid md:grid-cols-4 gap-3">
+              <div className="grid md:grid-cols-4 gap-2">
                 <label className="text-sm">
                   Scope
                   <select className="block border rounded mt-1 px-2 py-1 w-full" value={bulkScope} onChange={(event) => setBulkScope(event.target.value as BulkScope)}>
@@ -696,7 +692,7 @@ export const MenuManagementPage = () => {
                 </div>
               </div>
               {bulkScope === 'specific' ? (
-                <div className="rounded border p-3 space-y-2">
+                <div className="rounded border p-2 space-y-2">
                   <div className="flex flex-wrap gap-2 items-center">
                     <input
                       className="border rounded px-2 py-1 text-sm min-w-[220px]"
@@ -736,7 +732,7 @@ export const MenuManagementPage = () => {
           ) : null}
 
           {activeEditorTab === 'discounted-items' ? (
-            <div className="rounded border p-3 space-y-3">
+            <div className="rounded border p-2 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="font-medium text-sm">Discounted Items</h4>
                 <StatusChip label={`${discountedItems.length} active`} tone={discountedItems.length ? 'warning' : 'neutral'} />
@@ -809,7 +805,7 @@ export const MenuManagementPage = () => {
           <Button variant="secondary" onClick={handleSaveCategory}>Save Category</Button>
           {categoryDraft.id ? (
             <Button variant="outline" onClick={() => setCategoryDraft(defaultCategoryDraft)}>
-              Cancel Edit
+              Discard edit
             </Button>
           ) : null}
         </div>
@@ -841,12 +837,12 @@ export const MenuManagementPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Menu List" subtitle="Showing 10 items per category by default to keep the page scannable." contentClassName="space-y-3">
-        <div className="flex items-center justify-between">
+      <SectionCard title="Menu List" subtitle="Showing 10 items per category by default to keep the page scannable." contentClassName="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-medium">Manage Menu Items</h3>
           <input className="border rounded px-2 py-1 text-sm" placeholder="Search item name" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
-        <div className="space-y-4">
+        <div className="space-y-3">
           {!filtered.length ? <EmptyState title="No menu items found" message="Try another search or add a new menu item." /> : null}
           {categoryTabs.length > 1 ? (
             <div className="space-y-2">
@@ -870,18 +866,18 @@ export const MenuManagementPage = () => {
               </div>
             </div>
           ) : null}
-          <div className="max-h-[640px] space-y-4 overflow-auto pr-1">
+          <div className="max-h-[620px] space-y-2 overflow-auto pr-1">
           {visibleGroupedMenuItems.map((group) => {
             const isExpanded = expandedGroupSet.has(group.id);
             const visibleItems = isExpanded ? group.items : group.items.slice(0, MENU_GROUP_PREVIEW_LIMIT);
             return (
-            <div key={group.id} className="rounded border border-dashed p-3 space-y-2">
+            <div key={group.id} className="rounded border border-dashed p-2 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="font-semibold text-sm">{group.name}</h4>
                 <StatusChip label={`${group.items.length} item${group.items.length === 1 ? '' : 's'}`} tone="neutral" />
               </div>
               {visibleItems.map((item) => (
-                <div key={item.id} className="border rounded p-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                <div key={item.id} className="border rounded p-2 flex flex-wrap items-center justify-between gap-2 text-sm">
                   <div className="flex-1 min-w-[260px]">
                     <p className="font-medium">
                       {item.name} - {formatCurrency(item.effectivePrice)}
@@ -896,7 +892,9 @@ export const MenuManagementPage = () => {
                     {item.discount > 0 ? <p className="text-[#6B7280]">{getMenuItemDiscountLabel(item)} - {getDiscountScheduleLabel(item)}</p> : null}
                     <div className="flex gap-2 mt-1 flex-wrap">
                       <StatusChip label={item.isAvailable ? 'Available' : 'Unavailable'} tone={item.isAvailable ? 'success' : 'warning'} />
-                      <StatusChip label={item.isDiscountActive ? getMenuItemDiscountLabel(item) : item.discount > 0 ? 'Scheduled discount' : 'No discount'} tone={item.discount > 0 ? 'warning' : 'neutral'} />
+                      {item.isDiscountActive || item.discount > 0 ? (
+                        <StatusChip label={item.isDiscountActive ? getMenuItemDiscountLabel(item) : 'Scheduled discount'} tone="warning" />
+                      ) : null}
                       {item.isNew ? <StatusChip label="NEW" tone="success" /> : null}
                       {item.isLimited ? <StatusChip label="LIMITED" tone="warning" /> : null}
                       {item.isLimitedExpired ? <StatusChip label="Expired limited" tone="danger" /> : null}
@@ -932,7 +930,7 @@ export const MenuManagementPage = () => {
       {isMenuItemModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button className="absolute inset-0 bg-black/40" onClick={handleCloseMenuItemModal} aria-label="Close menu item editor overlay" />
-          <div className="relative w-full max-w-4xl rounded-lg border bg-white p-4 space-y-3 shadow-xl max-h-[90vh] overflow-auto">
+          <div className="relative w-full max-w-4xl rounded-lg border bg-white p-3 space-y-2 shadow-xl max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between gap-3">
               <h4 className="font-medium">{draft.id ? draft.name || 'Edit Menu Item' : 'Add Menu Item'}</h4>
               <Button variant="outline" size="sm" onClick={handleCloseMenuItemModal} aria-label="Close menu item editor">
@@ -942,7 +940,7 @@ export const MenuManagementPage = () => {
 
             {menuItemError ? <p className="text-sm text-red-600">{menuItemError}</p> : null}
 
-            <div className="grid md:grid-cols-2 gap-3">
+            <div className="grid md:grid-cols-2 gap-2">
               <label className="text-sm">
                 Item Name
                 <input
@@ -1067,7 +1065,7 @@ export const MenuManagementPage = () => {
                   <span>{draft.isAvailable ? 'Available' : 'Unavailable'}</span>
                 </div>
               </label>
-              <label className="text-sm md:col-span-2 rounded border p-3">
+              <label className="text-sm md:col-span-2 rounded border p-2">
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -1088,7 +1086,7 @@ export const MenuManagementPage = () => {
               </label>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="text-sm">
                 Upload image
                 <input
@@ -1106,10 +1104,10 @@ export const MenuManagementPage = () => {
 
             <div className="flex gap-2">
               <Button variant="secondary" onClick={handleSaveMenuItem}>
-                {draft.id ? 'Save Changes' : 'Save'}
+                {draft.id ? 'Update' : 'Save'}
               </Button>
               <Button variant="outline" onClick={handleCloseMenuItemModal}>
-                Cancel
+                Discard
               </Button>
             </div>
           </div>
