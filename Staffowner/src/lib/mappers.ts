@@ -1,9 +1,9 @@
 import type { CustomerProfile } from '@/types/customer';
 import type { DailyMenu, DailyMenuItem } from '@/types/dailyMenu';
 import type { Ingredient, RecipeLine } from '@/types/ingredient';
-import type { InventoryCategory, InventoryItem } from '@/types/inventory';
+import type { InventoryCategory, InventoryItem, InventoryMovement, InventoryRecipeLine } from '@/types/inventory';
 import type { LoyaltyAccount, Reward } from '@/types/loyalty';
-import type { MenuCategory, MenuItem } from '@/types/menuItem';
+import type { MenuCategory, MenuItem, MenuItemIngredient } from '@/types/menuItem';
 import type { Order, OrderItem, OrderStatusHistoryItem, PaymentMethod, PaymentStatus } from '@/types/order';
 import type { UserRole } from '@/types/user';
 import { normalizePaymentMethod } from '@/utils/payment';
@@ -21,9 +21,28 @@ const asNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 const asBoolean = (value: unknown, fallback = false) => (typeof value === 'boolean' ? value : value == null ? fallback : Boolean(value));
+const readPreferences = (value: unknown) => (asRecord(value) ?? {}) as Record<string, unknown>;
+const readAvatarUrl = (value: unknown) => {
+  const preferences = readPreferences(value);
+  const avatar = preferences.avatarUrl ?? preferences.profilePhotoUrl;
+  return avatar == null ? null : asString(avatar, '').trim() || null;
+};
+const readJobTitle = (value: unknown) => {
+  const preferences = readPreferences(value);
+  return asString(preferences.jobTitle ?? preferences.title, '').trim();
+};
 const asDiscountType = (value: unknown): MenuItem['discountType'] => {
   const text = asString(value, '').trim().toLowerCase();
   return text === 'percent' ? 'percent' : 'amount';
+};
+const asInventoryItemType = (value: unknown): InventoryItem['itemType'] => {
+  const text = asString(value, '').trim().toLowerCase();
+  return text === 'finished_product' ? 'finished_product' : 'raw_material';
+};
+const asInventoryMovementType = (value: unknown): InventoryMovement['movementType'] => {
+  const text = asString(value, '').trim().toLowerCase();
+  if (text === 'stock_out' || text === 'waste' || text === 'production' || text === 'correction' || text === 'undo') return text;
+  return 'stock_in';
 };
 
 const asIsoString = (value: unknown, fallback: string) => {
@@ -42,14 +61,17 @@ export const mapCustomerProfileRow = (row: unknown): CustomerProfile => {
   const r = asRecord(row) ?? {};
   const now = new Date().toISOString();
   const customerCode = r.customer_code == null ? null : asString(r.customer_code, '').trim() || null;
+  const preferences = readPreferences(r.preferences);
   return {
     id: asString(r.id, ''),
     customerCode,
     name: asString(r.name, ''),
     email: asString(r.email, ''),
     phone: asString(r.phone, ''),
+    jobTitle: readJobTitle(preferences),
+    avatarUrl: readAvatarUrl(preferences),
     addresses: Array.isArray(r.addresses) ? r.addresses : [],
-    preferences: (asRecord(r.preferences) ?? {}) as Record<string, unknown>,
+    preferences,
     isActive: asBoolean(r.is_active, true),
     createdAt: asIsoString(r.created_at, now),
     updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
@@ -90,6 +112,7 @@ export const mapMenuItemRow = (row: unknown): MenuItem => {
     name: asString(r.name, ''),
     description: r.description == null ? null : asString(r.description, ''),
     price: asNumber(r.price, 0),
+    cost: asNumber(r.cost, 0),
     effectivePrice: asNumber(r.effective_price, Math.max(asNumber(r.price, 0) - asNumber(r.effective_discount ?? r.discount, 0), 0)),
     discount: asNumber(r.discount, 0),
     discountType: asDiscountType(r.discount_type ?? r.discountType),
@@ -108,6 +131,21 @@ export const mapMenuItemRow = (row: unknown): MenuItem => {
     isLimited: asBoolean(r.is_limited, false),
     isLimitedExpired: asBoolean(r.is_limited_expired, false),
     categoryIsNew: asBoolean(r.category_is_new, false),
+    createdAt: asIsoString(r.created_at, now),
+    updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
+  };
+};
+
+export const mapMenuItemIngredientRow = (row: unknown): MenuItemIngredient => {
+  const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: asString(r.id, ''),
+    menuItemId: asString(r.menu_item_id, ''),
+    inventoryItemId: asString(r.inventory_item_id, ''),
+    quantityRequired: asNumber(r.quantity_required, 0),
+    unit: r.unit == null ? null : asString(r.unit, ''),
+    displayQuantity: r.display_quantity == null ? null : asString(r.display_quantity, ''),
     createdAt: asIsoString(r.created_at, now),
     updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
   };
@@ -165,9 +203,47 @@ export const mapInventoryItemRow = (row: unknown): InventoryItem => {
     reorderLevel: asNumber(r.reorder_level, 0),
     displayQuantity: r.display_quantity == null ? null : asString(r.display_quantity, ''),
     notes: r.notes == null ? null : asString(r.notes, ''),
+    itemType: asInventoryItemType(r.item_type),
+    recipeYieldQuantity: Math.max(1, asNumber(r.recipe_yield_quantity, 1)),
     isActive: asBoolean(r.is_active, true),
     createdAt: asIsoString(r.created_at, now),
     updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
+  };
+};
+
+export const mapInventoryRecipeLineRow = (row: unknown): InventoryRecipeLine => {
+  const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: asString(r.id, ''),
+    finishedItemId: asString(r.finished_item_id, ''),
+    rawItemId: asString(r.raw_item_id, ''),
+    quantityRequired: asNumber(r.quantity_required, 0),
+    unit: r.unit == null ? null : asString(r.unit, ''),
+    createdAt: asIsoString(r.created_at, now),
+    updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
+  };
+};
+
+export const mapInventoryMovementRow = (row: unknown): InventoryMovement => {
+  const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: asString(r.id, ''),
+    itemId: asString(r.inventory_item_id, ''),
+    movementType: asInventoryMovementType(r.movement_type),
+    quantityDelta: asNumber(r.quantity_delta, 0),
+    quantityBefore: asNumber(r.quantity_before, 0),
+    quantityAfter: asNumber(r.quantity_after, 0),
+    reason: r.reason == null ? null : asString(r.reason, ''),
+    referenceId: r.reference_id == null ? null : asString(r.reference_id, ''),
+    metadata: asRecord(r.metadata),
+    createdBy: r.created_by == null ? null : asString(r.created_by, ''),
+    createdAt: asIsoString(r.created_at, now),
+    reversalOfMovementId: r.reversal_of_movement_id == null ? null : asString(r.reversal_of_movement_id, ''),
+    reversedByMovementId: r.reversed_by_movement_id == null ? null : asString(r.reversed_by_movement_id, ''),
+    voidedAt: r.voided_at == null ? null : asString(r.voided_at, ''),
+    voidReason: r.void_reason == null ? null : asString(r.void_reason, ''),
   };
 };
 

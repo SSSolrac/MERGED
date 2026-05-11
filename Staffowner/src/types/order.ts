@@ -58,6 +58,7 @@ export type Order = {
   placedAt: string;
   createdAt: string;
   updatedAt: string;
+  costOfGoods?: number;
 
   items?: OrderItem[];
   statusTimeline?: OrderStatusHistoryItem[];
@@ -70,4 +71,6 @@ export type OrderFilters = {
   paymentMethod?: PaymentMethod | 'all';
   range?: DateRangePreset;
   limit?: number;
+  page?: number;
+  pageSize?: number;
 };

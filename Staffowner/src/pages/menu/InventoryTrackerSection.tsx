@@ -268,7 +268,7 @@ export const InventoryTrackerSection = () => {
 
   return (
     <section className="rounded-lg border bg-white dark:bg-slate-800 p-4 space-y-3">
-      <p className="text-[11px] uppercase tracking-[0.18em] font-semibold text-[#2B7A87]">Inventory</p>
+      <p className="text-[11px] uppercase tracking-[0.18em] font-semibold text-[#FF8FA3]">Inventory</p>
       <h3 className="text-2xl font-semibold leading-tight">Inventory</h3>
       <p className="text-sm text-[#6B7280]">Track inventory by category, monitor low stock, and update quantities quickly.</p>
       {loading ? <p className="text-sm text-[#6B7280]">Loading inventory tracker...</p> : null}

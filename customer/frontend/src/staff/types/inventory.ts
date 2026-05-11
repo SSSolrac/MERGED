@@ -1,5 +1,5 @@
 export type InventoryItemType = 'raw_material' | 'finished_product';
-export type InventoryMovementType = 'stock_in' | 'stock_out' | 'waste' | 'production';
+export type InventoryMovementType = 'stock_in' | 'stock_out' | 'waste' | 'production' | 'correction' | 'undo';
 
 export type InventoryCategory = {
   id: string;
@@ -49,4 +49,8 @@ export type InventoryMovement = {
   metadata: Record<string, unknown> | null;
   createdBy: string | null;
   createdAt: string;
+  reversalOfMovementId: string | null;
+  reversedByMovementId: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
 };

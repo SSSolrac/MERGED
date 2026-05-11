@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import HeroSlider from "../components/HeroSlider";
 import CampaignBanner from "../components/CampaignBanner";
+import CommunityReviews from "../components/CommunityReviews";
 import MenuBelt from "../components/MenuBelt";
 import MenuOfTheDay from "../components/dailyMenu/MenuOfTheDay";
 import { Link } from "react-router-dom";
@@ -59,6 +60,7 @@ export default function Home({ onOrderClick }) {
           </div>
         </div>
       </section>
+      <CommunityReviews />
     </>
   );
 }

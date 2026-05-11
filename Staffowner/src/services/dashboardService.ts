@@ -376,7 +376,7 @@ const buildTopItemsFromOrders = (orders: Order[]): DashboardData['topItems'] => 
 
   return Array.from(totals.entries())
     .sort(([, a], [, b]) => b.quantity - a.quantity)
-    .slice(0, 10)
+    .slice(0, 5)
     .map(([itemName, item]) => ({ itemName, quantity: item.quantity, revenue: roundMoney(item.revenue) }));
 };
 

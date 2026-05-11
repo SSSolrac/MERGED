@@ -610,7 +610,7 @@ export const csvImportService = {
     try {
       const supabase = requireSupabaseClient();
       const now = new Date().toISOString();
-      const { data, error } = await supabase.from('sales_import_batches').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('sales_import_batches').select('*').order('created_at', { ascending: false }).limit(100);
       if (error) return [];
 
       return (Array.isArray(data) ? data : []).map((row) => ({

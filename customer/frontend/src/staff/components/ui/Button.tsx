@@ -9,14 +9,14 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const baseClass =
-  'inline-flex items-center justify-center gap-2 rounded-lg border font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-55';
+  'inline-flex items-center justify-center gap-2 rounded-lg border font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF8FA3] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55';
 
 const variantClass: Record<ButtonVariant, string> = {
-  primary: 'border-[#FF8FA3] bg-[#FF8FA3] text-white hover:bg-[#E9778E]',
-  secondary: 'border-[#2B7A87] bg-[#2B7A87] text-white hover:bg-[#216570]',
-  outline: 'border-[#F3D6DB] bg-white text-[#1F2937] hover:bg-[#FFF3F5]',
-  danger: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100',
-  ghost: 'border-transparent bg-transparent text-[#4B5563] hover:bg-[#FFF3F5]',
+  primary: 'border-[#F23895] bg-[#F23895] text-white hover:bg-[#D92D82]',
+  secondary: 'border-[#FF8FA3] bg-[#FFE4E8] text-[#7A123F] hover:bg-[#FFD1DA]',
+  outline: 'border-[#F3B7C7] bg-white text-[#1F2937] hover:border-[#FF8FA3] hover:bg-[#FFF3F5]',
+  danger: 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100',
+  ghost: 'border-transparent bg-transparent text-[#4B5563] shadow-none hover:bg-[#FFF3F5]',
 };
 
 const sizeClass: Record<ButtonSize, string> = {

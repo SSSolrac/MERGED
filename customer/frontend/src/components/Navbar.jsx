@@ -120,7 +120,7 @@ function Navbar({ onSignOut, onOpenModal }) {
         <Link to="/" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
           <img src={logo} alt="Logo" className="nav-logo" />
           <span className="logo-text" style={{ marginLeft: "10px", fontSize: "1.5rem", fontWeight: "700", textShadow: "1px 1px 2px rgba(0,0,0,0.1)" }}>
-            <span style={{ color: "#ff4d94" }}>Happy</span>
+            <span style={{ color: "#f72f92" }}>Happy</span>
             <span style={{ color: "#36d7e8" }}>Tails</span>
           </span>
         </Link>

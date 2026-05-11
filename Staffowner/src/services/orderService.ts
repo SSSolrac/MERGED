@@ -213,27 +213,34 @@ const ensureMutableOrder = async (orderId: string) => {
 };
 
 export const orderService = {
-  async getOrders(filters?: OrderFilters): Promise<Order[]> {
+  async getOrders(filters?: OrderFilters): Promise<{ orders: Order[]; total: number }> {
     const supabase = requireSupabaseClient();
     const range = filters?.range ?? '30d';
     const status = filters?.status ?? 'all';
     const paymentMethod = filters?.paymentMethod ?? 'all';
     const queryText = filters?.query?.trim() ?? '';
-    const limit = Number.isFinite(filters?.limit) ? Math.max(1, Math.min(1000, Math.floor(Number(filters?.limit)))) : null;
+    const requestedPageSize = filters?.pageSize ?? filters?.limit ?? 10;
+    const pageSize = Math.max(1, Math.min(100, Math.floor(Number(requestedPageSize))));
+    const page = Math.max(1, Math.floor(Number(filters?.page ?? 1)));
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const startIso = rangeStartIso(range);
 
-    let query = supabase.from('orders').select('*').order('created_at', { ascending: false });
+    let query = supabase.from('orders').select('*', { count: 'exact' }).order('created_at', { ascending: false });
 
     if (status !== 'all') query = query.eq('status', status);
     if (paymentMethod !== 'all') query = query.eq('payment_method', paymentMethod);
     if (queryText) query = query.ilike('code', `%${queryText}%`);
-    if (limit != null) query = query.limit(limit);
+    if (startIso) query = query.gte('placed_at', startIso);
+    query = query.range(from, to);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw asDbError(error, 'Unable to load orders.');
 
     const mapped = (Array.isArray(data) ? data : []).map(mapOrderRow);
     const rangeFiltered = mapped.filter((order) => isWithinRange(order, range));
-    return attachOrderRelations(rangeFiltered);
+    const orders = await attachOrderRelations(rangeFiltered);
+    return { orders, total: count ?? orders.length };
   },
 
   async getOrderById(orderId: string): Promise<Order> {

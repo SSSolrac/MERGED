@@ -5,15 +5,15 @@
 .track-header p { margin-top: 8px; color:#666; }
 .track-lookup { display:flex; gap:8px; margin:16px 0; flex-wrap:wrap; }
 .track-lookup input { flex:1; min-width:220px; padding:10px; border-radius:10px; border:1px solid #ddd; }
-.track-lookup button { border:0; padding:10px 14px; border-radius:10px; background:#36d7e8; color:#fff; cursor:pointer; }
+.track-lookup button { border:0; padding:10px 14px; border-radius:10px; background:#ff8fa3; color:#fff; cursor:pointer; }
 .track-lookup button:disabled { opacity: .7; cursor: not-allowed; }
 .track-lookup button[type="button"] { background:#5d6b75; }
 .track-order-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.track-pill { background:#e8fbfd; color:#27828e; border-radius:999px; padding:4px 10px; font-size:.82rem; font-weight:600; }
+.track-pill { background:#fff3f5; color:#bf2456; border-radius:999px; padding:4px 10px; font-size:.82rem; font-weight:600; }
 .track-timeline { margin-top:20px; padding:16px; background:#fff; border-radius:16px; }
 .timeline-row { display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; }
 .timeline-dot { width:26px; height:26px; border-radius:50%; border:2px solid #ddd; display:flex; align-items:center; justify-content:center; font-size:.8rem; color:#fff; margin-top:2px; }
-.timeline-dot.active { border-color:#36d7e8; background:#36d7e8; }
+.timeline-dot.active { border-color:#ff8fa3; background:#ff8fa3; }
 .timeline-row p { margin:0; color:#aaa; }
 .timeline-row p.active { color:#333; font-weight:600; }
 .timeline-row small { color:#888; }
@@ -26,7 +26,7 @@
 .track-status-note { color:#4b5563; margin-top: 2px; }
 .track-cancel-panel { margin-top: 14px; padding: 12px; border-radius: 12px; background: #fafafa; border: 1px solid #eee; }
 .track-cancel-panel h3 { margin: 0 0 6px; font-size: .98rem; }
-.track-cancel-info { margin: 0 0 10px; color: #2f6d75; }
+.track-cancel-info { margin: 0 0 10px; color: #bf2456; }
 .track-cancel-expired { margin: 0 0 10px; color: #8c4b5f; }
 .track-cancel-reason { margin: 10px 0 0; color: #7f1d1d; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 8px 10px; }
 .track-cancel-panel button { border: 0; border-radius: 10px; background: #bf2456; color: #fff; padding: 10px 14px; cursor: pointer; }

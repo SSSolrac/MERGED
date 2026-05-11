@@ -38,8 +38,9 @@ export const LoginPage = () => {
         <input className="w-full border rounded px-3 py-2" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className="w-full border rounded px-3 py-2" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         <button
-          className="w-full rounded bg-[#FFB6C1] text-[#1F2937] py-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="w-full rounded-lg border border-[#F23895] bg-[#F23895] py-2.5 font-semibold text-white shadow-sm transition-colors hover:bg-[#D92D82] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF8FA3] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={bootstrapping || !backend.configured}
+          type="submit"
         >
           {bootstrapping ? 'Checking session...' : 'Sign in'}
         </button>

@@ -71,4 +71,6 @@ export type OrderFilters = {
   paymentMethod?: PaymentMethod | 'all';
   range?: DateRangePreset;
   limit?: number;
+  page?: number;
+  pageSize?: number;
 };

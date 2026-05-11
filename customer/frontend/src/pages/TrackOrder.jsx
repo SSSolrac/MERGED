@@ -10,6 +10,7 @@ import {
 } from "../services/orderService";
 import { syncCustomerNotifications } from "../services/notificationService";
 import { useAuth } from "../context/AuthContext";
+import ReviewPrompt from "../components/ReviewPrompt";
 import "./TrackOrder.css";
 
 function formatTimestamp(value) {
@@ -160,6 +161,8 @@ export default function TrackOrder() {
       <div className="track-actions">
         {isAuthenticated ? <Link to="/order-history">View order history</Link> : <Link to="/order">Start another order</Link>}
       </div>
+
+      <ReviewPrompt order={order} />
     </div>
   );
 }

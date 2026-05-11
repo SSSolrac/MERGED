@@ -3,7 +3,7 @@ import type { DailyMenu, DailyMenuItem } from '@/types/dailyMenu';
 import type { Ingredient, RecipeLine } from '@/types/ingredient';
 import type { InventoryCategory, InventoryItem, InventoryMovement, InventoryRecipeLine } from '@/types/inventory';
 import type { LoyaltyAccount, Reward } from '@/types/loyalty';
-import type { MenuCategory, MenuItem } from '@/types/menuItem';
+import type { MenuCategory, MenuItem, MenuItemIngredient } from '@/types/menuItem';
 import type { Order, OrderItem, OrderStatusHistoryItem, PaymentMethod, PaymentStatus } from '@/types/order';
 import type { UserRole } from '@/types/user';
 import { normalizePaymentMethod } from '@/utils/payment';
@@ -41,7 +41,7 @@ const asInventoryItemType = (value: unknown): InventoryItem['itemType'] => {
 };
 const asInventoryMovementType = (value: unknown): InventoryMovement['movementType'] => {
   const text = asString(value, '').trim().toLowerCase();
-  if (text === 'stock_out' || text === 'waste' || text === 'production') return text;
+  if (text === 'stock_out' || text === 'waste' || text === 'production' || text === 'correction' || text === 'undo') return text;
   return 'stock_in';
 };
 
@@ -136,6 +136,21 @@ export const mapMenuItemRow = (row: unknown): MenuItem => {
   };
 };
 
+export const mapMenuItemIngredientRow = (row: unknown): MenuItemIngredient => {
+  const r = asRecord(row) ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: asString(r.id, ''),
+    menuItemId: asString(r.menu_item_id, ''),
+    inventoryItemId: asString(r.inventory_item_id, ''),
+    quantityRequired: asNumber(r.quantity_required, 0),
+    unit: r.unit == null ? null : asString(r.unit, ''),
+    displayQuantity: r.display_quantity == null ? null : asString(r.display_quantity, ''),
+    createdAt: asIsoString(r.created_at, now),
+    updatedAt: asIsoString(r.updated_at, asIsoString(r.created_at, now)),
+  };
+};
+
 export const mapIngredientRow = (row: unknown): Ingredient => {
   const r = asRecord(row) ?? {};
   const now = new Date().toISOString();
@@ -225,6 +240,10 @@ export const mapInventoryMovementRow = (row: unknown): InventoryMovement => {
     metadata: asRecord(r.metadata),
     createdBy: r.created_by == null ? null : asString(r.created_by, ''),
     createdAt: asIsoString(r.created_at, now),
+    reversalOfMovementId: r.reversal_of_movement_id == null ? null : asString(r.reversal_of_movement_id, ''),
+    reversedByMovementId: r.reversed_by_movement_id == null ? null : asString(r.reversed_by_movement_id, ''),
+    voidedAt: r.voided_at == null ? null : asString(r.voided_at, ''),
+    voidReason: r.void_reason == null ? null : asString(r.void_reason, ''),
   };
 };
 

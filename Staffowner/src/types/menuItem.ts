@@ -5,6 +5,7 @@ export type MenuItem = {
   name: string;
   description: string | null;
   price: number;
+  cost: number;
   effectivePrice: number;
   isAvailable: boolean;
   imageUrl: string | null;
@@ -37,6 +38,17 @@ export type MenuCategory = {
   newTagStartedAt: string | null;
   newTagExpiresAt: string | null;
   isNew: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MenuItemIngredient = {
+  id: string;
+  menuItemId: string;
+  inventoryItemId: string;
+  quantityRequired: number;
+  unit: string | null;
+  displayQuantity: string | null;
   createdAt: string;
   updatedAt: string;
 };

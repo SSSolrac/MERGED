@@ -60,10 +60,12 @@ export function calculateDeliveryFeeQuote({
   longitude,
   dropoffLatLng,
   roadDistanceKm,
+  pickupLatLng,
 } = {}) {
   const dropoff =
     normalizeLatLngPoint(dropoffLatLng) ||
     normalizeLatLngPoint({ lat: latitude, lng: longitude });
+  const pickup = normalizeLatLngPoint(pickupLatLng) || DELIVERY_PICKUP_POINT;
 
   if (!dropoff) {
     throw new Error("Select a valid delivery pin to calculate the delivery fee.");
@@ -72,7 +74,7 @@ export function calculateDeliveryFeeQuote({
   const routeDistanceKm = asNumber(roadDistanceKm);
   const rawDistanceKm = Number.isFinite(routeDistanceKm) && routeDistanceKm > 0
     ? routeDistanceKm
-    : computeHaversineDistanceKm(DELIVERY_PICKUP_POINT, dropoff);
+    : computeHaversineDistanceKm(pickup, dropoff);
 
   if (!Number.isFinite(rawDistanceKm) || rawDistanceKm < 0) {
     throw new Error("Unable to calculate the delivery distance for this pin.");
@@ -96,8 +98,8 @@ export function calculateDeliveryFeeQuote({
     breakdown,
     distanceMethod,
     pickupLatLng: {
-      lat: DELIVERY_PICKUP_POINT.lat,
-      lng: DELIVERY_PICKUP_POINT.lng,
+      lat: pickup.lat,
+      lng: pickup.lng,
     },
     dropoffLatLng: dropoff,
   };

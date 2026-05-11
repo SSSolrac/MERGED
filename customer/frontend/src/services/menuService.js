@@ -136,11 +136,11 @@ export async function getMenuCategories() {
   }
 
   const supabase = requireSupabaseClient();
-  const view = await supabase.from("menu_category_effective_state").select("*").order("sort_order", { ascending: true });
+  const view = await supabase.from("menu_category_effective_state").select("*").order("sort_order", { ascending: true }).limit(500);
   const sourceRows = !view.error ? view.data : null;
   const fallback = sourceRows
     ? { data: sourceRows, error: null }
-    : await supabase.from("menu_categories").select("*").order("sort_order", { ascending: true });
+    : await supabase.from("menu_categories").select("*").order("sort_order", { ascending: true }).limit(500);
 
   if (fallback.error) throw asDbError(fallback.error, "Unable to load menu categories.", { table: "menu_categories", operation: "select" });
   const mapped = (Array.isArray(fallback.data) ? fallback.data : []).map(mapMenuCategoryRow).filter((row) => row.isActive !== false);
@@ -155,7 +155,8 @@ async function listMenuItemsFromAvailabilityView() {
     .select(
       "id, code, category_id, name, description, price, discount, discount_type, discount_value, effective_discount, effective_price, is_discount_active, discount_starts_at, discount_ends_at, is_available, effective_is_available, image_url, new_tag_started_at, new_tag_expires_at, is_new, limited_time_ends_at, is_limited, is_limited_expired, category_is_new, created_at, updated_at"
     )
-    .order("name", { ascending: true });
+    .order("name", { ascending: true })
+    .limit(1000);
 
   if (error) return { data: null, error };
   return { data: Array.isArray(data) ? data : [], error: null };
@@ -179,7 +180,7 @@ export async function getMenuItems() {
   }
 
   const supabase = requireSupabaseClient();
-  const { data, error } = await supabase.from("menu_items").select("*").order("name", { ascending: true });
+  const { data, error } = await supabase.from("menu_items").select("*").order("name", { ascending: true }).limit(1000);
   if (error) throw asDbError(error, "Unable to load menu items.", { table: "menu_items", operation: "select" });
   const mapped = (Array.isArray(data) ? data : []).map(mapMenuItemRow);
   menuItemsCache = { ts: Date.now(), data: mapped };

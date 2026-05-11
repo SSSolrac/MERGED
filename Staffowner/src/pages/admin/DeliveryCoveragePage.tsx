@@ -533,7 +533,7 @@ export const DeliveryCoveragePage = () => {
           {form.puroks.map((purok, index) => (
             <article
               key={purok.id || `purok-${index + 1}`}
-              className={`rounded border p-2 space-y-2 ${selectedPurokId === purok.id ? 'border-[#36D7E8] ring-1 ring-[#36D7E8]/40' : ''}`}
+              className={`rounded border p-2 space-y-2 ${selectedPurokId === purok.id ? 'border-[#FF8FA3] ring-1 ring-[#FF8FA3]/40' : ''}`}
             >
               <div className="grid md:grid-cols-[1.2fr_110px_160px_160px_120px_auto] gap-2 items-end">
                 <label className="text-sm">

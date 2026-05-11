@@ -12,6 +12,18 @@ const isMissingInventoryExtension = (error: unknown) => {
   const message = String(record?.message ?? '').toLowerCase();
   return code === '42p01' || code === '42703' || message.includes('does not exist') || message.includes('column');
 };
+const isMissingRpc = (error: unknown) => {
+  const record = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = String(record?.code ?? '').toLowerCase();
+  const message = `${String(record?.message ?? '')} ${String(record?.details ?? '')}`.toLowerCase();
+  return code === 'pgrst202' || message.includes('could not find the function') || message.includes('function') && message.includes('does not exist');
+};
+const isLegacyMovementConstraint = (error: unknown) => {
+  const record = error as { code?: unknown; message?: unknown };
+  const code = String(record?.code ?? '').toLowerCase();
+  const message = String(record?.message ?? '').toLowerCase();
+  return code === '23514' || message.includes('inventory_stock_movements_movement_type') || message.includes('check constraint');
+};
 const isOptionalInventoryReadBlocked = (error: unknown) => {
   const record = error as { code?: unknown; message?: unknown; status?: unknown };
   const code = String(record?.code ?? '').toLowerCase();
@@ -42,6 +54,13 @@ const quantityDeltaForMovement = (movementType: InventoryMovementType, quantity:
   return -roundQuantity(quantity);
 };
 
+const legacyMovementTypeForDelta = (quantityDelta: number): InventoryMovementType => (quantityDelta >= 0 ? 'stock_in' : 'stock_out');
+
+const parseRpcPayload = (value: unknown) => {
+  if (!value || typeof value !== 'object') return {} as Record<string, unknown>;
+  return value as Record<string, unknown>;
+};
+
 const buildBasicItemPayload = (item: InventoryItem) => ({
   category_id: asTrimmed(item.categoryId),
   name: asTrimmed(item.name),
@@ -66,7 +85,8 @@ export const inventoryService = {
       .from('inventory_categories')
       .select('*')
       .order('sort_order', { ascending: true })
-      .order('name', { ascending: true });
+      .order('name', { ascending: true })
+      .limit(500);
 
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to load inventory categories.' });
     return (Array.isArray(data) ? data : [])
@@ -105,7 +125,8 @@ export const inventoryService = {
       .from('inventory_items')
       .select('*')
       .order('category_id', { ascending: true })
-      .order('name', { ascending: true });
+      .order('name', { ascending: true })
+      .limit(1000);
 
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to load inventory items.' });
     return (Array.isArray(data) ? data : [])
@@ -150,7 +171,8 @@ export const inventoryService = {
       .from('inventory_recipe_lines')
       .select('*')
       .order('finished_item_id', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .limit(2000);
 
     if (error) {
       if (canSkipOptionalInventoryRead(error)) return [];
@@ -213,24 +235,44 @@ export const inventoryService = {
     reason?: string | null;
     referenceId?: string | null;
     metadata?: Record<string, unknown> | null;
+    reversalOfMovementId?: string | null;
   }): Promise<InventoryMovement | null> {
     const supabase = requireSupabaseClient();
     const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
-    const { data, error } = await supabase
+    const buildPayload = (movementType: InventoryMovementType, includeReversal = true) => ({
+      inventory_item_id: params.itemId,
+      movement_type: movementType,
+      quantity_delta: roundQuantity(params.quantityDelta),
+      quantity_before: roundQuantity(params.quantityBefore),
+      quantity_after: roundQuantity(params.quantityAfter),
+      reason: asTrimmed(params.reason) || null,
+      reference_id: asTrimmed(params.referenceId) || null,
+      metadata: params.metadata ?? null,
+      created_by: userData?.user?.id ?? null,
+      ...(includeReversal && params.reversalOfMovementId ? { reversal_of_movement_id: params.reversalOfMovementId } : {}),
+    });
+
+    let { data, error } = await supabase
       .from('inventory_stock_movements')
-      .insert({
-        inventory_item_id: params.itemId,
-        movement_type: params.movementType,
-        quantity_delta: roundQuantity(params.quantityDelta),
-        quantity_before: roundQuantity(params.quantityBefore),
-        quantity_after: roundQuantity(params.quantityAfter),
-        reason: asTrimmed(params.reason) || null,
-        reference_id: asTrimmed(params.referenceId) || null,
-        metadata: params.metadata ?? null,
-        created_by: userData?.user?.id ?? null,
-      })
+      .insert(buildPayload(params.movementType))
       .select('*')
       .single();
+
+    if (error && params.reversalOfMovementId && isMissingInventoryExtension(error)) {
+      const retry = await supabase.from('inventory_stock_movements').insert(buildPayload(params.movementType, false)).select('*').single();
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (error && (params.movementType === 'correction' || params.movementType === 'undo') && isLegacyMovementConstraint(error)) {
+      const retry = await supabase
+        .from('inventory_stock_movements')
+        .insert(buildPayload(legacyMovementTypeForDelta(params.quantityDelta), false))
+        .select('*')
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       if (isMissingInventoryExtension(error)) return null;
@@ -239,9 +281,43 @@ export const inventoryService = {
     return mapInventoryMovementRow(data);
   },
 
+  async applyStockMovement(params: {
+    itemId: string;
+    movementType: InventoryMovementType;
+    quantityDelta: number;
+    reason?: string | null;
+    referenceId?: string | null;
+    metadata?: Record<string, unknown> | null;
+    reversalOfMovementId?: string | null;
+  }): Promise<{ item: InventoryItem; movement: InventoryMovement | null } | null> {
+    const supabase = requireSupabaseClient();
+    const { data, error } = await supabase.rpc('apply_inventory_stock_movement', {
+      p_inventory_item_id: params.itemId,
+      p_movement_type: params.movementType,
+      p_quantity_delta: roundQuantity(params.quantityDelta),
+      p_reason: asTrimmed(params.reason) || null,
+      p_reference_id: asTrimmed(params.referenceId) || null,
+      p_metadata: params.metadata ?? {},
+      p_reversal_of_movement_id: params.reversalOfMovementId || null,
+    });
+
+    if (error) {
+      if (isMissingRpc(error) || isMissingInventoryExtension(error)) return null;
+      throw normalizeError(error, { fallbackMessage: 'Unable to apply inventory movement.' });
+    }
+
+    const payload = parseRpcPayload(data);
+    const itemPayload = payload.item ?? payload.inventory_item ?? payload.inventoryItem;
+    if (!itemPayload) return null;
+    return {
+      item: mapInventoryItemRow(itemPayload),
+      movement: payload.movement ? mapInventoryMovementRow(payload.movement) : null,
+    };
+  },
+
   async adjustStock(params: {
     item: InventoryItem;
-    movementType: Exclude<InventoryMovementType, 'production'>;
+    movementType: Exclude<InventoryMovementType, 'production' | 'correction' | 'undo'>;
     quantity: number;
     reason?: string | null;
   }): Promise<InventoryItem> {
@@ -255,6 +331,15 @@ export const inventoryService = {
     if (nextQuantity < 0) {
       throw new Error('Invalid stock deduction. Quantity on hand is not enough.');
     }
+
+    const rpcResult = await this.applyStockMovement({
+      itemId: params.item.id,
+      movementType: params.movementType,
+      quantityDelta,
+      reason: params.reason,
+      metadata: { source: 'manual_adjustment' },
+    });
+    if (rpcResult) return rpcResult.item;
 
     const saved = await this.saveItem({
       ...params.item,
@@ -292,13 +377,31 @@ export const inventoryService = {
       throw new Error('Add at least one raw material recipe line before production.');
     }
 
+    const referenceId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `production-${Date.now().toString(36)}`;
+    const supabase = requireSupabaseClient();
+    const rpcProduction = await supabase.rpc('produce_inventory_finished_product', {
+      p_finished_item_id: params.finishedItem.id,
+      p_quantity: roundQuantity(params.quantity),
+      p_reason: asTrimmed(params.reason) || null,
+      p_reference_id: referenceId,
+    });
+    if (!rpcProduction.error) {
+      const payload = parseRpcPayload(rpcProduction.data);
+      const items = Array.isArray(payload.items) ? payload.items.map(mapInventoryItemRow) : [];
+      if (items.length) return items;
+    } else if (!isMissingRpc(rpcProduction.error) && !isMissingInventoryExtension(rpcProduction.error)) {
+      throw normalizeError(rpcProduction.error, { fallbackMessage: 'Unable to produce finished product.' });
+    }
+
+    const recipeMultiplier = params.quantity / Math.max(1, params.finishedItem.recipeYieldQuantity || 1);
     const itemById = new Map(params.items.map((item) => [item.id, item]));
     const deductions = recipe.map((line) => {
       const rawItem = itemById.get(line.rawItemId);
       if (!rawItem) {
         throw new Error('A recipe raw material is missing from inventory.');
       }
-      const requiredQuantity = roundQuantity(line.quantityRequired * params.quantity);
+      const requiredQuantity = roundQuantity(line.quantityRequired * recipeMultiplier);
       if (requiredQuantity <= 0) {
         throw new Error('Recipe quantity must be greater than zero.');
       }
@@ -308,8 +411,6 @@ export const inventoryService = {
       return { line, rawItem, requiredQuantity };
     });
 
-    const referenceId =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `production-${Date.now().toString(36)}`;
     const savedItems: InventoryItem[] = [];
 
     for (const deduction of deductions) {
@@ -364,6 +465,166 @@ export const inventoryService = {
         })),
       },
     });
+
+    return savedItems;
+  },
+
+  async listMovementsByReference(referenceId: string): Promise<InventoryMovement[]> {
+    const cleanReferenceId = asTrimmed(referenceId);
+    if (!cleanReferenceId) return [];
+    const supabase = requireSupabaseClient();
+    const { data, error } = await supabase
+      .from('inventory_stock_movements')
+      .select('*')
+      .eq('reference_id', cleanReferenceId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      if (canSkipOptionalInventoryRead(error)) return [];
+      throw normalizeError(error, { fallbackMessage: 'Unable to load related inventory movements.' });
+    }
+    return (Array.isArray(data) ? data : []).map(mapInventoryMovementRow);
+  },
+
+  async correctStock(params: { item: InventoryItem; actualQuantity: number; reason: string }): Promise<InventoryItem> {
+    if (!Number.isFinite(params.actualQuantity) || params.actualQuantity < 0) {
+      throw new Error('Actual quantity must be zero or higher.');
+    }
+    if (!asTrimmed(params.reason)) {
+      throw new Error('Correction reason is required.');
+    }
+
+    const nextQuantity = roundQuantity(params.actualQuantity);
+    const quantityDelta = roundQuantity(nextQuantity - params.item.quantityOnHand);
+    if (quantityDelta === 0) {
+      throw new Error(`${params.item.name} already matches the entered count.`);
+    }
+
+    const rpcResult = await this.applyStockMovement({
+      itemId: params.item.id,
+      movementType: 'correction',
+      quantityDelta,
+      reason: params.reason,
+      metadata: {
+        source: 'owner_correction',
+        previousQuantity: params.item.quantityOnHand,
+        correctedQuantity: nextQuantity,
+      },
+    });
+    if (rpcResult) return rpcResult.item;
+
+    const saved = await this.saveItem({
+      ...params.item,
+      quantityOnHand: nextQuantity,
+      displayQuantity: String(nextQuantity),
+    });
+
+    await this.recordMovement({
+      itemId: saved.id,
+      movementType: 'correction',
+      quantityDelta,
+      quantityBefore: params.item.quantityOnHand,
+      quantityAfter: saved.quantityOnHand,
+      reason: params.reason,
+      metadata: {
+        source: 'owner_correction',
+        previousQuantity: params.item.quantityOnHand,
+        correctedQuantity: nextQuantity,
+      },
+    });
+
+    return saved;
+  },
+
+  async undoMovement(params: { movement: InventoryMovement; reason: string }): Promise<InventoryItem[]> {
+    if (!asTrimmed(params.reason)) {
+      throw new Error('Undo reason is required.');
+    }
+    if (params.movement.movementType === 'undo') {
+      throw new Error('Undo entries cannot be undone from this screen.');
+    }
+    if (params.movement.reversedByMovementId || params.movement.voidedAt) {
+      throw new Error('This movement has already been undone.');
+    }
+
+    const group =
+      params.movement.referenceId && params.movement.movementType === 'production'
+        ? await this.listMovementsByReference(params.movement.referenceId)
+        : [params.movement];
+    const targets = group.filter((movement) => movement.movementType !== 'undo' && !movement.reversedByMovementId && !movement.voidedAt);
+    if (!targets.length) {
+      throw new Error('No undoable movement was found.');
+    }
+
+    const orderedTargets = [...targets].sort((left, right) => {
+      const leftUndoDelta = -left.quantityDelta;
+      const rightUndoDelta = -right.quantityDelta;
+      if (leftUndoDelta < 0 && rightUndoDelta >= 0) return -1;
+      if (leftUndoDelta >= 0 && rightUndoDelta < 0) return 1;
+      return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    });
+
+    const savedItems: InventoryItem[] = [];
+    for (const movement of orderedTargets) {
+      const undoDelta = roundQuantity(-movement.quantityDelta);
+      const rpcResult = await this.applyStockMovement({
+        itemId: movement.itemId,
+        movementType: 'undo',
+        quantityDelta: undoDelta,
+        reason: params.reason,
+        referenceId: movement.referenceId,
+        reversalOfMovementId: movement.id,
+        metadata: {
+          source: 'owner_undo',
+          originalMovementId: movement.id,
+          originalMovementType: movement.movementType,
+        },
+      });
+
+      if (rpcResult) {
+        savedItems.push(rpcResult.item);
+        if (rpcResult.movement?.id) {
+          const supabase = requireSupabaseClient();
+          await supabase
+            .from('inventory_stock_movements')
+            .update({
+              reversed_by_movement_id: rpcResult.movement.id,
+              voided_at: new Date().toISOString(),
+              void_reason: params.reason,
+            })
+            .eq('id', movement.id);
+        }
+        continue;
+      }
+
+      const current = await this.listItems().then((rows) => rows.find((item) => item.id === movement.itemId));
+      if (!current) throw new Error('Inventory item for this movement no longer exists.');
+      const nextQuantity = roundQuantity(current.quantityOnHand + undoDelta);
+      if (nextQuantity < 0) {
+        throw new Error(`Undo would make ${current.name} negative. Correct the count instead.`);
+      }
+      const saved = await this.saveItem({
+        ...current,
+        quantityOnHand: nextQuantity,
+        displayQuantity: String(nextQuantity),
+      });
+      savedItems.push(saved);
+      await this.recordMovement({
+        itemId: saved.id,
+        movementType: 'undo',
+        quantityDelta: undoDelta,
+        quantityBefore: current.quantityOnHand,
+        quantityAfter: saved.quantityOnHand,
+        reason: params.reason,
+        referenceId: movement.referenceId,
+        reversalOfMovementId: movement.id,
+        metadata: {
+          source: 'owner_undo',
+          originalMovementId: movement.id,
+          originalMovementType: movement.movementType,
+        },
+      });
+    }
 
     return savedItems;
   },

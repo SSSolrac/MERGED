@@ -829,8 +829,7 @@ export const SettingsPage = () => {
               <label><input type="checkbox" checked={delivery} onChange={(e) => setDelivery(e.target.checked)} /> Delivery</label>
             </div>
             <p className="text-xs text-[#6B7280]">
-              Polygon coverage, fixed barangay labels, and allowed puroks are controlled in Admin &gt; Delivery Coverage. The
-              legacy radius field remains in the schema for compatibility but does not drive polygon validation anymore.
+              Delivery distance, pickup location, fixed barangay labels, and allowed puroks are controlled in Admin &gt; Delivery Coverage.
             </p>
           </div>
           <div className="space-y-2">

@@ -36,7 +36,7 @@ test("delivery coverage prefers the newest active area over a newer inactive row
   assert.equal(preferred?.deliveryStatus, "active");
 });
 
-test("delivery coverage keeps the live customer polygon and purok payload as saved", () => {
+test("delivery coverage exposes radius settings and purok payload as saved", () => {
   const config = toCustomerDeliveryConfig(
     {
       id: "area-1",
@@ -45,6 +45,10 @@ test("delivery coverage keeps the live customer polygon and purok payload as sav
       city: "Lucena City",
       province: "Quezon",
       country: "Philippines",
+      coverage_mode: "radius",
+      center_lat: 13.93949,
+      center_lng: 121.6024,
+      max_distance_km: 4,
       is_active: true,
       delivery_status: "active",
     },
@@ -53,6 +57,8 @@ test("delivery coverage keeps the live customer polygon and purok payload as sav
   );
 
   assert.ok(config);
+  assert.equal(config.coverageMode, "radius");
+  assert.equal(config.maxDistanceKm, 4);
   assert.deepEqual(config.puroks, []);
   assert.deepEqual(config.polygon, []);
 });

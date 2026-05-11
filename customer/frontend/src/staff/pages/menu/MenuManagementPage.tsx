@@ -4,8 +4,10 @@ import { Button, EmptyState, Image, SectionCard, StatusChip } from '@/components
 import { getErrorMessage } from '@/lib/errors';
 import { useMenuCategories } from '@/hooks/useMenuCategories';
 import { useMenuItems } from '@/hooks/useMenuItems';
+import { inventoryService } from '@/services/inventoryService';
 import { menuService } from '@/services/menuService';
-import type { MenuCategory, MenuItem } from '@/types/menuItem';
+import type { InventoryCategory, InventoryItem } from '@/types/inventory';
+import type { MenuCategory, MenuItem, MenuItemIngredient } from '@/types/menuItem';
 import { formatCurrency } from '@/utils/currency';
 
 const createDefaultMenuItemDraft = (): MenuItem => ({
@@ -52,6 +54,20 @@ const defaultCategoryDraft: MenuCategory = {
   updatedAt: '',
 };
 
+const createIngredientDraft = () => ({
+  inventoryItemId: '',
+  quantityRequired: '1',
+  displayQuantity: '',
+});
+
+const createQuickInventoryDraft = () => ({
+  name: '',
+  categoryId: '',
+  unit: 'kg',
+  quantityOnHand: '0',
+  reorderLevel: '0',
+});
+
 type DiscountMode = 'amount' | 'percent';
 type DraftDiscountMode = DiscountMode | 'none';
 type BulkScope = 'all' | 'specific';
@@ -65,11 +81,13 @@ type MenuItemGroup = {
 const LIMITED_ITEM_SENTINEL = '9999-12-31T23:59:00.000Z';
 const MENU_GROUP_PREVIEW_LIMIT = 10;
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+const rawInventoryUnits = ['kg', 'g', 'l', 'ml', 'pcs', 'pack', 'bottle', 'jar', 'can'];
 const asTrimmed = (value: string | null | undefined) => String(value || '').trim();
 const asNumberOrZero = (value: string | number | null | undefined) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : 0;
 };
+const roundQuantity = (value: number) => Math.round(value * 1000) / 1000;
 
 const roundCurrency = (value: number) => Math.round(value * 100) / 100;
 const normalizeAmount = (value: number) => roundCurrency(Math.max(0, asNumberOrZero(value)));
@@ -189,6 +207,14 @@ export const MenuManagementPage = () => {
   const [bulkItemQuery, setBulkItemQuery] = useState('');
   const [selectedBulkItemIds, setSelectedBulkItemIds] = useState<string[]>([]);
   const [isApplyingBulkDiscount, setIsApplyingBulkDiscount] = useState(false);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [inventoryCategories, setInventoryCategories] = useState<InventoryCategory[]>([]);
+  const [menuIngredientLines, setMenuIngredientLines] = useState<MenuItemIngredient[]>([]);
+  const [pendingIngredientLines, setPendingIngredientLines] = useState<MenuItemIngredient[]>([]);
+  const [ingredientDraft, setIngredientDraft] = useState(createIngredientDraft);
+  const [quickInventoryDraft, setQuickInventoryDraft] = useState(createQuickInventoryDraft);
+  const [isSavingIngredientLine, setIsSavingIngredientLine] = useState(false);
+  const [isCreatingInventoryIngredient, setIsCreatingInventoryIngredient] = useState(false);
 
   const filtered = useMemo(() => items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())), [items, query]);
   const groupedMenuItems = useMemo<MenuItemGroup[]>(() => {
@@ -232,6 +258,18 @@ export const MenuManagementPage = () => {
   );
   const bulkTargetCount = bulkScope === 'all' ? items.length : selectedBulkCount;
   const categoryNameById = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
+  const inventoryItemById = useMemo(() => new Map(inventoryItems.map((item) => [item.id, item])), [inventoryItems]);
+  const rawInventoryItems = useMemo(
+    () => inventoryItems.filter((item) => item.itemType !== 'finished_product' && item.isActive !== false),
+    [inventoryItems],
+  );
+  const draftIngredientLines = useMemo(
+    () => [
+      ...(draft.id ? menuIngredientLines.filter((line) => line.menuItemId === draft.id) : []),
+      ...pendingIngredientLines,
+    ],
+    [draft.id, menuIngredientLines, pendingIngredientLines],
+  );
   const discountedItems = useMemo(
     () => items.filter((item) => item.isDiscountActive && normalizeAmount(item.effectiveDiscount) > 0),
     [items],
@@ -258,6 +296,28 @@ export const MenuManagementPage = () => {
   useEffect(() => {
     setSelectedBulkItemIds((current) => current.filter((id) => items.some((item) => item.id === id)));
   }, [items]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadIngredientSupport = async () => {
+      const [categoryResult, itemResult, recipeResult] = await Promise.allSettled([
+        inventoryService.listCategories(),
+        inventoryService.listItems(),
+        menuService.listMenuItemIngredients(),
+      ] as const);
+
+      if (cancelled) return;
+      if (categoryResult.status === 'fulfilled') setInventoryCategories(categoryResult.value);
+      if (itemResult.status === 'fulfilled') setInventoryItems(itemResult.value);
+      if (recipeResult.status === 'fulfilled') setMenuIngredientLines(recipeResult.value);
+    };
+
+    void loadIngredientSupport();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (activeCategoryTab === 'all') return;
@@ -292,6 +352,9 @@ export const MenuManagementPage = () => {
     setDraftPriceInput('');
     setMenuItemError('');
     setSavedMenuImageUrl('');
+    setPendingIngredientLines([]);
+    setIngredientDraft(createIngredientDraft());
+    setQuickInventoryDraft(createQuickInventoryDraft());
   };
 
   const handleOpenCreateMenuItemModal = () => {
@@ -370,14 +433,29 @@ export const MenuManagementPage = () => {
 
     try {
       setMenuItemError('');
-      await saveItem({
+      const savedMenuItem = await saveItem({
         ...preparedDraft,
         name: asTrimmed(preparedDraft.name),
         categoryId: asTrimmed(preparedDraft.categoryId),
         description: asTrimmed(preparedDraft.description) || null,
         imageUrl: asTrimmed(preparedDraft.imageUrl) || null,
       });
-      const message = draft.id ? `Saved changes to ${asTrimmed(preparedDraft.name)}.` : `Created ${asTrimmed(preparedDraft.name)}.`;
+      const savedPendingLines: MenuItemIngredient[] = [];
+      for (const line of pendingIngredientLines) {
+        savedPendingLines.push(
+          await menuService.saveMenuItemIngredient({
+            ...line,
+            id: '',
+            menuItemId: savedMenuItem.id,
+          }),
+        );
+      }
+      if (savedPendingLines.length) {
+        setMenuIngredientLines((rows) => [...rows, ...savedPendingLines]);
+      }
+      const message = draft.id
+        ? `Saved changes to ${asTrimmed(preparedDraft.name)}.`
+        : `Created ${asTrimmed(preparedDraft.name)}${savedPendingLines.length ? ' with ingredients' : ''}.`;
       setLastSaveMessage(message);
       toast.success(message);
       setIsMenuItemModalOpen(false);
@@ -487,6 +565,126 @@ export const MenuManagementPage = () => {
     }
   };
 
+  const upsertLocalIngredientLine = (line: MenuItemIngredient) => {
+    setPendingIngredientLines((rows) => {
+      const existing = rows.find((row) => row.inventoryItemId === line.inventoryItemId);
+      if (existing) {
+        return rows.map((row) => (row.inventoryItemId === line.inventoryItemId ? { ...line, id: existing.id } : row));
+      }
+      return [...rows, line];
+    });
+  };
+
+  const handleAddIngredientLine = async () => {
+    const inventoryItemId = asTrimmed(ingredientDraft.inventoryItemId);
+    const selectedInventoryItem = inventoryItemById.get(inventoryItemId);
+    const quantityRequired = roundQuantity(Number(ingredientDraft.quantityRequired));
+
+    if (!selectedInventoryItem) {
+      toast.error('Choose an inventory ingredient first.');
+      return;
+    }
+    if (!Number.isFinite(quantityRequired) || quantityRequired <= 0) {
+      toast.error('Ingredient quantity must be greater than zero.');
+      return;
+    }
+
+    const line: MenuItemIngredient = {
+      id: '',
+      menuItemId: draft.id,
+      inventoryItemId,
+      quantityRequired,
+      unit: selectedInventoryItem.unit,
+      displayQuantity: asTrimmed(ingredientDraft.displayQuantity) || null,
+      createdAt: '',
+      updatedAt: '',
+    };
+
+    try {
+      setIsSavingIngredientLine(true);
+      if (!draft.id) {
+        upsertLocalIngredientLine({ ...line, id: `pending-${inventoryItemId}` });
+        setIngredientDraft(createIngredientDraft());
+        toast.success(`${selectedInventoryItem.name} will be linked when this menu item is saved.`);
+        return;
+      }
+
+      const existing = menuIngredientLines.find((row) => row.menuItemId === draft.id && row.inventoryItemId === inventoryItemId);
+      const saved = await menuService.saveMenuItemIngredient(existing ? { ...line, id: existing.id } : line);
+      setMenuIngredientLines((rows) => (rows.some((row) => row.id === saved.id) ? rows.map((row) => (row.id === saved.id ? saved : row)) : [...rows, saved]));
+      setIngredientDraft(createIngredientDraft());
+      toast.success(`${selectedInventoryItem.name} linked to ${draft.name}.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to save menu ingredient.'));
+    } finally {
+      setIsSavingIngredientLine(false);
+    }
+  };
+
+  const handleRemoveIngredientLine = async (line: MenuItemIngredient) => {
+    if (line.id.startsWith('pending-')) {
+      setPendingIngredientLines((rows) => rows.filter((row) => row.id !== line.id));
+      return;
+    }
+
+    try {
+      await menuService.deleteMenuItemIngredient(line.id);
+      setMenuIngredientLines((rows) => rows.filter((row) => row.id !== line.id));
+      toast.info('Menu ingredient removed.');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to remove menu ingredient.'));
+    }
+  };
+
+  const handleCreateInventoryIngredient = async () => {
+    const name = asTrimmed(quickInventoryDraft.name);
+    const categoryId = asTrimmed(quickInventoryDraft.categoryId);
+    const unit = asTrimmed(quickInventoryDraft.unit) || 'pcs';
+    const quantityOnHand = roundQuantity(Number(quickInventoryDraft.quantityOnHand));
+    const reorderLevel = roundQuantity(Number(quickInventoryDraft.reorderLevel));
+
+    if (!name) {
+      toast.error('Ingredient name is required.');
+      return;
+    }
+    if (!categoryId) {
+      toast.error('Choose an inventory category for the new ingredient.');
+      return;
+    }
+    if (!Number.isFinite(quantityOnHand) || quantityOnHand < 0 || !Number.isFinite(reorderLevel) || reorderLevel < 0) {
+      toast.error('Inventory quantities must be zero or higher.');
+      return;
+    }
+
+    try {
+      setIsCreatingInventoryIngredient(true);
+      const saved = await inventoryService.saveItem({
+        id: '',
+        code: '',
+        categoryId,
+        name,
+        unit,
+        quantityOnHand,
+        reorderLevel,
+        displayQuantity: String(quantityOnHand),
+        notes: null,
+        itemType: 'raw_material',
+        recipeYieldQuantity: 1,
+        isActive: true,
+        createdAt: '',
+        updatedAt: '',
+      });
+      setInventoryItems((rows) => (rows.some((row) => row.id === saved.id) ? rows.map((row) => (row.id === saved.id ? saved : row)) : [...rows, saved]));
+      setIngredientDraft((current) => ({ ...current, inventoryItemId: saved.id }));
+      setQuickInventoryDraft(createQuickInventoryDraft());
+      toast.success(`${saved.name} added to inventory.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to create inventory ingredient.'));
+    } finally {
+      setIsCreatingInventoryIngredient(false);
+    }
+  };
+
   const handleEditMenuItem = (item: MenuItem) => {
     const normalizedPrice = normalizeAmount(item.price);
     setDraft({ ...item, price: normalizedPrice });
@@ -494,6 +692,8 @@ export const MenuManagementPage = () => {
     setDraftPriceInput(formatPriceInput(normalizedPrice));
     setMenuItemError('');
     setSavedMenuImageUrl(asTrimmed(item.imageUrl));
+    setPendingIngredientLines([]);
+    setIngredientDraft(createIngredientDraft());
     setIsMenuItemModalOpen(true);
   };
 
@@ -1084,6 +1284,152 @@ export const MenuManagementPage = () => {
                   onChange={(event) => setDraft({ ...draft, description: event.target.value })}
                 />
               </label>
+            </div>
+
+            <div className="rounded border p-3 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h5 className="font-medium text-sm">Ingredients / Stock Deduction</h5>
+                  <p className="text-xs text-[#6B7280]">
+                    Enter the amount to deduct in the inventory item's stock unit. Use the display label for owner-friendly amounts like 1 tbsp.
+                  </p>
+                </div>
+                <StatusChip label={`${draftIngredientLines.length} linked`} tone={draftIngredientLines.length ? 'success' : 'neutral'} />
+              </div>
+
+              <div className="grid md:grid-cols-[minmax(0,1.4fr)_120px_minmax(120px,160px)_auto] gap-2 items-end">
+                <label className="text-sm">
+                  Inventory Ingredient
+                  <select
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    value={ingredientDraft.inventoryItemId}
+                    onChange={(event) => setIngredientDraft((current) => ({ ...current, inventoryItemId: event.target.value }))}
+                  >
+                    <option value="">Select ingredient</option>
+                    {rawInventoryItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} ({item.quantityOnHand} {item.unit})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  Deduct Qty
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.001"
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    value={ingredientDraft.quantityRequired}
+                    onChange={(event) => setIngredientDraft((current) => ({ ...current, quantityRequired: event.target.value }))}
+                  />
+                </label>
+                <label className="text-sm">
+                  Display Label
+                  <input
+                    className="block border rounded mt-1 px-2 py-1 w-full"
+                    placeholder="1 tbsp, 2 shots"
+                    value={ingredientDraft.displayQuantity}
+                    onChange={(event) => setIngredientDraft((current) => ({ ...current, displayQuantity: event.target.value }))}
+                  />
+                </label>
+                <Button variant="outline" size="sm" onClick={handleAddIngredientLine} disabled={isSavingIngredientLine}>
+                  Add
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {!draftIngredientLines.length ? (
+                  <p className="text-sm text-[#6B7280]">No ingredients linked yet. Orders will not deduct stock for this item until ingredients are added.</p>
+                ) : null}
+                {draftIngredientLines.map((line) => {
+                  const inventoryItem = inventoryItemById.get(line.inventoryItemId);
+                  return (
+                    <div key={line.id || `${line.inventoryItemId}-${line.quantityRequired}`} className="rounded border p-2 text-sm flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{inventoryItem?.name || 'Inventory item'}</p>
+                        <p className="text-[#6B7280]">
+                          Deducts {line.displayQuantity ? `${line.displayQuantity} (` : ''}
+                          {line.quantityRequired} {line.unit || inventoryItem?.unit || ''}
+                          {line.displayQuantity ? ')' : ''} per item sold
+                        </p>
+                      </div>
+                      <Button variant="danger" size="sm" onClick={() => handleRemoveIngredientLine(line)}>
+                        Remove
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <details className="rounded border bg-[#FFF7F9] p-2">
+                <summary className="cursor-pointer text-sm font-medium">Create a new inventory ingredient</summary>
+                <div className="mt-2 grid md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_100px_120px_120px_auto] gap-2 items-end">
+                  <label className="text-sm">
+                    Name
+                    <input
+                      className="block border rounded mt-1 px-2 py-1 w-full bg-white"
+                      placeholder="Sugar"
+                      value={quickInventoryDraft.name}
+                      onChange={(event) => setQuickInventoryDraft((current) => ({ ...current, name: event.target.value }))}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    Category
+                    <select
+                      className="block border rounded mt-1 px-2 py-1 w-full bg-white"
+                      value={quickInventoryDraft.categoryId}
+                      onChange={(event) => setQuickInventoryDraft((current) => ({ ...current, categoryId: event.target.value }))}
+                    >
+                      <option value="">Select category</option>
+                      {inventoryCategories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    Unit
+                    <select
+                      className="block border rounded mt-1 px-2 py-1 w-full bg-white"
+                      value={quickInventoryDraft.unit}
+                      onChange={(event) => setQuickInventoryDraft((current) => ({ ...current, unit: event.target.value }))}
+                    >
+                      {rawInventoryUnits.map((unit) => (
+                        <option key={unit} value={unit}>
+                          {unit}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    Stock
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.001"
+                      className="block border rounded mt-1 px-2 py-1 w-full bg-white"
+                      value={quickInventoryDraft.quantityOnHand}
+                      onChange={(event) => setQuickInventoryDraft((current) => ({ ...current, quantityOnHand: event.target.value }))}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    Low Stock
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.001"
+                      className="block border rounded mt-1 px-2 py-1 w-full bg-white"
+                      value={quickInventoryDraft.reorderLevel}
+                      onChange={(event) => setQuickInventoryDraft((current) => ({ ...current, reorderLevel: event.target.value }))}
+                    />
+                  </label>
+                  <Button variant="outline" size="sm" onClick={handleCreateInventoryIngredient} disabled={isCreatingInventoryIngredient}>
+                    Create
+                  </Button>
+                </div>
+              </details>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

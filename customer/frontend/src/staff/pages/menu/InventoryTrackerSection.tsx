@@ -2,13 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button, EmptyState, PaginationControls, SectionCard, StatusChip } from '@/components/ui';
 import { getErrorMessage } from '@/lib/errors';
+import { useAuth } from '@/hooks/useAuth';
 import { useInventory } from '@/hooks/useInventory';
 import type { InventoryCategory, InventoryItem, InventoryItemType, InventoryMovement, InventoryMovementType, InventoryRecipeLine } from '@/types/inventory';
 
 const inventoryUnits = ['pcs', 'pack', 'packs', 'orders', 'bottle', 'bottles', 'roll', 'rolls', 'jar', 'can', 'liters', 'g', 'kg', 'ml', 'l'];
 const PAGE_SIZE = 10;
+type ManualMovementType = 'stock_in' | 'stock_out' | 'waste';
 
 const asTrimmed = (value: string | null | undefined) => String(value ?? '').trim();
+const supportInventoryCategoryPattern =
+  /\b(packag\w*|plastic\w*|bags?|clean\w*|utilit\w*|suppl(?:y|ies)|paper\w*|napkins?|receipts?|thermal\w*|trash\w*|sponges?|soaps?|alcohol\w*|sanit\w*|dish\w*|cups?|lids?|straws?|utensils?|disposable\w*)\b/i;
+const isFoodInventoryCategory = (category: InventoryCategory) => !supportInventoryCategoryPattern.test(asTrimmed(category.name));
 
 const parseQuantityText = (value: string): number | null => {
   const normalized = asTrimmed(value).replace(',', '');
@@ -95,7 +100,7 @@ const createRecipeDraft = (finishedItemId = '', rawItemId = '') => ({
 
 const createAdjustmentDraft = () => ({
   itemId: '',
-  movementType: 'stock_in' as Exclude<InventoryMovementType, 'production'>,
+  movementType: 'stock_in' as ManualMovementType,
   quantity: '1',
   reason: '',
 });
@@ -103,6 +108,21 @@ const createAdjustmentDraft = () => ({
 const createProductionDraft = (finishedItemId = '') => ({
   finishedItemId,
   quantity: '1',
+  reason: '',
+});
+
+const createQuickMaterialDraft = () => ({
+  name: '',
+  categoryId: '',
+  unit: 'pcs',
+  quantityOnHand: '0',
+  reorderLevel: '0',
+  recipeQuantity: '1',
+});
+
+const createCorrectionDraft = () => ({
+  itemId: '',
+  actualQuantity: '',
   reason: '',
 });
 
@@ -120,16 +140,22 @@ const movementLabel = (movementType: InventoryMovementType) => {
   if (movementType === 'stock_in') return 'Stock-in';
   if (movementType === 'stock_out') return 'Stock-out';
   if (movementType === 'waste') return 'Waste';
+  if (movementType === 'correction') return 'Correction';
+  if (movementType === 'undo') return 'Undo';
   return 'Production';
 };
 
 const movementTone = (movement: InventoryMovement) => {
+  if (movement.voidedAt || movement.reversedByMovementId) return 'neutral' as const;
+  if (movement.movementType === 'undo' || movement.movementType === 'correction') return 'info' as const;
   if (movement.movementType === 'waste' || movement.quantityDelta < 0) return 'warning' as const;
   if (movement.movementType === 'production') return 'info' as const;
   return 'success' as const;
 };
 
 export const InventoryTrackerSection = () => {
+  const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const {
     categories,
     items,
@@ -145,6 +171,8 @@ export const InventoryTrackerSection = () => {
     deleteRecipeLine,
     adjustStock,
     produceFinishedProduct,
+    correctStock,
+    undoMovement,
   } = useInventory();
   const [categoryDraft, setCategoryDraft] = useState<InventoryCategory>(createCategoryDraft);
   const [itemDraft, setItemDraft] = useState<InventoryItem>(createItemDraft);
@@ -157,12 +185,18 @@ export const InventoryTrackerSection = () => {
   const [recipeDraft, setRecipeDraft] = useState(createRecipeDraft);
   const [adjustmentDraft, setAdjustmentDraft] = useState(createAdjustmentDraft);
   const [productionDraft, setProductionDraft] = useState(createProductionDraft);
+  const [quickMaterialDraft, setQuickMaterialDraft] = useState(createQuickMaterialDraft);
+  const [correctionDraft, setCorrectionDraft] = useState(createCorrectionDraft);
+  const [undoDraft, setUndoDraft] = useState<{ movement: InventoryMovement | null; reason: string }>({ movement: null, reason: '' });
   const [lastConfirmation, setLastConfirmation] = useState('');
 
   const categoryNameById = useMemo(() => new Map(categories.map((category) => [category.id, category.name])), [categories]);
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const rawMaterials = useMemo(() => items.filter((item) => item.itemType !== 'finished_product'), [items]);
   const finishedProducts = useMemo(() => items.filter((item) => item.itemType === 'finished_product'), [items]);
+  const foodInventoryCategories = useMemo(() => categories.filter(isFoodInventoryCategory), [categories]);
+  const finishedProductCategoryOptions = foodInventoryCategories.length ? foodInventoryCategories : categories;
+  const itemCategoryOptions = itemDraft.itemType === 'finished_product' ? finishedProductCategoryOptions : categories;
 
   const itemCountByCategoryId = useMemo(() => {
     const counts = new Map<string, number>();
@@ -228,6 +262,7 @@ export const InventoryTrackerSection = () => {
   const selectedFinishedProduct = productionDraft.finishedItemId ? itemById.get(productionDraft.finishedItemId) : finishedProducts[0] ?? null;
   const selectedRecipeLines = selectedFinishedProduct ? recipeLines.filter((line) => line.finishedItemId === selectedFinishedProduct.id) : [];
   const productionQuantity = parseQuantityText(productionDraft.quantity) ?? 0;
+  const productionRecipeMultiplier = selectedFinishedProduct ? productionQuantity / Math.max(1, selectedFinishedProduct.recipeYieldQuantity || 1) : 0;
 
   useEffect(() => {
     setRawPage(1);
@@ -261,6 +296,18 @@ export const InventoryTrackerSection = () => {
   }, [rawMaterials]);
 
   useEffect(() => {
+    if (!categories.length) return;
+    setQuickMaterialDraft((current) => (current.categoryId ? current : { ...current, categoryId: categories[0].id }));
+  }, [categories]);
+
+  useEffect(() => {
+    if (!isItemModalOpen || itemDraft.itemType !== 'finished_product' || !foodInventoryCategories.length) return;
+    if (!foodInventoryCategories.some((category) => category.id === itemDraft.categoryId)) {
+      setItemDraft((current) => ({ ...current, categoryId: foodInventoryCategories[0].id }));
+    }
+  }, [foodInventoryCategories, isItemModalOpen, itemDraft.categoryId, itemDraft.itemType]);
+
+  useEffect(() => {
     if (!isItemModalOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -288,7 +335,7 @@ export const InventoryTrackerSection = () => {
       setCategoryDraft(createCategoryDraft());
       setLastConfirmation(`Category saved: ${saved.name}`);
       toast.success(`Inventory category saved (${saved.name}).`);
-      if (!itemDraft.categoryId) {
+      if (!itemDraft.categoryId && (itemDraft.itemType !== 'finished_product' || isFoodInventoryCategory(saved))) {
         setItemDraft((current) => ({ ...current, categoryId: saved.id }));
       }
     } catch (saveError) {
@@ -316,6 +363,14 @@ export const InventoryTrackerSection = () => {
     }
     if (!asTrimmed(itemDraft.categoryId)) {
       toast.error('Inventory category is required.');
+      return;
+    }
+    if (
+      itemDraft.itemType === 'finished_product' &&
+      foodInventoryCategories.length &&
+      !foodInventoryCategories.some((category) => category.id === itemDraft.categoryId)
+    ) {
+      toast.error('Finished products can only use food inventory categories.');
       return;
     }
 
@@ -370,6 +425,11 @@ export const InventoryTrackerSection = () => {
     }
   };
 
+  const getDefaultCategoryIdForItemType = (itemType: InventoryItemType) => {
+    const options = itemType === 'finished_product' ? finishedProductCategoryOptions : categories;
+    return options[0]?.id ?? '';
+  };
+
   const handleEditItem = (item: InventoryItem) => {
     setItemDraft({
       ...item,
@@ -381,8 +441,14 @@ export const InventoryTrackerSection = () => {
   };
 
   const handleOpenCreateItemModal = (itemType: InventoryItemType) => {
-    setItemDraft(createItemDraft({ categoryId: categories[0]?.id ?? '', itemType }));
+    setItemDraft(createItemDraft({ categoryId: getDefaultCategoryIdForItemType(itemType), itemType }));
     setIsItemModalOpen(true);
+  };
+
+  const handleItemTypeChange = (itemType: InventoryItemType) => {
+    const options = itemType === 'finished_product' ? finishedProductCategoryOptions : categories;
+    const nextCategoryId = options.some((category) => category.id === itemDraft.categoryId) ? itemDraft.categoryId : options[0]?.id ?? '';
+    setItemDraft({ ...itemDraft, itemType, categoryId: nextCategoryId });
   };
 
   const handleCloseItemModal = () => {
@@ -427,6 +493,72 @@ export const InventoryTrackerSection = () => {
     }
   };
 
+  const handleQuickAddMaterial = async () => {
+    const name = asTrimmed(quickMaterialDraft.name);
+    const initialQuantity = parseQuantityText(quickMaterialDraft.quantityOnHand) ?? 0;
+    const reorderLevel = parseQuantityText(quickMaterialDraft.reorderLevel) ?? 0;
+    const recipeQuantity = parseQuantityText(quickMaterialDraft.recipeQuantity);
+    if (!selectedFinishedProduct) {
+      toast.error('Select a finished product first.');
+      return;
+    }
+    if (!name) {
+      toast.error('Raw material name is required.');
+      return;
+    }
+    if (!quickMaterialDraft.categoryId) {
+      toast.error('Select a category for this raw material.');
+      return;
+    }
+    if (initialQuantity < 0 || reorderLevel < 0) {
+      toast.error('Material quantities must be zero or higher.');
+      return;
+    }
+    if (recipeQuantity == null || recipeQuantity <= 0) {
+      toast.error('Recipe quantity must be greater than zero.');
+      return;
+    }
+
+    try {
+      const savedMaterial = await saveItem({
+        ...createItemDraft({ categoryId: quickMaterialDraft.categoryId, itemType: 'raw_material' }),
+        name,
+        unit: asTrimmed(quickMaterialDraft.unit) || 'pcs',
+        quantityOnHand: 0,
+        displayQuantity: '0',
+        reorderLevel: roundQuantity(reorderLevel),
+      });
+
+      const stockedMaterial =
+        initialQuantity > 0
+          ? await adjustStock({
+              item: savedMaterial,
+              movementType: 'stock_in',
+              quantity: roundQuantity(initialQuantity),
+              reason: 'Initial stock from add-material workflow',
+            })
+          : savedMaterial;
+
+      await saveRecipeLine({
+        id: '',
+        finishedItemId: selectedFinishedProduct.id,
+        rawItemId: stockedMaterial.id,
+        quantityRequired: roundQuantity(recipeQuantity),
+        unit: stockedMaterial.unit,
+        createdAt: '',
+        updatedAt: '',
+      });
+
+      setRecipeDraft((current) => ({ ...current, rawItemId: stockedMaterial.id, quantityRequired: '1' }));
+      setQuickMaterialDraft({ ...createQuickMaterialDraft(), categoryId: quickMaterialDraft.categoryId || categories[0]?.id || '' });
+      const message = `${stockedMaterial.name} added and linked to ${selectedFinishedProduct.name}.`;
+      setLastConfirmation(message);
+      toast.success(message);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to add raw material.'));
+    }
+  };
+
   const handleAdjustStock = async () => {
     const item = itemById.get(adjustmentDraft.itemId);
     const quantity = parseQuantityText(adjustmentDraft.quantity);
@@ -457,6 +589,55 @@ export const InventoryTrackerSection = () => {
       setAdjustmentDraft(createAdjustmentDraft());
     } catch (adjustError) {
       toast.error(getErrorMessage(adjustError, 'Unable to adjust stock.'));
+    }
+  };
+
+  const handleCorrectStock = async () => {
+    const item = itemById.get(correctionDraft.itemId);
+    const actualQuantity = parseQuantityText(correctionDraft.actualQuantity);
+    const reason = asTrimmed(correctionDraft.reason);
+    if (!item) {
+      toast.error('Select the item to correct.');
+      return;
+    }
+    if (actualQuantity == null || actualQuantity < 0) {
+      toast.error('Actual count must be zero or higher.');
+      return;
+    }
+    if (!reason) {
+      toast.error('Correction reason is required.');
+      return;
+    }
+
+    try {
+      const saved = await correctStock({ item, actualQuantity: roundQuantity(actualQuantity), reason });
+      const message = `${saved.name} corrected to ${formatQuantityText(saved.quantityOnHand)} ${saved.unit}.`;
+      setCorrectionDraft(createCorrectionDraft());
+      setLastConfirmation(message);
+      toast.success(message);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to correct stock.'));
+    }
+  };
+
+  const handleUndoMovement = async () => {
+    const movement = undoDraft.movement;
+    const reason = asTrimmed(undoDraft.reason);
+    if (!movement) return;
+    if (!reason) {
+      toast.error('Undo reason is required.');
+      return;
+    }
+
+    try {
+      await undoMovement({ movement, reason });
+      const item = itemById.get(movement.itemId);
+      const message = `${movement.referenceId && movement.movementType === 'production' ? 'Production batch' : item?.name || 'Movement'} was undone.`;
+      setUndoDraft({ movement: null, reason: '' });
+      setLastConfirmation(message);
+      toast.success(message);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to undo movement.'));
     }
   };
 
@@ -544,7 +725,7 @@ export const InventoryTrackerSection = () => {
 
   const renderMovementRows = (rows: InventoryMovement[]) => (
     <div className="overflow-auto">
-      <table className="w-full min-w-[760px] text-sm">
+      <table className="w-full min-w-[920px] text-sm">
         <thead>
           <tr className="text-left">
             <th className="p-2">Time</th>
@@ -553,11 +734,15 @@ export const InventoryTrackerSection = () => {
             <th className="p-2">Change</th>
             <th className="p-2">Stock After</th>
             <th className="p-2">Reason</th>
+            <th className="p-2">Audit</th>
+            {isOwner ? <th className="p-2">Owner Action</th> : null}
           </tr>
         </thead>
         <tbody>
           {rows.map((movement) => {
             const item = itemById.get(movement.itemId);
+            const canUndo = isOwner && movement.movementType !== 'undo' && !movement.reversedByMovementId && !movement.voidedAt;
+            const auditLabel = movement.voidedAt || movement.reversedByMovementId ? 'Undone' : movement.reversalOfMovementId ? 'Undo entry' : 'Active';
             return (
               <tr key={movement.id} className="border-t">
                 <td className="p-2">{new Date(movement.createdAt).toLocaleString()}</td>
@@ -568,6 +753,24 @@ export const InventoryTrackerSection = () => {
                 <td className="p-2">{movement.quantityDelta > 0 ? '+' : ''}{formatQuantityText(movement.quantityDelta)}</td>
                 <td className="p-2">{formatQuantityText(movement.quantityAfter)}</td>
                 <td className="p-2">{movement.reason || '-'}</td>
+                <td className="p-2">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <StatusChip label={auditLabel} tone={auditLabel === 'Active' ? 'success' : 'neutral'} />
+                    {movement.referenceId ? <span className="text-xs text-[#6B7280]">Batch {movement.referenceId.slice(0, 8)}</span> : null}
+                  </div>
+                </td>
+                {isOwner ? (
+                  <td className="p-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!canUndo}
+                      onClick={() => setUndoDraft({ movement, reason: movement.movementType === 'production' ? 'Undo production batch' : '' })}
+                    >
+                      Undo
+                    </Button>
+                  </td>
+                ) : null}
               </tr>
             );
           })}
@@ -740,7 +943,10 @@ export const InventoryTrackerSection = () => {
                 <div className="rounded-lg border p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">Recipe / BOM</p>
-                    <StatusChip label={`${selectedRecipeLines.length} line${selectedRecipeLines.length === 1 ? '' : 's'}`} tone={selectedRecipeLines.length ? 'info' : 'neutral'} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedFinishedProduct ? <StatusChip label={`Yield ${formatQuantityText(selectedFinishedProduct.recipeYieldQuantity)} ${selectedFinishedProduct.unit}`} tone="neutral" /> : null}
+                      <StatusChip label={`${selectedRecipeLines.length} line${selectedRecipeLines.length === 1 ? '' : 's'}`} tone={selectedRecipeLines.length ? 'info' : 'neutral'} />
+                    </div>
                   </div>
                   {!selectedRecipeLines.length ? (
                     <p className="text-sm text-[#6B7280]">Not enough data yet. Add raw materials for this finished product.</p>
@@ -748,7 +954,7 @@ export const InventoryTrackerSection = () => {
                     <div className="space-y-2">
                       {selectedRecipeLines.map((line) => {
                         const rawItem = itemById.get(line.rawItemId);
-                        const required = roundQuantity(line.quantityRequired * Math.max(0, productionQuantity));
+                        const required = roundQuantity(line.quantityRequired * Math.max(0, productionRecipeMultiplier));
                         const isInsufficient = rawItem ? rawItem.quantityOnHand < required : true;
                         return (
                           <div key={line.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
@@ -789,12 +995,70 @@ export const InventoryTrackerSection = () => {
                     </select>
                     <input
                       className="rounded border px-2 py-2 text-sm"
-                      placeholder="Quantity required per finished unit"
+                      placeholder="Quantity required per recipe yield"
                       value={recipeDraft.quantityRequired}
                       onChange={(event) => setRecipeDraft((current) => ({ ...current, quantityRequired: event.target.value }))}
                     />
                     <Button variant="outline" onClick={handleSaveRecipeLine}>
                       Add Raw Material
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-dashed p-3">
+                  <p className="mb-2 text-sm font-medium">Create and link a new raw material</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      className="rounded border px-2 py-2 text-sm"
+                      placeholder="Raw material name"
+                      value={quickMaterialDraft.name}
+                      onChange={(event) => setQuickMaterialDraft((current) => ({ ...current, name: event.target.value }))}
+                    />
+                    <select
+                      className="rounded border px-2 py-2 text-sm"
+                      value={quickMaterialDraft.categoryId}
+                      onChange={(event) => setQuickMaterialDraft((current) => ({ ...current, categoryId: event.target.value }))}
+                    >
+                      <option value="">Select category</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="rounded border px-2 py-2 text-sm"
+                      value={quickMaterialDraft.unit}
+                      onChange={(event) => setQuickMaterialDraft((current) => ({ ...current, unit: event.target.value }))}
+                    >
+                      {inventoryUnits.map((unit) => (
+                        <option key={unit} value={unit}>
+                          {unit}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="rounded border px-2 py-2 text-sm"
+                      placeholder="Initial stock"
+                      value={quickMaterialDraft.quantityOnHand}
+                      onChange={(event) => setQuickMaterialDraft((current) => ({ ...current, quantityOnHand: event.target.value }))}
+                    />
+                    <input
+                      className="rounded border px-2 py-2 text-sm"
+                      placeholder="Reorder level"
+                      value={quickMaterialDraft.reorderLevel}
+                      onChange={(event) => setQuickMaterialDraft((current) => ({ ...current, reorderLevel: event.target.value }))}
+                    />
+                    <input
+                      className="rounded border px-2 py-2 text-sm"
+                      placeholder="Recipe quantity"
+                      value={quickMaterialDraft.recipeQuantity}
+                      onChange={(event) => setQuickMaterialDraft((current) => ({ ...current, recipeQuantity: event.target.value }))}
+                    />
+                  </div>
+                  <div className="mt-2">
+                    <Button variant="outline" onClick={handleQuickAddMaterial}>
+                      Add Material + Link Recipe
                     </Button>
                   </div>
                 </div>
@@ -914,6 +1178,51 @@ export const InventoryTrackerSection = () => {
         </SectionCard>
       ) : null}
 
+      {isOwner ? (
+        <SectionCard
+          title="Owner Correction"
+          subtitle="Use this when a count was entered wrong. The correction keeps the old count, new count, reason, and owner audit trail."
+        >
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_minmax(0,1fr)_auto] md:items-end">
+            <label className="block text-sm">
+              Item
+              <select
+                className="mt-1 block w-full rounded border px-2 py-2"
+                value={correctionDraft.itemId}
+                onChange={(event) => setCorrectionDraft((current) => ({ ...current, itemId: event.target.value }))}
+              >
+                <option value="">Select item</option>
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} ({formatQuantityText(item.quantityOnHand)} {item.unit})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              Actual count
+              <input
+                className="mt-1 block w-full rounded border px-2 py-2"
+                value={correctionDraft.actualQuantity}
+                onChange={(event) => setCorrectionDraft((current) => ({ ...current, actualQuantity: event.target.value }))}
+              />
+            </label>
+            <label className="block text-sm">
+              Reason
+              <input
+                className="mt-1 block w-full rounded border px-2 py-2"
+                placeholder="Wrong count, duplicate entry, supplier correction"
+                value={correctionDraft.reason}
+                onChange={(event) => setCorrectionDraft((current) => ({ ...current, reason: event.target.value }))}
+              />
+            </label>
+            <Button variant="secondary" onClick={handleCorrectStock}>
+              Save Correction
+            </Button>
+          </div>
+        </SectionCard>
+      ) : null}
+
       <SectionCard title="Recent Inventory Log" subtitle="Latest stock movements are capped at 10 records.">
         {!movements.length ? (
           <EmptyState title="No stock movements yet" message="Stock-in, stock-out, waste, and production entries will appear here." />
@@ -976,6 +1285,51 @@ export const InventoryTrackerSection = () => {
         </div>
       </SectionCard>
 
+      {undoDraft.movement ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button className="absolute inset-0 bg-black/40" onClick={() => setUndoDraft({ movement: null, reason: '' })} aria-label="Close undo movement dialog" />
+          <div className="relative w-full max-w-lg rounded-lg border bg-white p-4 shadow-xl">
+            <div className="mb-3">
+              <h4 className="font-medium">Undo inventory movement</h4>
+              <p className="mt-1 text-sm text-[#6B7280]">
+                {undoDraft.movement.movementType === 'production' && undoDraft.movement.referenceId
+                  ? 'This will reverse the whole production batch if all related movement rows are available.'
+                  : 'This will create an opposite movement so the audit trail remains intact.'}
+              </p>
+            </div>
+            <div className="rounded border p-3 text-sm">
+              <p>
+                <strong>Item:</strong> {itemById.get(undoDraft.movement.itemId)?.name ?? undoDraft.movement.itemId}
+              </p>
+              <p>
+                <strong>Change:</strong> {undoDraft.movement.quantityDelta > 0 ? '+' : ''}
+                {formatQuantityText(undoDraft.movement.quantityDelta)}
+              </p>
+              <p>
+                <strong>Reason:</strong> {undoDraft.movement.reason || '-'}
+              </p>
+            </div>
+            <label className="mt-3 block text-sm">
+              Undo reason
+              <textarea
+                className="mt-1 block w-full rounded border px-2 py-2"
+                rows={3}
+                value={undoDraft.reason}
+                onChange={(event) => setUndoDraft((current) => ({ ...current, reason: event.target.value }))}
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="danger" onClick={handleUndoMovement}>
+                Confirm Undo
+              </Button>
+              <Button variant="outline" onClick={() => setUndoDraft({ movement: null, reason: '' })}>
+                Keep Movement
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {isItemModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button className="absolute inset-0 bg-black/40" onClick={handleCloseItemModal} aria-label="Close inventory item editor overlay" />
@@ -1000,7 +1354,7 @@ export const InventoryTrackerSection = () => {
                 <select
                   className="mt-1 block w-full rounded border px-2 py-2"
                   value={itemDraft.itemType}
-                  onChange={(event) => setItemDraft({ ...itemDraft, itemType: event.target.value as InventoryItemType })}
+                  onChange={(event) => handleItemTypeChange(event.target.value as InventoryItemType)}
                 >
                   <option value="raw_material">Raw material</option>
                   <option value="finished_product">Finished product</option>
@@ -1014,7 +1368,7 @@ export const InventoryTrackerSection = () => {
                   onChange={(event) => setItemDraft({ ...itemDraft, categoryId: event.target.value })}
                 >
                   <option value="">Select category</option>
-                  {categories.map((category) => (
+                  {itemCategoryOptions.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name}
                     </option>
@@ -1065,7 +1419,7 @@ export const InventoryTrackerSection = () => {
                 />
               </label>
               <label className="block text-sm">
-                Recipe yield
+                Recipe yield count
                 <input
                   className="mt-1 block w-full rounded border px-2 py-2"
                   type="number"

@@ -39,9 +39,9 @@ function HeroSlider({ onOrderClick }) {
             fontSize: '4.5rem',
             marginBottom: '10px' // Added a little space below the title
           }}>
-            <span style={{ color: '#ff4d94' }}>HAPPY </span>
+            <span style={{ color: '#f72f92' }}>HAPPY </span>
             <span style={{ color: '#36d7e8' }}>TAILS </span>
-            <span style={{ color: '#ff4d94' }}>CAFÉ</span>
+            <span style={{ color: '#f72f92' }}>CAFÉ</span>
           </h1>
           
           {/* Added fontSize here too! */}

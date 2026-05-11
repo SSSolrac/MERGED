@@ -35,7 +35,7 @@ export default function OrderSuccess({ linkComponent: LinkComponent }) {
               href="/track-order"
               style={{
                 padding: "12px 24px",
-                backgroundColor: "#36d7e8",
+                backgroundColor: "#ff8fa3",
                 color: "white",
                 textDecoration: "none",
                 borderRadius: "8px",

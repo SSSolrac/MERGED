@@ -89,7 +89,12 @@ export const useInventory = () => {
   }, []);
 
   const adjustStock = useCallback(
-    async (params: { item: InventoryItem; movementType: Exclude<InventoryMovementType, 'production'>; quantity: number; reason?: string | null }) => {
+    async (params: {
+      item: InventoryItem;
+      movementType: Exclude<InventoryMovementType, 'production' | 'correction' | 'undo'>;
+      quantity: number;
+      reason?: string | null;
+    }) => {
       const saved = await inventoryService.adjustStock(params);
       setItems((rows) => rows.map((row) => (row.id === saved.id ? saved : row)));
       setMovements(await inventoryService.listMovements(10));
@@ -114,6 +119,23 @@ export const useInventory = () => {
     },
     [items, recipeLines],
   );
+
+  const correctStock = useCallback(async (params: { item: InventoryItem; actualQuantity: number; reason: string }) => {
+    const saved = await inventoryService.correctStock(params);
+    setItems((rows) => rows.map((row) => (row.id === saved.id ? saved : row)));
+    setMovements(await inventoryService.listMovements(10));
+    return saved;
+  }, []);
+
+  const undoMovement = useCallback(async (params: { movement: InventoryMovement; reason: string }) => {
+    const savedItems = await inventoryService.undoMovement(params);
+    setItems((rows) => {
+      const savedById = new Map(savedItems.map((item) => [item.id, item]));
+      return rows.map((row) => savedById.get(row.id) ?? row);
+    });
+    setMovements(await inventoryService.listMovements(10));
+    return savedItems;
+  }, []);
 
   useEffect(() => {
     void load();
@@ -162,6 +184,8 @@ export const useInventory = () => {
     deleteRecipeLine,
     adjustStock,
     produceFinishedProduct,
+    correctStock,
+    undoMovement,
     refresh: () => load(),
   };
 };

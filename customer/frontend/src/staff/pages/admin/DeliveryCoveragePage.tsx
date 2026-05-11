@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import L, { type LatLngTuple } from 'leaflet';
-import { MapContainer, Marker, Polygon, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
+import { Circle, MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -20,8 +20,9 @@ type DeliveryCoverageFormState = {
   puroks: Array<Omit<DeliveryPurok, 'deliveryAreaId' | 'updatedBy' | 'updatedAt'>>;
   polygon: Array<Omit<DeliveryPolygonPoint, 'deliveryAreaId'>>;
 };
+type MapEditMode = 'pan' | 'center' | 'purok';
 
-const DEFAULT_CENTER: LatLngTuple = [13.9416, 121.6224];
+const DEFAULT_CENTER: LatLngTuple = [13.93949, 121.60240234375];
 const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
@@ -30,23 +31,13 @@ const asNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const normalizePolygon = (points: DeliveryCoverageFormState['polygon']) =>
-  (Array.isArray(points) ? points : [])
-    .map((point, index) => ({
-      id: String(point?.id || crypto.randomUUID()),
-      lat: asNumber(point?.lat, NaN),
-      lng: asNumber(point?.lng, NaN),
-      pointOrder: index,
-    }))
-    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
-
 const normalizePuroks = (puroks: DeliveryCoverageFormState['puroks']) =>
   (Array.isArray(puroks) ? puroks : [])
     .map((entry, index) => ({
       id: String(entry?.id || crypto.randomUUID()),
       purokName: String(entry?.purokName || '').trim(),
-      lat: asNumber(entry?.lat, NaN),
-      lng: asNumber(entry?.lng, NaN),
+      lat: asNumber(entry?.lat, Number.NaN),
+      lng: asNumber(entry?.lng, Number.NaN),
       isActive: entry?.isActive !== false,
       deliveryStatus: entry?.deliveryStatus === 'inactive' ? 'inactive' : 'active',
       sortOrder: asNumber(entry?.sortOrder, index + 1),
@@ -56,6 +47,10 @@ const normalizePuroks = (puroks: DeliveryCoverageFormState['puroks']) =>
 const toFormState = (config: DeliveryCoverageConfig): DeliveryCoverageFormState => ({
   area: {
     ...config.area,
+    coverageMode: 'radius',
+    centerLat: asNumber(config.area.centerLat, DEFAULT_CENTER[0]),
+    centerLng: asNumber(config.area.centerLng, DEFAULT_CENTER[1]),
+    maxDistanceKm: Math.max(0, asNumber(config.area.maxDistanceKm, 4)),
     deliveryStatus: config.area.deliveryStatus === 'inactive' ? 'inactive' : 'active',
     isActive: config.area.isActive !== false,
   },
@@ -70,24 +65,12 @@ const toFormState = (config: DeliveryCoverageConfig): DeliveryCoverageFormState 
       sortOrder: purok.sortOrder,
     })),
   ),
-  polygon: normalizePolygon(
-    (Array.isArray(config.polygon) ? config.polygon : []).map((point) => ({
-      id: point.id,
-      lat: point.lat,
-      lng: point.lng,
-      pointOrder: point.pointOrder,
-    })),
-  ),
+  polygon: [],
 });
 
-const getMapCenter = (polygon: DeliveryCoverageFormState['polygon']): LatLngTuple => {
-  const first = normalizePolygon(polygon)[0];
-  return first ? [first.lat, first.lng] : DEFAULT_CENTER;
-};
-
 const getPurokPosition = (purok: DeliveryCoverageFormState['puroks'][number] | null | undefined): LatLngTuple | null => {
-  const lat = asNumber(purok?.lat, NaN);
-  const lng = asNumber(purok?.lng, NaN);
+  const lat = asNumber(purok?.lat, Number.NaN);
+  const lng = asNumber(purok?.lng, Number.NaN);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return [lat, lng];
 };
@@ -104,67 +87,38 @@ const ensureLeafletMarkerIcon = () => {
   hasConfiguredLeafletIcon = true;
 };
 
-type PolygonClickCaptureProps = {
-  onAddPoint: (lat: number, lng: number) => void;
+type MapClickCaptureProps = {
+  mode: MapEditMode;
+  onSetCenter: (lat: number, lng: number) => void;
+  onSetPurok: (lat: number, lng: number) => void;
 };
 
-const PolygonClickCapture = ({ onAddPoint }: PolygonClickCaptureProps) => {
+const MapClickCapture = ({ mode, onSetCenter, onSetPurok }: MapClickCaptureProps) => {
   useMapEvents({
     click(event) {
-      const lat = asNumber(event?.latlng?.lat, NaN);
-      const lng = asNumber(event?.latlng?.lng, NaN);
+      const lat = asNumber(event?.latlng?.lat, Number.NaN);
+      const lng = asNumber(event?.latlng?.lng, Number.NaN);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      onAddPoint(lat, lng);
+      if (mode === 'center') onSetCenter(lat, lng);
+      if (mode === 'purok') onSetPurok(lat, lng);
     },
   });
   return null;
 };
 
-type FitPolygonBoundsProps = {
-  polygon: LatLngTuple[];
-};
-
-const FitPolygonBounds = ({ polygon }: FitPolygonBoundsProps) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!Array.isArray(polygon) || polygon.length < 3) return;
-    const bounds = L.latLngBounds(polygon);
-    if (!bounds.isValid()) return;
-    map.fitBounds(bounds, { padding: [28, 28] });
-  }, [map, polygon]);
-
-  return null;
-};
-
-type SyncSelectedPurokViewProps = {
-  position: LatLngTuple;
+type SyncMapViewProps = {
+  center: LatLngTuple;
   watchKey: string;
 };
 
-const SyncSelectedPurokView = ({ position, watchKey }: SyncSelectedPurokViewProps) => {
+const SyncMapView = ({ center, watchKey }: SyncMapViewProps) => {
   const map = useMap();
 
   useEffect(() => {
-    map.setView(position, Math.max(map.getZoom() || 0, 16), { animate: false });
-  }, [map, position, watchKey]);
+    map.invalidateSize({ pan: false });
+    map.setView(center, Math.max(map.getZoom() || 0, 15), { animate: false });
+  }, [center, map, watchKey]);
 
-  return null;
-};
-
-type PurokPointCaptureProps = {
-  onSetPoint: (lat: number, lng: number) => void;
-};
-
-const PurokPointCapture = ({ onSetPoint }: PurokPointCaptureProps) => {
-  useMapEvents({
-    click(event) {
-      const lat = asNumber(event?.latlng?.lat, NaN);
-      const lng = asNumber(event?.latlng?.lng, NaN);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      onSetPoint(lat, lng);
-    },
-  });
   return null;
 };
 
@@ -175,6 +129,7 @@ export const DeliveryCoveragePage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedPurokId, setSelectedPurokId] = useState('');
+  const [mapEditMode, setMapEditMode] = useState<MapEditMode>('pan');
 
   useEffect(() => {
     let cancelled = false;
@@ -189,8 +144,7 @@ export const DeliveryCoveragePage = () => {
         if (cancelled) return;
         toast.error(getErrorMessage(error, 'Unable to load delivery coverage.'));
       } finally {
-        if (cancelled) return;
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
@@ -200,7 +154,6 @@ export const DeliveryCoveragePage = () => {
     };
   }, []);
 
-  const polygonCount = useMemo(() => normalizePolygon(form?.polygon || []).length, [form?.polygon]);
   const activePurokCount = useMemo(
     () =>
       normalizePuroks(form?.puroks || []).filter(
@@ -261,8 +214,8 @@ export const DeliveryCoveragePage = () => {
           {
             id: nextId,
             purokName: '',
-            lat: NaN,
-            lng: NaN,
+            lat: Number.NaN,
+            lng: Number.NaN,
             isActive: true,
             deliveryStatus: 'active',
             sortOrder: current.puroks.length + 1,
@@ -270,6 +223,21 @@ export const DeliveryCoveragePage = () => {
         ]),
       };
     });
+  };
+
+  const setCenterPoint = (lat: number, lng: number) => {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            area: {
+              ...current.area,
+              centerLat: lat,
+              centerLng: lng,
+            },
+          }
+        : current,
+    );
   };
 
   const setPurokPoint = (index: number, lat: number, lng: number) => {
@@ -282,59 +250,20 @@ export const DeliveryCoveragePage = () => {
     });
   };
 
-  const removePolygonPoint = (index: number) => {
-    setForm((current) => {
-      if (!current) return current;
-      const next = normalizePolygon(current.polygon).filter((_, pointIndex) => pointIndex !== index);
-      return { ...current, polygon: normalizePolygon(next) };
-    });
-  };
-
-  const updatePolygonPoint = (index: number, key: 'lat' | 'lng', value: number) => {
-    setForm((current) => {
-      if (!current) return current;
-      const next = [...normalizePolygon(current.polygon)];
-      if (!next[index]) return current;
-      next[index] = { ...next[index], [key]: value };
-      return { ...current, polygon: normalizePolygon(next) };
-    });
-  };
-
-  const setPolygonPoint = (index: number, lat: number, lng: number) => {
-    setForm((current) => {
-      if (!current) return current;
-      const next = [...normalizePolygon(current.polygon)];
-      if (!next[index]) return current;
-      next[index] = { ...next[index], lat, lng };
-      return { ...current, polygon: normalizePolygon(next) };
-    });
-  };
-
-  const addPolygonPoint = (lat: number, lng: number) => {
-    setForm((current) => {
-      if (!current) return current;
-      const nextPolygon = normalizePolygon([
-        ...current.polygon,
-        { id: crypto.randomUUID(), lat, lng, pointOrder: current.polygon.length },
-      ]);
-      return { ...current, polygon: nextPolygon };
-    });
-  };
-
-  const clearPolygon = () => {
-    setForm((current) => (current ? { ...current, polygon: [] } : current));
-  };
-
   const save = async () => {
     if (!form) return;
-    if (normalizePolygon(form.polygon).length < 3) {
-      toast.error('Delivery polygon must have at least 3 points.');
+
+    const namedPuroks = normalizePuroks(form.puroks).filter((purok) => String(purok.purokName || '').trim());
+    if (!namedPuroks.length) {
+      toast.error('Add at least one delivery purok.');
       return;
     }
-    const namedPuroks = form.puroks.filter((purok) => String(purok.purokName || '').trim());
-    const missingPurokCoordinates = namedPuroks.some((purok) => !getPurokPosition(purok));
-    if (missingPurokCoordinates) {
-      toast.error('Every saved purok needs valid map coordinates.');
+    if (!Number.isFinite(form.area.centerLat) || !Number.isFinite(form.area.centerLng)) {
+      toast.error('Set a valid cafe pickup location.');
+      return;
+    }
+    if (!Number.isFinite(form.area.maxDistanceKm) || form.area.maxDistanceKm <= 0) {
+      toast.error('Maximum delivery distance must be greater than zero.');
       return;
     }
 
@@ -343,11 +272,13 @@ export const DeliveryCoveragePage = () => {
       const saved = await deliveryCoverageService.saveDeliveryCoverage({
         area: {
           ...form.area,
+          coverageMode: 'radius',
+          maxDistanceKm: Math.max(0, form.area.maxDistanceKm),
           deliveryStatus: form.area.deliveryStatus === 'inactive' ? 'inactive' : 'active',
           isActive: form.area.isActive !== false,
         },
-        puroks: normalizePuroks(form.puroks),
-        polygon: normalizePolygon(form.polygon),
+        puroks: namedPuroks,
+        polygon: [],
       });
       setForm(toFormState(saved));
       toast.success('Delivery coverage saved.');
@@ -367,16 +298,20 @@ export const DeliveryCoveragePage = () => {
     );
   }
 
-  const normalizedPolygon = normalizePolygon(form.polygon);
-  const polygonPositions: LatLngTuple[] = normalizedPolygon.map((point) => [point.lat, point.lng]);
-  const selectedPurokPosition = getPurokPosition(selectedPurok) || getMapCenter(form.polygon);
+  const centerPosition: LatLngTuple = [
+    asNumber(form.area.centerLat, DEFAULT_CENTER[0]),
+    asNumber(form.area.centerLng, DEFAULT_CENTER[1]),
+  ];
+  const selectedPurokPosition = getPurokPosition(selectedPurok) || centerPosition;
+  const activeMapCenter = mapEditMode === 'purok' ? selectedPurokPosition : centerPosition;
+  const mapWatchKey = `${mapEditMode}:${centerPosition[0]}:${centerPosition[1]}:${selectedPurokId}:${selectedPurokPosition[0]}:${selectedPurokPosition[1]}`;
 
   return (
     <section className="rounded-lg border bg-white p-4 space-y-4">
       <div>
         <h2 className="text-xl font-semibold">Delivery Coverage</h2>
         <p className="text-sm text-[#6B7280]">
-          Manage the service area polygon, fixed barangay label, and allowed puroks for customer delivery checkout.
+          Set a pickup point, maximum delivery distance, and allowed puroks. Checkout uses free OpenStreetMap tools and distance checks.
         </p>
       </div>
 
@@ -422,6 +357,17 @@ export const DeliveryCoveragePage = () => {
           />
         </label>
         <label className="text-sm">
+          Maximum Delivery Distance (km)
+          <input
+            type="number"
+            min={0.1}
+            step={0.1}
+            className="block border rounded mt-1 px-2 py-1 w-full"
+            value={form.area.maxDistanceKm}
+            onChange={(event) => updateArea('maxDistanceKm', Math.max(0, Number(event.target.value)))}
+          />
+        </label>
+        <label className="text-sm">
           Area Status
           <select
             className="block border rounded mt-1 px-2 py-1 w-full"
@@ -432,92 +378,136 @@ export const DeliveryCoveragePage = () => {
             <option value="inactive">inactive</option>
           </select>
         </label>
+        <label className="inline-flex items-center gap-2 text-sm md:self-end">
+          <input
+            type="checkbox"
+            checked={form.area.isActive}
+            onChange={(event) => updateArea('isActive', event.target.checked)}
+          />
+          Area enabled for customer delivery
+        </label>
       </div>
-
-      <label className="inline-flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={form.area.isActive}
-          onChange={(event) => updateArea('isActive', event.target.checked)}
-        />
-        Area enabled for customer delivery
-      </label>
 
       <article className="rounded border p-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-medium">Service Polygon</h3>
-          <div className="flex gap-2">
-            <button type="button" className="rounded border px-3 py-1 text-sm" onClick={clearPolygon}>
-              Clear polygon
+          <div>
+            <h3 className="font-medium">Coverage Map</h3>
+            <p className="text-xs text-[#6B7280]">
+              The circle is the delivery limit from the cafe pickup point. Drag markers or tap the map while editing.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={`rounded border px-3 py-1 text-sm ${mapEditMode === 'pan' ? 'bg-[#FF8FA3] text-white' : 'bg-white'}`}
+              onClick={() => setMapEditMode('pan')}
+            >
+              Move map
+            </button>
+            <button
+              type="button"
+              className={`rounded border px-3 py-1 text-sm ${mapEditMode === 'center' ? 'bg-[#FF8FA3] text-white' : 'bg-white'}`}
+              onClick={() => setMapEditMode('center')}
+            >
+              Set pickup
+            </button>
+            <button
+              type="button"
+              className={`rounded border px-3 py-1 text-sm ${mapEditMode === 'purok' ? 'bg-[#FF8FA3] text-white' : 'bg-white'}`}
+              onClick={() => setMapEditMode('purok')}
+            >
+              Set purok
             </button>
           </div>
         </div>
-        <p className="text-xs text-[#6B7280]">
-          Click on the map to add polygon points. Drag numbered points to adjust. Right-click a point to remove it.
-        </p>
-        <div className="relative min-h-[320px] rounded border overflow-hidden bg-[#F8FAFC]">
-          <MapContainer className="h-[320px] w-full" center={getMapCenter(form.polygon)} zoom={16} scrollWheelZoom>
+        <div className="relative min-h-[360px] rounded border overflow-hidden bg-[#F8FAFC]">
+          <MapContainer
+            className="h-[360px] w-full"
+            center={activeMapCenter}
+            zoom={15}
+            scrollWheelZoom={mapEditMode === 'pan'}
+            dragging={mapEditMode === 'pan'}
+            touchZoom={mapEditMode === 'pan'}
+          >
             <TileLayer attribution={OSM_ATTRIBUTION} url={OSM_TILE_URL} />
-            {polygonPositions.length >= 3 ? (
-              <Polygon
-                positions={polygonPositions}
-                pathOptions={{
-                  color: '#111827',
-                  opacity: 0.9,
-                  weight: 2,
-                  fillColor: '#fb7185',
-                  fillOpacity: 0.18,
-                }}
-              />
-            ) : null}
-            {polygonPositions.map((position, index) => (
+            <Circle
+              center={centerPosition}
+              radius={Math.max(0.1, form.area.maxDistanceKm) * 1000}
+              pathOptions={{
+                color: '#111827',
+                opacity: 0.8,
+                weight: 2,
+                fillColor: '#fb7185',
+                fillOpacity: 0.12,
+              }}
+            />
+            <Marker
+              position={centerPosition}
+              draggable
+              eventHandlers={{
+                dragend(event) {
+                  const next = event.target.getLatLng();
+                  setCenterPoint(asNumber(next?.lat, centerPosition[0]), asNumber(next?.lng, centerPosition[1]));
+                },
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -18]} permanent>
+                Cafe pickup
+              </Tooltip>
+            </Marker>
+            {selectedPurok ? (
               <Marker
-                key={normalizedPolygon[index]?.id || `vertex-${index + 1}`}
-                position={position}
+                position={selectedPurokPosition}
                 draggable
                 eventHandlers={{
                   dragend(event) {
                     const next = event.target.getLatLng();
-                    setPolygonPoint(index, asNumber(next?.lat, position[0]), asNumber(next?.lng, position[1]));
-                  },
-                  contextmenu() {
-                    removePolygonPoint(index);
+                    setPurokPoint(selectedPurokIndex, asNumber(next?.lat, selectedPurokPosition[0]), asNumber(next?.lng, selectedPurokPosition[1]));
                   },
                 }}
               >
                 <Tooltip direction="top" offset={[0, -18]} permanent>
-                  #{index + 1}
+                  {selectedPurok.purokName || 'Selected purok'}
                 </Tooltip>
               </Marker>
-            ))}
-            <PolygonClickCapture onAddPoint={addPolygonPoint} />
-            <FitPolygonBounds polygon={polygonPositions} />
+            ) : null}
+            <MapClickCapture
+              mode={mapEditMode}
+              onSetCenter={setCenterPoint}
+              onSetPurok={(lat, lng) => {
+                if (selectedPurokIndex >= 0) setPurokPoint(selectedPurokIndex, lat, lng);
+              }}
+            />
+            <SyncMapView center={activeMapCenter} watchKey={mapWatchKey} />
           </MapContainer>
+          <div className="pointer-events-none absolute left-2 top-2 rounded bg-white/95 px-2 py-1 text-xs text-[#1F2937] shadow-sm">
+            {mapEditMode === 'center' ? 'Tap to set pickup' : mapEditMode === 'purok' ? 'Tap to set selected purok' : 'Pan/zoom enabled'}
+          </div>
         </div>
-        <p className="text-xs text-[#6B7280]">Current polygon points: {polygonCount}</p>
-        <div className="space-y-2">
-          {normalizedPolygon.map((point, index) => (
-            <div key={point.id || `point-${index + 1}`} className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center">
-              <span className="text-xs text-[#6B7280]">#{index + 1}</span>
-              <input
-                type="number"
-                step="0.000001"
-                className="border rounded px-2 py-1 text-sm"
-                value={point.lat}
-                onChange={(event) => updatePolygonPoint(index, 'lat', Number(event.target.value))}
-              />
-              <input
-                type="number"
-                step="0.000001"
-                className="border rounded px-2 py-1 text-sm"
-                value={point.lng}
-                onChange={(event) => updatePolygonPoint(index, 'lng', Number(event.target.value))}
-              />
-              <button type="button" className="rounded border px-2 py-1 text-xs" onClick={() => removePolygonPoint(index)}>
-                Remove
-              </button>
-            </div>
-          ))}
+        <div className="grid md:grid-cols-3 gap-2 text-sm">
+          <label>
+            Pickup latitude
+            <input
+              type="number"
+              step="0.000001"
+              className="block border rounded mt-1 px-2 py-1 w-full"
+              value={form.area.centerLat}
+              onChange={(event) => updateArea('centerLat', Number(event.target.value))}
+            />
+          </label>
+          <label>
+            Pickup longitude
+            <input
+              type="number"
+              step="0.000001"
+              className="block border rounded mt-1 px-2 py-1 w-full"
+              value={form.area.centerLng}
+              onChange={(event) => updateArea('centerLng', Number(event.target.value))}
+            />
+          </label>
+          <div className="flex items-end">
+            <StatusChip label={`${activePurokCount} active purok${activePurokCount === 1 ? '' : 's'}`} tone="neutral" />
+          </div>
         </div>
       </article>
 
@@ -528,14 +518,13 @@ export const DeliveryCoveragePage = () => {
             Add purok
           </button>
         </div>
-        <p className="text-xs text-[#6B7280]">Active delivery puroks: {activePurokCount}</p>
         <div className="space-y-2">
           {form.puroks.map((purok, index) => (
             <article
               key={purok.id || `purok-${index + 1}`}
-              className={`rounded border p-2 space-y-2 ${selectedPurokId === purok.id ? 'border-[#36D7E8] ring-1 ring-[#36D7E8]/40' : ''}`}
+              className={`rounded border p-2 space-y-2 ${selectedPurokId === purok.id ? 'border-[#FF8FA3] ring-1 ring-[#FF8FA3]/40' : ''}`}
             >
-              <div className="grid md:grid-cols-[1.2fr_110px_160px_160px_120px_auto] gap-2 items-end">
+              <div className="grid md:grid-cols-[1.2fr_110px_140px_140px_140px_auto] gap-2 items-end">
                 <label className="text-sm">
                   Purok Name
                   <input
@@ -585,7 +574,14 @@ export const DeliveryCoveragePage = () => {
                     onChange={(event) => updatePurok(index, 'lng', event.target.value === '' ? Number.NaN : Number(event.target.value))}
                   />
                 </label>
-                <button type="button" className="rounded border px-2 py-1 text-xs h-9" onClick={() => setSelectedPurokId(purok.id)}>
+                <button
+                  type="button"
+                  className="rounded border px-2 py-1 text-xs h-9"
+                  onClick={() => {
+                    setSelectedPurokId(purok.id);
+                    setMapEditMode('purok');
+                  }}
+                >
                   Edit on map
                 </button>
                 <button type="button" className="rounded border px-2 py-1 text-xs h-9" onClick={() => removePurok(index)}>
@@ -602,58 +598,6 @@ export const DeliveryCoveragePage = () => {
               </label>
             </article>
           ))}
-        </div>
-        <div className="rounded border p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h4 className="font-medium text-sm">Selected Purok Coordinates</h4>
-              <p className="text-xs text-[#6B7280]">
-                {selectedPurok ? `Editing ${selectedPurok.purokName || `Purok ${selectedPurokIndex + 1}`}` : 'Select a purok above to place its marker.'}
-              </p>
-            </div>
-            {selectedPurok ? <StatusChip label={selectedPurok.purokName || 'Selected'} tone="neutral" /> : null}
-          </div>
-          <div className="relative min-h-[280px] rounded border overflow-hidden bg-[#F8FAFC]">
-            <MapContainer className="h-[280px] w-full" center={selectedPurokPosition} zoom={16} scrollWheelZoom>
-              <TileLayer attribution={OSM_ATTRIBUTION} url={OSM_TILE_URL} />
-              {polygonPositions.length >= 3 ? (
-                <Polygon
-                  positions={polygonPositions}
-                  pathOptions={{
-                    color: '#111827',
-                    opacity: 0.7,
-                    weight: 2,
-                    fillColor: '#fb7185',
-                    fillOpacity: 0.12,
-                  }}
-                />
-              ) : null}
-              {selectedPurok ? (
-                <Marker
-                  position={selectedPurokPosition}
-                  draggable
-                  eventHandlers={{
-                    dragend(event) {
-                      const next = event.target.getLatLng();
-                      setPurokPoint(selectedPurokIndex, asNumber(next?.lat, selectedPurokPosition[0]), asNumber(next?.lng, selectedPurokPosition[1]));
-                    },
-                  }}
-                >
-                  <Tooltip direction="top" offset={[0, -18]} permanent>
-                    {selectedPurok.purokName || 'Selected purok'}
-                  </Tooltip>
-                </Marker>
-              ) : null}
-              {selectedPurok ? (
-                <PurokPointCapture onSetPoint={(lat, lng) => setPurokPoint(selectedPurokIndex, lat, lng)} />
-              ) : null}
-              <SyncSelectedPurokView
-                position={selectedPurokPosition}
-                watchKey={`${selectedPurokId}:${selectedPurokPosition[0]}:${selectedPurokPosition[1]}`}
-              />
-            </MapContainer>
-          </div>
-          <p className="text-xs text-[#6B7280]">Click the map or drag the marker to update this purok's saved coordinates.</p>
         </div>
       </article>
 

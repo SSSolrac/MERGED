@@ -1,7 +1,7 @@
 import { normalizeError } from '@/lib/errors';
-import { mapMenuCategoryRow, mapMenuItemRow } from '@/lib/mappers';
+import { mapMenuCategoryRow, mapMenuItemIngredientRow, mapMenuItemRow } from '@/lib/mappers';
 import { requireSupabaseClient } from '@/lib/supabase';
-import type { MenuCategory, MenuItem } from '@/types/menuItem';
+import type { MenuCategory, MenuItem, MenuItemIngredient } from '@/types/menuItem';
 
 const MENU_IMAGE_BUCKET = 'menu-images';
 const MAX_MENU_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -28,6 +28,15 @@ const getImageExtension = (fileName: string) => {
 const normalizeTimestamp = (value: string | null | undefined) => {
   const text = String(value || '').trim();
   return text || null;
+};
+
+const asTrimmed = (value: string | null | undefined) => String(value ?? '').trim();
+const roundQuantity = (value: number) => Math.round(value * 1000) / 1000;
+const isMissingMenuIngredientTable = (error: unknown) => {
+  const record = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = String(record?.code ?? '').toLowerCase();
+  const message = `${String(record?.message ?? '')} ${String(record?.details ?? '')}`.toLowerCase();
+  return code === '42p01' || code === '42703' || message.includes('menu_item_inventory_recipe_lines') || message.includes('does not exist');
 };
 
 const uploadImageAsset = async (file: File, folder: string, fallbackName: string): Promise<string> => {
@@ -80,10 +89,10 @@ const fetchMenuItemById = async (supabase: ReturnType<typeof requireSupabaseClie
 export const menuService = {
   async getMenuCategories(): Promise<MenuCategory[]> {
     const supabase = requireSupabaseClient();
-    const view = await supabase.from('menu_category_effective_state').select(MENU_CATEGORY_VIEW_SELECT).order('sort_order', { ascending: true });
+    const view = await supabase.from('menu_category_effective_state').select(MENU_CATEGORY_VIEW_SELECT).order('sort_order', { ascending: true }).limit(500);
     if (!view.error) return (Array.isArray(view.data) ? view.data : []).map(mapMenuCategoryRow).filter((row) => row.isActive !== false);
 
-    const { data, error } = await supabase.from('menu_categories').select('*').order('sort_order', { ascending: true });
+    const { data, error } = await supabase.from('menu_categories').select('*').order('sort_order', { ascending: true }).limit(500);
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to load menu categories.' });
     return (Array.isArray(data) ? data : []).map(mapMenuCategoryRow).filter((row) => row.isActive !== false);
   },
@@ -127,10 +136,11 @@ export const menuService = {
     const view = await supabase
       .from('menu_item_effective_availability')
       .select(MENU_ITEM_VIEW_SELECT)
-      .order('name', { ascending: true });
+      .order('name', { ascending: true })
+      .limit(1000);
     if (!view.error) return (Array.isArray(view.data) ? view.data : []).map(mapMenuItemRow);
 
-    const { data, error } = await supabase.from('menu_items').select('*').order('name', { ascending: true });
+    const { data, error } = await supabase.from('menu_items').select('*').order('name', { ascending: true }).limit(1000);
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to load menu items.' });
     return (Array.isArray(data) ? data : []).map(mapMenuItemRow);
   },
@@ -183,5 +193,61 @@ export const menuService = {
     const supabase = requireSupabaseClient();
     const { error } = await supabase.from('menu_items').delete().eq('id', itemId);
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to delete menu item.' });
+  },
+
+  async listMenuItemIngredients(): Promise<MenuItemIngredient[]> {
+    const supabase = requireSupabaseClient();
+    const { data, error } = await supabase
+      .from('menu_item_inventory_recipe_lines')
+      .select('*')
+      .order('menu_item_id', { ascending: true })
+      .order('created_at', { ascending: true })
+      .limit(3000);
+
+    if (error) {
+      if (isMissingMenuIngredientTable(error)) return [];
+      throw normalizeError(error, { fallbackMessage: 'Unable to load menu item ingredients.' });
+    }
+    return (Array.isArray(data) ? data : []).map(mapMenuItemIngredientRow);
+  },
+
+  async saveMenuItemIngredient(line: MenuItemIngredient): Promise<MenuItemIngredient> {
+    const supabase = requireSupabaseClient();
+    if (!asTrimmed(line.menuItemId)) throw new Error('Save the menu item before adding ingredients.');
+    if (!asTrimmed(line.inventoryItemId)) throw new Error('Choose an inventory ingredient.');
+    if (!Number.isFinite(line.quantityRequired) || line.quantityRequired <= 0) {
+      throw new Error('Ingredient quantity must be greater than zero.');
+    }
+
+    const payload = {
+      menu_item_id: asTrimmed(line.menuItemId),
+      inventory_item_id: asTrimmed(line.inventoryItemId),
+      quantity_required: roundQuantity(line.quantityRequired),
+      unit: asTrimmed(line.unit) || null,
+      display_quantity: asTrimmed(line.displayQuantity) || null,
+    };
+
+    const result = line.id
+      ? await supabase.from('menu_item_inventory_recipe_lines').update(payload).eq('id', line.id).select('*').single()
+      : await supabase.from('menu_item_inventory_recipe_lines').insert(payload).select('*').single();
+
+    if (result.error) {
+      if (isMissingMenuIngredientTable(result.error)) {
+        throw new Error('Menu item ingredient tracking is not ready yet. Run supabase/inventory_production_migration.sql, then try again.');
+      }
+      throw normalizeError(result.error, { fallbackMessage: 'Unable to save menu item ingredient.' });
+    }
+    return mapMenuItemIngredientRow(result.data);
+  },
+
+  async deleteMenuItemIngredient(lineId: string): Promise<void> {
+    const supabase = requireSupabaseClient();
+    const { error } = await supabase.from('menu_item_inventory_recipe_lines').delete().eq('id', lineId);
+    if (error) {
+      if (isMissingMenuIngredientTable(error)) {
+        throw new Error('Menu item ingredient tracking is not ready yet. Run supabase/inventory_production_migration.sql, then try again.');
+      }
+      throw normalizeError(error, { fallbackMessage: 'Unable to delete menu item ingredient.' });
+    }
   },
 };

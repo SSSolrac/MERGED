@@ -1,15 +1,19 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { getReviewCandidateOrder } from "../services/reviewService";
 import {
   getOrderCancellationReason,
   getOrderCancellationState,
-  getOrderHistory,
+  getOrderHistoryPage,
   getOrderReference,
   getStatusLabel,
+  getStatusSteps,
 } from "../services/orderService";
+import ReviewPrompt from "../components/ReviewPrompt";
 import "./OrderHistory.css";
 
-const ORDERS_PER_PAGE = 10;
+const ORDERS_PER_PAGE = 5;
+const STATUS_FILTERS = ["all", "pending", "preparing", "ready", "out_for_delivery", "completed", "delivered", "cancelled", "refunded"];
 
 function formatMoney(value) {
   return `PHP ${Number(value || 0).toFixed(2)}`;
@@ -23,53 +27,92 @@ function formatDateTime(value) {
 export default function OrderHistory() {
   const [orders, setOrders] = useState([]);
   const [expandedId, setExpandedId] = useState("");
-  const [pageIndex, setPageIndex] = useState(0);
+  const [pageIndex, setPageIndex] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [totalOrders, setTotalOrders] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadHistory = async () => {
       setIsLoading(true);
       setError("");
       try {
-        const result = await getOrderHistory();
-        setOrders(result);
-        setPageIndex(0);
+        const result = await getOrderHistoryPage({ page: pageIndex, pageSize: ORDERS_PER_PAGE, status: statusFilter });
+        if (cancelled) return;
+        setOrders(result.orders);
+        setTotalOrders(result.total);
         setExpandedId("");
       } catch (loadError) {
+        if (cancelled) return;
         setError(loadError?.message || "Unable to load your order history right now. Please try again shortly.");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     loadHistory();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [pageIndex, statusFilter]);
+
+  useEffect(() => {
+    setPageIndex(1);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(totalOrders / ORDERS_PER_PAGE));
+    if (pageIndex > totalPages) setPageIndex(totalPages);
+  }, [pageIndex, totalOrders]);
 
   if (isLoading) return <div className="history-state">Loading your order history...</div>;
   if (error) return <div className="history-state history-error">{error}</div>;
 
-  if (!orders.length) {
-    return (
-      <div className="history-state">
-        <h2>No orders yet</h2>
-        <p>Once you place your first order, your timeline and receipts will appear here.</p>
-        <Link to="/order">Start an order</Link>
-      </div>
-    );
-  }
-
-  const totalPages = Math.max(1, Math.ceil(orders.length / ORDERS_PER_PAGE));
-  const safePageIndex = Math.min(pageIndex, totalPages - 1);
-  const pageStart = safePageIndex * ORDERS_PER_PAGE;
-  const visibleOrders = orders.slice(pageStart, pageStart + ORDERS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(totalOrders / ORDERS_PER_PAGE));
+  const safePageIndex = Math.max(0, pageIndex - 1);
+  const visibleOrders = orders;
+  const reviewPromptOrder = getReviewCandidateOrder(visibleOrders);
+  const pageStart = totalOrders === 0 ? 0 : (pageIndex - 1) * ORDERS_PER_PAGE + 1;
+  const pageEnd = Math.min(pageIndex * ORDERS_PER_PAGE, totalOrders);
 
   return (
     <div className="history-page">
-      <h1>Order History</h1>
-      <p className="history-subtitle">
-        Showing {orders.length > ORDERS_PER_PAGE ? `orders ${pageStart + 1}-${Math.min(pageStart + ORDERS_PER_PAGE, orders.length)} of ${orders.length}` : "your latest order activity"}.
-      </p>
+      <div className="history-header">
+        <div>
+          <p className="history-eyebrow">Your purchases</p>
+          <h1>Order History</h1>
+          <p className="history-subtitle">
+            {totalOrders ? `Showing ${pageStart}-${pageEnd} of ${totalOrders} orders.` : "Your timeline and receipts will appear here."}
+          </p>
+        </div>
+        <Link className="history-primary-link" to="/order">
+          Start an order
+        </Link>
+      </div>
+
+      <div className="history-toolbar">
+        <label>
+          Status
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            {STATUS_FILTERS.map((status) => (
+              <option key={status} value={status}>
+                {status === "all" ? "All statuses" : getStatusLabel(status)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {!orders.length ? (
+        <div className="history-state history-empty">
+          <h2>{statusFilter === "all" ? "No orders yet" : `No ${getStatusLabel(statusFilter).toLowerCase()} orders`}</h2>
+          <p>Try another status filter or place a new order when you are ready.</p>
+        </div>
+      ) : null}
+
       <div className="history-list">
         {visibleOrders.map((order) => {
           const isExpanded = expandedId === order.id;
@@ -80,6 +123,8 @@ export default function OrderHistory() {
           }, 0);
           const itemLabel = totalItemQuantity === 1 ? "item" : "items";
           const cancellationReason = getOrderCancellationReason(order);
+          const steps = getStatusSteps(order.orderType);
+          const activeStepIndex = Math.max(0, steps.indexOf(order.status));
 
           return (
             <article key={order.id} className="history-card">
@@ -88,7 +133,15 @@ export default function OrderHistory() {
                   <h3>{getOrderReference(order)}</h3>
                   <p className="history-date">{formatDateTime(order.placedAt || order.createdAt)}</p>
                 </div>
-                <span className="status-pill">{getStatusLabel(order.status)}</span>
+                <span className={`status-pill status-pill--${order.status}`}>{getStatusLabel(order.status)}</span>
+              </div>
+
+              <div className="history-progress" aria-label="Order status timeline">
+                {steps.map((step, index) => (
+                  <span key={step} className={`history-progress-step ${index <= activeStepIndex ? "history-progress-step--active" : ""}`}>
+                    {getStatusLabel(step)}
+                  </span>
+                ))}
               </div>
 
               <div className="history-summary-grid">
@@ -97,37 +150,36 @@ export default function OrderHistory() {
                   <strong>{order.customerName || order.deliveryAddress?.name || "Guest"}</strong>
                 </div>
                 <div>
-                  <span>Status</span>
-                  <strong>{getStatusLabel(order.status)}</strong>
-                </div>
-                <div>
                   <span>Total</span>
                   <strong>{formatMoney(order.totalAmount)}</strong>
                 </div>
                 <div>
                   <span>Payment</span>
-                  <strong>{String(order.paymentStatus || "pending")} - {order.paymentMethodLabel || "Not set"}</strong>
+                  <strong>
+                    {String(order.paymentStatus || "pending")} - {order.paymentMethodLabel || "Not set"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Type</span>
+                  <strong>{order.orderTypeLabel}</strong>
                 </div>
               </div>
+
               <p className="history-items-summary">
-                {order.orderTypeLabel} - {totalItemQuantity} {itemLabel}
+                {totalItemQuantity} {itemLabel}: {orderItems.slice(0, 2).map((item) => `${item.itemName} x ${item.quantity}`).join(", ")}
+                {orderItems.length > 2 ? ` +${orderItems.length - 2} more` : ""}
               </p>
+
               {(() => {
                 const cancellationState = getOrderCancellationState(order);
-                if (cancellationState.canCancel) {
-                  return <p className="history-items-summary">Can be cancelled while order is still pending.</p>;
-                }
-                return <p className="history-items-summary">{cancellationState.reason}</p>;
+                return <p className="history-note">{cancellationState.canCancel ? "Can be cancelled while order is still pending." : cancellationState.reason}</p>;
               })()}
 
               {order.status === "cancelled" && cancellationReason ? (
-                <p className="history-cancel-reason"><strong>Cancellation reason:</strong> {cancellationReason}</p>
+                <p className="history-cancel-reason">
+                  <strong>Cancellation reason:</strong> {cancellationReason}
+                </p>
               ) : null}
-
-              <p className="history-items-summary">
-                {orderItems.slice(0, 2).map((item) => `${item.itemName} x ${item.quantity}`).join(", ")}
-                {orderItems.length > 2 ? ` +${orderItems.length - 2} more` : ""}
-              </p>
 
               <div className="history-actions">
                 <button type="button" onClick={() => setExpandedId(isExpanded ? "" : order.id)}>
@@ -138,12 +190,16 @@ export default function OrderHistory() {
 
               {isExpanded ? (
                 <div className="history-detail-panel">
-                  <h4>Order items</h4>
-                <ul>
-                  {orderItems.map((item) => (
-                    <li key={item.id}>{item.itemName} x {item.quantity} - {formatMoney(item.lineTotal)}</li>
-                  ))}
-                </ul>
+                  <div>
+                    <h4>Order items</h4>
+                    <ul>
+                      {orderItems.map((item) => (
+                        <li key={item.id}>
+                          {item.itemName} x {item.quantity} - {formatMoney(item.lineTotal)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                   <div className="history-detail-totals">
                     <span>Subtotal: {formatMoney(order.subtotal)}</span>
                     <span>Discount: -{formatMoney(order.discountTotal)}</span>
@@ -156,31 +212,35 @@ export default function OrderHistory() {
         })}
       </div>
 
-      {orders.length > ORDERS_PER_PAGE ? (
+      {totalOrders > ORDERS_PER_PAGE ? (
         <div className="history-pagination" aria-label="Order history pagination">
           <button
             type="button"
-            disabled={safePageIndex === 0}
+            disabled={pageIndex === 1}
             onClick={() => {
               setExpandedId("");
-              setPageIndex((prev) => Math.max(prev - 1, 0));
+              setPageIndex((prev) => Math.max(prev - 1, 1));
             }}
           >
             Previous
           </button>
-          <span>Page {safePageIndex + 1} of {totalPages}</span>
+          <span>
+            Page {safePageIndex + 1} of {totalPages}
+          </span>
           <button
             type="button"
-            disabled={safePageIndex >= totalPages - 1}
+            disabled={pageIndex >= totalPages}
             onClick={() => {
               setExpandedId("");
-              setPageIndex((prev) => Math.min(prev + 1, totalPages - 1));
+              setPageIndex((prev) => Math.min(prev + 1, totalPages));
             }}
           >
             Next
           </button>
         </div>
       ) : null}
+
+      <ReviewPrompt order={reviewPromptOrder} />
     </div>
   );
 }

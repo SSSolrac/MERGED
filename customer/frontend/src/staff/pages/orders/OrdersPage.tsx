@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DateRangeFilter } from '@/components/dashboard';
 import { Button, EmptyState, PaginationControls, PaymentQrPreview, SectionCard, StatusChip } from '@/components/ui';
+import { getErrorMessage } from '@/lib/errors';
 import { useOrders } from '@/hooks/useOrders';
 import { paymentMethodToLabel } from '@/utils/payment';
 import { formatCurrency } from '@/utils/currency';
@@ -21,8 +22,6 @@ const statuses: Array<OrderStatus | 'all'> = [
 ];
 
 const statusUpdateOptions: OrderStatus[] = statuses.filter((value): value is OrderStatus => value !== 'all');
-const PAGE_SIZE = 10;
-
 const statusTone = (status: OrderStatus) => {
   if (status === 'completed' || status === 'delivered') return 'success';
   if (status === 'cancelled' || status === 'refunded') return 'danger';
@@ -71,32 +70,45 @@ const formatDate = (value: string | null | undefined) => {
 };
 
 export const OrdersPage = () => {
-  const { orders, loading, error, query, status, range, setQuery, setStatus, setRange, getOrderById, confirmPayment, updateStatus } =
+  const { orders, loading, error, query, status, range, page, pageSize, totalOrders, setQuery, setStatus, setRange, setPage, getOrderById, confirmPayment, updateStatus, refresh } =
     useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [expandedReceiptUrl, setExpandedReceiptUrl] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  const [statusDraft, setStatusDraft] = useState<OrderStatus>('pending');
+  const [statusNote, setStatusNote] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  const requestCancellationReason = (orderCode: string) => {
-    const response = window.prompt(`Enter cancellation reason for ${orderCode}:`, '');
-    if (response === null) return null;
-    const trimmed = response.trim();
-    if (!trimmed) return '';
-    return trimmed;
-  };
+  useEffect(() => {
+    if (!selectedOrder) {
+      setStatusNote('');
+      return;
+    }
+    setStatusDraft(selectedOrder.status);
+    setStatusNote('');
+  }, [selectedOrder?.id, selectedOrder?.status]);
 
-  const cancelOrderWithReason = async (order: Order) => {
-    if (order.status === 'cancelled') return;
-    const reason = requestCancellationReason(order.code || order.id);
-    if (reason === null) return;
-    if (!reason) {
-      toast.error('Cancellation reason is required.');
+  const handleUpdateSelectedOrderStatus = async () => {
+    if (!selectedOrder) return;
+    if (statusDraft === selectedOrder.status) {
+      toast.info('Choose a different status before updating.');
       return;
     }
 
-    const updated = await updateStatus(order.id, 'cancelled', reason);
-    if (selectedOrder?.id === order.id) setSelectedOrder(updated);
-    toast.success('Order cancelled.');
+    try {
+      setIsUpdatingStatus(true);
+      const note = statusDraft === 'cancelled' ? statusNote.trim() : '';
+      const updated = await updateStatus(selectedOrder.id, statusDraft, note || undefined);
+      const refreshed = await getOrderById(updated.id);
+      setSelectedOrder(refreshed);
+      setStatusDraft(refreshed.status);
+      setStatusNote('');
+      await refresh();
+      toast.success('Order status updated.');
+    } catch (updateError) {
+      toast.error(getErrorMessage(updateError, 'Unable to update order status.'));
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   const statusSummary = useMemo(
@@ -106,16 +118,8 @@ export const OrdersPage = () => {
         .map((item) => ({ status: item, total: orders.filter((order) => order.status === item).length })),
     [orders],
   );
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(orders.length / PAGE_SIZE)), [orders.length]);
-  const visibleOrders = useMemo(() => orders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [orders, page]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, status, range]);
-
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(totalOrders / pageSize)), [pageSize, totalOrders]);
+  const visibleOrders = orders;
 
   if (loading) return <p>Loading orders...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
@@ -149,6 +153,7 @@ export const OrdersPage = () => {
           </label>
         </div>
 
+        <p className="text-xs text-[#6B7280]">Status counts below are for the current page; the footer count is the server total for this filter.</p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-sm">
           {statusSummary.map((item) => (
             <div key={item.status} className="border rounded p-2 capitalize">
@@ -158,7 +163,7 @@ export const OrdersPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Order History" subtitle="Showing 10 orders by default. Open details for full customer, payment, and item information.">
+      <SectionCard title="Order History" subtitle="Orders are loaded one server page at a time. Open details for full customer, payment, and item information.">
         {!visibleOrders.length ? (
           <EmptyState title="No orders found" message="Try another status, date range, or search term." />
         ) : (
@@ -192,28 +197,7 @@ export const OrdersPage = () => {
                   <td>{itemsCount} items</td>
                   <td>{formatCurrency(order.totalAmount)}</td>
                   <td>
-                    <div className="flex items-center gap-2">
-                      <StatusChip label={order.status.replaceAll('_', ' ')} tone={statusTone(order.status)} />
-                      <select
-                        className="border rounded px-2 py-1"
-                        value={order.status}
-                        onChange={async (e) => {
-                          const nextStatus = e.target.value as OrderStatus;
-                          if (nextStatus === 'cancelled') {
-                            await cancelOrderWithReason(order);
-                            return;
-                          }
-                          await updateStatus(order.id, nextStatus);
-                          toast.success('Order status updated.');
-                        }}
-                      >
-                        {statusUpdateOptions.map((value) => (
-                          <option key={value} value={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <StatusChip label={order.status.replaceAll('_', ' ')} tone={statusTone(order.status)} />
                   </td>
                   <td className="capitalize">
                     {order.paymentStatus} - {paymentLabel}
@@ -242,16 +226,6 @@ export const OrdersPage = () => {
                       >
                         {order.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
                       </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={order.status === 'cancelled'}
-                        onClick={async () => {
-                          await cancelOrderWithReason(order);
-                        }}
-                      >
-                        {order.status === 'cancelled' ? 'Cancelled' : 'Cancel order'}
-                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -261,7 +235,7 @@ export const OrdersPage = () => {
         </table>
           </div>
         )}
-        <PaginationControls page={page} totalPages={totalPages} totalItems={orders.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="orders" />
+        <PaginationControls page={page} totalPages={totalPages} totalItems={totalOrders} pageSize={pageSize} onPageChange={setPage} itemLabel="orders" />
       </SectionCard>
 
       {selectedOrder && (
@@ -347,6 +321,47 @@ export const OrdersPage = () => {
               </div>
             </div>
 
+            <div className="border rounded p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-[#6B7280]">Current status</p>
+                  <div className="mt-1">
+                    <StatusChip label={selectedOrder.status.replaceAll('_', ' ')} tone={statusTone(selectedOrder.status)} />
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(180px,1fr)_auto] sm:items-end">
+                  <label className="text-sm">
+                    New status
+                    <select
+                      className="mt-1 block w-full rounded border px-2 py-2"
+                      value={statusDraft}
+                      onChange={(event) => setStatusDraft(event.target.value as OrderStatus)}
+                    >
+                      {statusUpdateOptions.map((value) => (
+                        <option key={value} value={value}>
+                          {value.replaceAll('_', ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button variant="secondary" onClick={handleUpdateSelectedOrderStatus} disabled={isUpdatingStatus || statusDraft === selectedOrder.status}>
+                    {isUpdatingStatus ? 'Updating...' : 'Update Status'}
+                  </Button>
+                </div>
+              </div>
+              {statusDraft === 'cancelled' ? (
+                <label className="block text-sm">
+                  Cancellation reason (optional)
+                  <textarea
+                    className="mt-1 block w-full rounded border px-2 py-2"
+                    rows={3}
+                    value={statusNote}
+                    onChange={(event) => setStatusNote(event.target.value)}
+                  />
+                </label>
+              ) : null}
+            </div>
+
             <div className="border rounded p-3">
               <p className="font-medium text-sm mb-2">Status timeline</p>
               <div className="space-y-2 text-sm">
@@ -376,15 +391,6 @@ export const OrdersPage = () => {
                 }}
               >
                 {selectedOrder.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
-              </Button>
-              <Button
-                variant="danger"
-                disabled={selectedOrder.status === 'cancelled'}
-                onClick={async () => {
-                  await cancelOrderWithReason(selectedOrder);
-                }}
-              >
-                {selectedOrder.status === 'cancelled' ? 'Cancelled' : 'Cancel this order'}
               </Button>
             </div>
           </div>

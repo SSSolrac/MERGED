@@ -9,6 +9,10 @@ export type DeliveryArea = {
   city: string;
   province: string;
   country: string;
+  coverageMode: 'radius' | 'purok_list' | 'polygon';
+  centerLat: number;
+  centerLng: number;
+  maxDistanceKm: number;
   isActive: boolean;
   deliveryStatus: 'active' | 'inactive';
   updatedBy: string;
@@ -88,7 +92,7 @@ const sanitizePuroks = (puroks: DeliveryCoverageInput['puroks']) =>
       deliveryStatus: asStatus(entry?.deliveryStatus),
       sortOrder: asNumber(entry?.sortOrder, index + 1),
     }))
-    .filter((entry) => entry.purokName && Number.isFinite(entry.lat) && Number.isFinite(entry.lng))
+    .filter((entry) => entry.purokName)
     .sort((left, right) => left.sortOrder - right.sortOrder);
 
 const sanitizePolygon = (polygon: DeliveryCoverageInput['polygon']) =>
@@ -145,6 +149,10 @@ export const deliveryCoverageService = {
       city: asText(areaInput?.city) || fallbackArea.city,
       province: asText(areaInput?.province) || fallbackArea.province,
       country: asText(areaInput?.country) || fallbackArea.country,
+      coverage_mode: 'radius',
+      center_lat: asNumber(areaInput?.centerLat, fallbackArea.centerLat),
+      center_lng: asNumber(areaInput?.centerLng, fallbackArea.centerLng),
+      max_distance_km: Math.max(0, asNumber(areaInput?.maxDistanceKm, fallbackArea.maxDistanceKm)),
       is_active: asBoolean(areaInput?.isActive, true),
       delivery_status: asStatus(areaInput?.deliveryStatus),
       updated_by: updatedBy || null,
@@ -162,8 +170,8 @@ export const deliveryCoverageService = {
       id: entry.id,
       delivery_area_id: savedAreaId,
       purok_name: entry.purokName,
-      lat: entry.lat,
-      lng: entry.lng,
+      lat: Number.isFinite(entry.lat) ? entry.lat : null,
+      lng: Number.isFinite(entry.lng) ? entry.lng : null,
       is_active: entry.isActive,
       delivery_status: entry.deliveryStatus,
       sort_order: entry.sortOrder,
@@ -192,8 +200,6 @@ export const deliveryCoverageService = {
     if (sanitizedPolygon.length >= 3) {
       const { error: insertPolygonError } = await supabase.from('delivery_area_polygons').insert(sanitizedPolygon);
       if (insertPolygonError) throw normalizeError(insertPolygonError, { fallbackMessage: 'Unable to save polygon points.' });
-    } else {
-      throw new Error('Delivery polygon must contain at least 3 points.');
     }
 
     const snapshot = {

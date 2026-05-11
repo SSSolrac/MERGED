@@ -15,7 +15,7 @@ const loadCustomerProfile = async (customerId: string) => {
 export const customerService = {
   async getCustomers(): Promise<CustomerWithLoyalty[]> {
     const supabase = requireSupabaseClient();
-    const { data, error } = await supabase.from('profiles').select('*').eq('role', 'customer');
+    const { data, error } = await supabase.from('profiles').select('*').eq('role', 'customer').order('created_at', { ascending: false }).limit(500);
     if (error) throw normalizeError(error, { fallbackMessage: 'Unable to load customers.' });
 
     const customers = (Array.isArray(data) ? data : []).map(mapCustomerProfileRow);

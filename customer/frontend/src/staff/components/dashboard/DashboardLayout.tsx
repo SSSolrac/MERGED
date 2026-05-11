@@ -216,7 +216,10 @@ export const DashboardLayout = () => {
                   <img src={happyTailsLogo} alt="Happy Tails Pet Cafe" className="h-9 w-9 object-contain" />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-semibold leading-tight text-[#1F2937]">Happy Tails</p>
+                  <p className="font-semibold leading-tight">
+                    <span className="text-[#f72f92]">Happy</span>
+                    <span className="text-[#36d7e8]"> Tails</span>
+                  </p>
                   <p className="text-xs text-slate-500">Staff / Owner</p>
                 </div>
               </div>

@@ -14,18 +14,16 @@ const deliveryConfig = {
   city: "Lucena City",
   province: "Quezon",
   country: "Philippines",
+  centerLat: 13.93949,
+  centerLng: 121.6024,
+  maxDistanceKm: 4,
   isActive: true,
   deliveryStatus: "active",
   puroks: [
     { id: "purok-1", purokName: "Purok Sampaguita", lat: 13.942, lng: 121.623, isActive: true, deliveryStatus: "active" },
     { id: "purok-2", purokName: "Purok Carmelita", lat: 13.9424, lng: 121.6234, isActive: true, deliveryStatus: "active" },
   ],
-  polygon: [
-    { lat: 13.9405, lng: 121.6215, pointOrder: 0 },
-    { lat: 13.9405, lng: 121.6245, pointOrder: 1 },
-    { lat: 13.9435, lng: 121.6245, pointOrder: 2 },
-    { lat: 13.9435, lng: 121.6215, pointOrder: 3 },
-  ],
+  polygon: [],
 };
 
 test("buildDeliveryAddress normalizes configured delivery labels", () => {
@@ -84,7 +82,7 @@ test("formatDeliveryAddress prefers normalized strings and handles missing value
   assert.equal(formatDeliveryAddress(null), "No delivery address provided");
 });
 
-test("validateDeliveryAddress accepts an active purok with a pin inside the polygon", () => {
+test("validateDeliveryAddress accepts an active purok with a pin inside the distance coverage", () => {
   const result = validateDeliveryAddress({
     houseDetails: "Blk 4 Lot 8",
     selectedPurokId: "purok-1",
@@ -101,17 +99,17 @@ test("validateDeliveryAddress accepts an active purok with a pin inside the poly
   );
 });
 
-test("validateDeliveryAddress rejects pins outside the configured polygon", () => {
+test("validateDeliveryAddress rejects pins outside the configured distance coverage", () => {
   const result = validateDeliveryAddress({
     houseDetails: "Blk 4 Lot 8",
     selectedPurokId: "purok-1",
-    latitude: 13.95,
-    longitude: 121.63,
+    latitude: 13.99,
+    longitude: 121.66,
     config: deliveryConfig,
   });
 
   assert.equal(result.isValid, false);
-  assert.equal(result.errors.mapPin, "Selected pin is outside the delivery area.");
+  assert.match(result.errors.mapPin, /outside the 4.0 km delivery coverage/);
 });
 
 test("validateDeliveryAddress uses selected purok coordinates when the pin is not set yet", () => {

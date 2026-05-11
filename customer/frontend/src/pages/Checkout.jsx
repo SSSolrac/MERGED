@@ -89,6 +89,13 @@ function isLoyaltyRewardCartItem(item) {
   return Boolean(item?.isLoyaltyReward || item?.loyaltyRewardItemId);
 }
 
+function getDeliveryPickupPoint(config) {
+  const lat = Number(config?.centerLat ?? config?.center_lat);
+  const lng = Number(config?.centerLng ?? config?.center_lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
 export default function Checkout() {
   const navigate = useNavigate();
   const { cart, total, clearCart } = useCart();
@@ -247,14 +254,15 @@ export default function Checkout() {
   const normalizedPhone = toPhilippineE164(form.phone);
   const canonicalOrderType = labelToCanonicalOrderType(form.orderType);
   const requiresDeliveryAddress = canonicalOrderType === "delivery";
-  const isDeliveryConfigReady =
+  const isDeliveryConfigReady = Boolean(
     deliveryConfig &&
     deliveryConfig.isActive !== false &&
     String(deliveryConfig.deliveryStatus || "active").toLowerCase() !== "inactive" &&
     Array.isArray(deliveryConfig.puroks) &&
     deliveryConfig.puroks.length > 0 &&
-    Array.isArray(deliveryConfig.polygon) &&
-    deliveryConfig.polygon.length >= 3;
+    getDeliveryPickupPoint(deliveryConfig) &&
+    Number(deliveryConfig.maxDistanceKm || 0) > 0
+  );
   const hasLoyaltyRewardItems = cart.some(isLoyaltyRewardCartItem);
   const canUseLoyaltyRewardItems = isAuthenticated;
   const hasRegularOrderItems = cart.some((item) => !isLoyaltyRewardCartItem(item));
@@ -330,6 +338,7 @@ export default function Checkout() {
         ...calculateDeliveryFeeQuote({
           latitude: deliveryValidation.latitude,
           longitude: deliveryValidation.longitude,
+          pickupLatLng: getDeliveryPickupPoint(deliveryConfig),
         }),
         isReady: true,
         error: "",
@@ -556,6 +565,7 @@ export default function Checkout() {
           deliveryQuote = calculateDeliveryFeeQuote({
             latitude: Number.isFinite(serverValidation.latitude) ? serverValidation.latitude : deliveryValidation.latitude,
             longitude: Number.isFinite(serverValidation.longitude) ? serverValidation.longitude : deliveryValidation.longitude,
+            pickupLatLng: getDeliveryPickupPoint(deliveryConfig),
           });
         } catch (error) {
           setErrors((prev) => ({
@@ -757,13 +767,13 @@ export default function Checkout() {
                   </p>
                 )
               )}
-              {isDeliveryConfigReady ? <p className="field-hint">Only pins inside the configured service polygon can be submitted.</p> : null}
+              {isDeliveryConfigReady ? <p className="field-hint">Only addresses in an active purok and within the cafe delivery distance can be submitted.</p> : null}
               {deliveryFeeQuote.isReady ? (
                 <p className="field-hint">
                   Delivery fee: PHP {Number(deliveryFeeQuote.deliveryFee || 0).toFixed(2)} for {Number(deliveryFeeQuote.distanceKm || 0).toFixed(1)} km. {deliveryFeeQuote.breakdown}
                 </p>
               ) : requiresDeliveryAddress && !deliveryValidation.isValid ? (
-                <p className="field-hint">Delivery fee will appear once your selected pin is valid inside the service area.</p>
+                <p className="field-hint">Delivery fee will appear once your selected pin is valid for the delivery area.</p>
               ) : null}
               {errors.address ? <p className="field-error">{errors.address}</p> : null}
               {errors.deliveryFee ? <p className="field-error">{errors.deliveryFee}</p> : null}

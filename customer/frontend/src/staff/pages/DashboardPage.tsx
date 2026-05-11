@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertsPanel, DateRangeFilter, RecentOrdersTable, TopItemsChart, type TopItemChartDatum } from '@/components/dashboard';
 import { useDashboardData } from '@/hooks/useDashboardData';
@@ -10,6 +10,19 @@ import type { Order } from '@/types/order';
 type ChartPreset = 'area' | 'line' | 'bar';
 type GroupPreset = 'days' | 'weeks' | 'months';
 type FinancialCard = 'gross' | 'refunds' | 'discounts' | 'net' | 'profit';
+
+type DailyFinancial = {
+  key: string;
+  label: string;
+  orderCount: number;
+  grossSales: number;
+  refundsAndCancellations: number;
+  discounts: number;
+  deliveryFees: number;
+  netSales: number;
+  costOfGoods: number;
+  profit: number;
+};
 
 const toSafeDate = (value: string) => {
   const parsed = new Date(value);
@@ -126,6 +139,7 @@ export const DashboardPage = () => {
   const [chartPreset, setChartPreset] = useState<ChartPreset>('area');
   const [groupBy, setGroupBy] = useState<GroupPreset>('days');
   const [selectedFinancialCard, setSelectedFinancialCard] = useState<FinancialCard>('gross');
+  const [selectedDayKey, setSelectedDayKey] = useState('');
 
   const rangeLabel = (preset: DateRangePreset) => {
     const map: Record<DateRangePreset, string> = {
@@ -148,6 +162,64 @@ export const DashboardPage = () => {
 
   const filteredOrders = useMemo(() => allOrders, [allOrders]);
 
+  const dailyFinancials = useMemo<DailyFinancial[]>(() => {
+    const totals = new Map<string, DailyFinancial>();
+    filteredOrders.forEach((order) => {
+      const source = order.placedAt || order.createdAt;
+      const key = toDayKey(source);
+      if (!key) return;
+      const accounting = deriveAccountingParts(order);
+      const costOfGoods = Number.isFinite(order.costOfGoods) ? Math.max(0, order.costOfGoods ?? 0) : 0;
+      const current =
+        totals.get(key) ??
+        ({
+          key,
+          label: labelFromGroupKey('days', key),
+          orderCount: 0,
+          grossSales: 0,
+          refundsAndCancellations: 0,
+          discounts: 0,
+          deliveryFees: 0,
+          netSales: 0,
+          costOfGoods: 0,
+          profit: 0,
+        } satisfies DailyFinancial);
+
+      current.orderCount += 1;
+      current.grossSales += accounting.grossSales;
+      current.refundsAndCancellations += accounting.refunded + accounting.cancellations;
+      current.discounts += accounting.discountTotal;
+      current.deliveryFees += accounting.deliveryFee;
+      current.netSales += accounting.netSales;
+      current.costOfGoods += costOfGoods;
+      current.profit = current.netSales - current.costOfGoods;
+      totals.set(key, current);
+    });
+
+    return Array.from(totals.values())
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map((day) => ({
+        ...day,
+        grossSales: roundCurrency(day.grossSales),
+        refundsAndCancellations: roundCurrency(day.refundsAndCancellations),
+        discounts: roundCurrency(day.discounts),
+        deliveryFees: roundCurrency(day.deliveryFees),
+        netSales: roundCurrency(day.netSales),
+        costOfGoods: roundCurrency(day.costOfGoods),
+        profit: roundCurrency(day.profit),
+      }));
+  }, [filteredOrders]);
+
+  useEffect(() => {
+    if (!dailyFinancials.length) {
+      setSelectedDayKey('');
+      return;
+    }
+    if (selectedDayKey && dailyFinancials.some((day) => day.key === selectedDayKey)) return;
+    const lowestProfitDay = [...dailyFinancials].sort((left, right) => left.profit - right.profit)[0];
+    setSelectedDayKey(lowestProfitDay?.key ?? dailyFinancials[dailyFinancials.length - 1]?.key ?? '');
+  }, [dailyFinancials, selectedDayKey]);
+
   const salesSeries = useMemo(() => {
     const totals = new Map<string, number>();
     filteredOrders.forEach((order) => {
@@ -161,6 +233,7 @@ export const DashboardPage = () => {
     return Array.from(totals.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, sales]) => ({
+        key,
         label: labelFromGroupKey(groupBy, key),
         sales,
       }));
@@ -201,7 +274,7 @@ export const DashboardPage = () => {
 
     return Array.from(fromOrders.entries())
       .sort((a, b) => b[1].quantity - a[1].quantity)
-      .slice(0, 10)
+      .slice(0, 5)
       .map(([label, item]) => {
         const estimatedProfit = item.hasCostData ? roundCurrency(item.revenue - item.estimatedCost) : null;
         return {
@@ -244,11 +317,57 @@ export const DashboardPage = () => {
     'Not enough data yet to link waste changes to profit.',
   ].filter(Boolean) as string[];
 
+  const selectedDay = dailyFinancials.find((day) => day.key === selectedDayKey) ?? dailyFinancials[dailyFinancials.length - 1] ?? null;
+  const averageDailyProfit = dailyFinancials.length
+    ? dailyFinancials.reduce((sum, day) => sum + day.profit, 0) / dailyFinancials.length
+    : 0;
+  const averageDailyGross = dailyFinancials.length
+    ? dailyFinancials.reduce((sum, day) => sum + day.grossSales, 0) / dailyFinancials.length
+    : 0;
+  const selectedDayReasons = selectedDay
+    ? [
+        selectedDay.grossSales < averageDailyGross * 0.75
+          ? `Sales volume was below this range's daily average (${formatCurrency(selectedDay.grossSales)} vs ${formatCurrency(averageDailyGross)}).`
+          : null,
+        selectedDay.discounts > selectedDay.grossSales * 0.12
+          ? `Discounts were heavy that day (${formatCurrency(selectedDay.discounts)}), reducing net sales.`
+          : null,
+        selectedDay.refundsAndCancellations > 0
+          ? `Refunds or cancellations removed ${formatCurrency(selectedDay.refundsAndCancellations)} from the day.`
+          : null,
+        selectedDay.costOfGoods > 0 && selectedDay.costOfGoods > selectedDay.netSales * 0.65
+          ? `Menu costs were high compared with net sales (${formatCurrency(selectedDay.costOfGoods)} cost on ${formatCurrency(selectedDay.netSales)} net sales).`
+          : null,
+        hasCostData && selectedDay.profit < averageDailyProfit
+          ? `Profit landed below the range's daily average (${formatCurrency(selectedDay.profit)} vs ${formatCurrency(averageDailyProfit)}).`
+          : null,
+        !hasCostData ? 'Menu item cost data is incomplete, so profit explanations are limited to sales, discounts, and refunds.' : null,
+      ].filter(Boolean)
+    : [];
+
+  const financialBreakdownMeta: Record<FinancialCard, { title: string; valueForDay: (day: DailyFinancial) => number }> = {
+    gross: { title: 'Gross sales by day', valueForDay: (day) => day.grossSales },
+    refunds: { title: 'Refunds and cancellations by day', valueForDay: (day) => day.refundsAndCancellations },
+    discounts: { title: 'Discounts by day', valueForDay: (day) => day.discounts },
+    net: { title: 'Net sales by day', valueForDay: (day) => day.netSales },
+    profit: { title: 'Estimated profit by day', valueForDay: (day) => day.profit },
+  };
+  const selectedBreakdown = financialBreakdownMeta[selectedFinancialCard];
+  const financialBreakdownRows = [...dailyFinancials]
+    .sort((left, right) => selectedBreakdown.valueForDay(right) - selectedBreakdown.valueForDay(left))
+    .slice(0, 8);
+
+  const handleChartClick = (state: unknown) => {
+    const payload = state && typeof state === 'object' ? (state as { activePayload?: Array<{ payload?: { key?: string } }> }) : null;
+    const key = payload?.activePayload?.[0]?.payload?.key;
+    if (key && groupBy === 'days') setSelectedDayKey(key);
+  };
+
   const SummaryCard = ({ title, value, subtitle, cardKey }: { title: string; value: string; subtitle: string; cardKey: FinancialCard }) => (
     <button
       type="button"
       className={`rounded-lg border bg-white p-4 text-left shadow-sm transition-colors hover:bg-[#FFF3F5] ${
-        selectedFinancialCard === cardKey ? 'border-[#2B7A87] ring-2 ring-[#2B7A87]/20' : ''
+        selectedFinancialCard === cardKey ? 'border-[#FF8FA3] ring-2 ring-[#FF8FA3]/20' : ''
       }`}
       onClick={() => setSelectedFinancialCard(cardKey)}
     >
@@ -332,6 +451,66 @@ export const DashboardPage = () => {
                 <p className="font-semibold">{profitMarginPct == null ? 'Not enough data yet.' : `${profitMarginPct.toFixed(1)}%`}</p>
               </div>
             </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+              <div className="rounded-lg border p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{selectedBreakdown.title}</p>
+                  <p className="text-xs text-[#6B7280]">Click a day to explain profit.</p>
+                </div>
+                {!financialBreakdownRows.length ? (
+                  <p className="text-sm text-[#6B7280]">Not enough data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {financialBreakdownRows.map((day) => (
+                      <button
+                        key={day.key}
+                        type="button"
+                        className={`grid w-full grid-cols-[1fr_auto] gap-2 rounded border px-3 py-2 text-left text-sm hover:bg-[#FFF3F5] ${
+                          selectedDay?.key === day.key ? 'border-[#FF8FA3] bg-[#FFE4E8]' : 'bg-white'
+                        }`}
+                        onClick={() => setSelectedDayKey(day.key)}
+                      >
+                        <span>{day.label}</span>
+                        <strong>{formatCurrency(selectedBreakdown.valueForDay(day))}</strong>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Why was profit low?</p>
+                  {dailyFinancials.length ? (
+                    <select
+                      className="rounded border px-2 py-1 text-sm"
+                      value={selectedDay?.key ?? ''}
+                      onChange={(event) => setSelectedDayKey(event.target.value)}
+                    >
+                      {dailyFinancials.map((day) => (
+                        <option key={day.key} value={day.key}>
+                          {day.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+                {selectedDay ? (
+                  <div className="space-y-2 text-sm">
+                    <div className="grid grid-cols-2 gap-2">
+                      <p className="rounded border p-2">Gross: <strong>{formatCurrency(selectedDay.grossSales)}</strong></p>
+                      <p className="rounded border p-2">Profit: <strong>{hasCostData ? formatCurrency(selectedDay.profit) : 'No cost data'}</strong></p>
+                      <p className="rounded border p-2">Orders: <strong>{selectedDay.orderCount}</strong></p>
+                      <p className="rounded border p-2">Discounts: <strong>{formatCurrency(selectedDay.discounts)}</strong></p>
+                    </div>
+                    <div className="space-y-1 text-[#6B7280]">
+                      {selectedDayReasons.length ? selectedDayReasons.map((reason) => <p key={reason}>{reason}</p>) : <p>This day does not show an obvious low-profit driver from the available data.</p>}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#6B7280]">Select a day from the chart or breakdown.</p>
+                )}
+              </div>
+            </div>
             <div className="mt-3 rounded-lg border border-dashed p-3">
               <p className="text-sm font-medium">Insights</p>
               <div className="mt-2 space-y-1 text-sm text-[#6B7280]">
@@ -374,7 +553,7 @@ export const DashboardPage = () => {
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   {chartPreset === 'line' ? (
-                    <LineChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                    <LineChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }} onClick={handleChartClick}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                       <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
@@ -382,7 +561,7 @@ export const DashboardPage = () => {
                       <Line type="monotone" dataKey="sales" stroke="#FF8FA3" strokeWidth={2} dot={false} />
                     </LineChart>
                   ) : chartPreset === 'bar' ? (
-                    <BarChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                    <BarChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }} onClick={handleChartClick}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                       <YAxis tick={{ fontSize: 12 }} tickFormatter={(value: number) => formatCurrency(value).replace('.00', '')} />
@@ -390,7 +569,7 @@ export const DashboardPage = () => {
                       <Bar dataKey="sales" fill="#FF8FA3" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   ) : (
-                    <AreaChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+                    <AreaChart data={salesSeries} margin={{ left: 8, right: 16, top: 8, bottom: 8 }} onClick={handleChartClick}>
                       <defs>
                         <linearGradient id="grossSalesFill" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#FF8FA3" stopOpacity={0.25} />

@@ -149,7 +149,7 @@ export const loyaltyService = {
     const [rewards, accountResult, redemptionsResult] = await Promise.all([
       listActiveRewards(),
       supabase.from('loyalty_accounts').select('*').eq('customer_id', customerId).maybeSingle(),
-      supabase.from('loyalty_redemptions').select('*').eq('customer_id', customerId).order('redeemed_at', { ascending: false }),
+      supabase.from('loyalty_redemptions').select('*').eq('customer_id', customerId).order('redeemed_at', { ascending: false }).limit(200),
     ]);
 
     if (accountResult.error) throw normalizeError(accountResult.error, { fallbackMessage: 'Unable to load loyalty account.' });
@@ -187,7 +187,7 @@ export const loyaltyService = {
     const [rewards, accountsResult, redemptionsResult] = await Promise.all([
       listActiveRewards(),
       supabase.from('loyalty_accounts').select('*').in('customer_id', ids),
-      supabase.from('loyalty_redemptions').select('*').in('customer_id', ids),
+      supabase.from('loyalty_redemptions').select('*').in('customer_id', ids).limit(1000),
     ]);
 
     if (accountsResult.error) throw normalizeError(accountsResult.error, { fallbackMessage: 'Unable to load loyalty accounts.' });

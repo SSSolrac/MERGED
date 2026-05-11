@@ -41,3 +41,14 @@ export type MenuCategory = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type MenuItemIngredient = {
+  id: string;
+  menuItemId: string;
+  inventoryItemId: string;
+  quantityRequired: number;
+  unit: string | null;
+  displayQuantity: string | null;
+  createdAt: string;
+  updatedAt: string;
+};

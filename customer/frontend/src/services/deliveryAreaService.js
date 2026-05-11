@@ -160,5 +160,10 @@ export async function validateDeliveryAddressOnServer(deliveryAddressPayload) {
     normalizedAddress: asDeliveryText(safe.normalizedAddress || safe.normalized_address),
     latitude: asDeliveryNumber(safe.latitude ?? safe.lat, Number.NaN),
     longitude: asDeliveryNumber(safe.longitude ?? safe.lng, Number.NaN),
+    coverageMode: asDeliveryText(safe.coverageMode || safe.coverage_mode),
+    centerLat: asDeliveryNumber(safe.centerLatitude ?? safe.center_lat ?? safe.centerLat, Number.NaN),
+    centerLng: asDeliveryNumber(safe.centerLongitude ?? safe.center_lng ?? safe.centerLng, Number.NaN),
+    maxDistanceKm: asDeliveryNumber(safe.maxDistanceKm ?? safe.max_distance_km, Number.NaN),
+    distanceKm: asDeliveryNumber(safe.distanceKm ?? safe.distance_km, Number.NaN),
   };
 }

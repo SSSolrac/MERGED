@@ -87,7 +87,7 @@ export default function Cart() {
                 onClick={() => navigate("/track-order")}
                 style={{
                   padding: "12px 24px",
-                  backgroundColor: "#36d7e8",
+                  backgroundColor: "#ff8fa3",
                   color: "white",
                   border: "none",
                   borderRadius: "8px",
@@ -159,7 +159,7 @@ export default function Cart() {
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
             <button
               onClick={() => navigate("/checkout")}
-              style={{ fontWeight: 900, padding: "10px 14px", backgroundColor: "#36d7e8", border: "none", borderRadius: "8px", cursor: "pointer" }}
+              style={{ fontWeight: 900, padding: "10px 14px", backgroundColor: "#ff8fa3", border: "none", borderRadius: "8px", cursor: "pointer" }}
             >
               Checkout
             </button>

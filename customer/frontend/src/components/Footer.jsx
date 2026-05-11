@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import logoImg from "../assets/logo.png";
 import { getPublicBusinessSettings } from "../services/businessSettingsService";
 import { DEFAULT_BUSINESS_HOURS_TEXT } from "../utils/orderAvailability";
 
@@ -64,48 +63,51 @@ const Footer = () => {
     return splitLines(businessSettings.cafeAddress);
   }, [businessSettings.cafeAddress]);
 
-  const footerLogoSrc = logoImg;
   const footerStyle = {
-    backgroundColor: "#F8C8DC",
-    paddingTop: "34px",
-    paddingBottom: "22px",
-    color: "#423151",
-    boxShadow: "0 -10px 24px rgba(64, 40, 86, 0.08)",
+    backgroundColor: "#2c4053",
+    paddingTop: "46px",
+    paddingBottom: "28px",
+    color: "#d9e0e8",
   };
-  const contentTextColor = "#4f3b61";
-  const headingColor = "#203a74";
-  const dividerColor = "rgba(32,58,116,0.18)";
-  const bottomBarTextColor = "#4f3b61";
+  const contentTextColor = "#d7dde4";
+  const headingColor = "#ff4b9b";
+  const dividerColor = "rgba(217,224,232,0.14)";
+  const bottomBarTextColor = "#b9c3ce";
 
   return (
     <footer style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
       <div style={footerStyle}>
-        <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "28px", flexWrap: "wrap" }}>
+        <div style={{ maxWidth: "1704px", margin: "0 auto", padding: "0 20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "48px", flexWrap: "wrap" }}>
             <div style={{ flex: "1", minWidth: "220px", marginBottom: "12px" }}>
-              <img src={footerLogoSrc} alt={`${businessSettings.cafeName || "Cafe"} Logo`} style={{ maxWidth: "132px", marginBottom: "8px", display: "block" }} />
-              <p style={{ fontSize: "14px", margin: 0, color: contentTextColor }}>{businessSettings.cafeName || "Cafe"}</p>
+              <div style={{ fontSize: "32px", fontWeight: 900, lineHeight: 1.05, marginBottom: "12px" }} aria-label={businessSettings.cafeName || "Happy Tails"}>
+                <span style={{ color: "#ff4b9b" }}>Happy</span>
+                <span style={{ color: "#2fe8f0" }}>Tails</span>
+              </div>
+              <p style={{ fontSize: "16px", margin: 0, color: contentTextColor }}>Your pet&apos;s paradise since 2015</p>
             </div>
 
-            <div style={{ flex: "1", minWidth: "220px", marginBottom: "12px" }}>
-              <h3 style={{ color: headingColor, fontSize: "18px", fontWeight: "600", marginBottom: "14px", marginTop: "2px" }}>Operating Hours</h3>
+            <div style={{ flex: "1", minWidth: "250px", marginBottom: "12px" }}>
+              <h3 style={{ color: headingColor, fontSize: "22px", fontWeight: "800", marginBottom: "14px", marginTop: "2px" }}>Operating Hours</h3>
+              <div style={{ width: "48px", height: "2px", background: "#ff4b9b", margin: "-8px 0 14px" }} />
               {hoursLines.length ? (
                 hoursLines.map((line, index) => (
-                  <p key={`hours-${index}`} style={{ fontSize: "14px", margin: index === hoursLines.length - 1 ? 0 : "0 0 8px 0", color: contentTextColor }}>
+                  <p key={`hours-${index}`} style={{ fontSize: "17px", margin: index === hoursLines.length - 1 ? 0 : "0 0 9px 0", color: contentTextColor }}>
                     {line}
                   </p>
                 ))
               ) : null}
             </div>
 
-            <div style={{ flex: "1.2", minWidth: "280px", marginBottom: "12px" }}>
-              <h3 style={{ color: headingColor, fontSize: "18px", fontWeight: "600", marginBottom: "14px", marginTop: "2px" }}>Contact Us</h3>
-              <p style={{ fontSize: "14px", margin: "0 0 8px 0", color: contentTextColor }}>FB: {businessSettings.facebookHandle}</p>
-              <p style={{ fontSize: "14px", margin: "0 0 8px 0", color: contentTextColor }}>IG: {businessSettings.instagramHandle}</p>
-              <p style={{ fontSize: "14px", margin: "0 0 8px 0", color: contentTextColor }}>Phone: {businessSettings.contactNumber}</p>
-              <p style={{ fontSize: "14px", margin: "0 0 12px 0", color: contentTextColor }}>Email: {businessSettings.businessEmail}</p>
+            <div style={{ flex: "1.35", minWidth: "300px", marginBottom: "12px" }}>
+              <h3 style={{ color: headingColor, fontSize: "22px", fontWeight: "800", marginBottom: "14px", marginTop: "2px" }}>Contact Us</h3>
+              <div style={{ width: "48px", height: "2px", background: "#ff4b9b", margin: "-8px 0 14px" }} />
+              <p style={{ fontSize: "17px", margin: "0 0 8px 0", color: contentTextColor }}>FB: {businessSettings.facebookHandle}</p>
+              <p style={{ fontSize: "17px", margin: "0 0 8px 0", color: contentTextColor }}>IG: {businessSettings.instagramHandle}</p>
+              <p style={{ fontSize: "17px", margin: "0 0 8px 0", color: contentTextColor }}>Phone: {businessSettings.contactNumber}</p>
+              <p style={{ fontSize: "17px", margin: "0 0 12px 0", color: contentTextColor }}>Email: {businessSettings.businessEmail}</p>
 
-              <p style={{ fontSize: "13px", margin: 0, color: contentTextColor, lineHeight: "1.6" }}>
+              <p style={{ fontSize: "17px", margin: 0, color: contentTextColor, lineHeight: "1.45" }}>
                 {addressLines.length ? (
                   addressLines.map((line, index) => (
                     <React.Fragment key={`address-${index}`}>
@@ -118,11 +120,11 @@ const Footer = () => {
             </div>
             </div>
 
-            <div style={{ borderTop: `1px solid ${dividerColor}`, width: "100%", margin: "18px 0 14px" }} />
+            <div style={{ borderTop: `1px solid ${dividerColor}`, width: "100%", margin: "26px 0 20px" }} />
 
             <div style={{ textAlign: "center" }}>
-              <p style={{ fontSize: "16px", color: bottomBarTextColor, margin: "0 0 8px 0" }}>(c) 2026 HappyTails. All rights reserved.</p>
-              <p style={{ fontSize: "16px", color: bottomBarTextColor, margin: 0 }}>Pet Shop, Grooming & Cafe Services</p>
+              <p style={{ fontSize: "16px", color: bottomBarTextColor, margin: "0 0 8px 0" }}>&copy; 2026 HappyTails. All rights reserved.</p>
+              <p style={{ fontSize: "14px", color: "#d7dde4", margin: 0 }}>Pet Shop, Grooming, Boarding & Cafe Services</p>
             </div>
           </div>
       </div>

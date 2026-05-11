@@ -158,7 +158,7 @@ export const DashboardPage = () => {
 
     return Array.from(fromOrders.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+      .slice(0, 5)
       .map(([label, value]) => ({ label, value }));
   }, [data, filteredOrders]);
 

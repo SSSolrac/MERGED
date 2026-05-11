@@ -10,12 +10,79 @@ create table if not exists public.delivery_areas (
   city text not null default 'Lucena City',
   province text not null default 'Quezon',
   country text not null default 'Philippines',
+  coverage_mode text not null default 'radius',
+  center_lat double precision not null default 13.93949,
+  center_lng double precision not null default 121.60240234375,
+  max_distance_km numeric(8,2) not null default 4 check (max_distance_km >= 0),
   is_active boolean not null default true,
   delivery_status text not null default 'active' check (lower(delivery_status) in ('active', 'inactive')),
   updated_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.delivery_areas add column if not exists coverage_mode text not null default 'radius';
+alter table public.delivery_areas add column if not exists center_lat double precision not null default 13.93949;
+alter table public.delivery_areas add column if not exists center_lng double precision not null default 121.60240234375;
+alter table public.delivery_areas add column if not exists max_distance_km numeric(8,2) not null default 4;
+
+update public.delivery_areas
+set
+  coverage_mode = 'radius'
+where coverage_mode is null
+  or coverage_mode not in ('radius', 'purok_list', 'polygon');
+
+update public.delivery_areas
+set
+  center_lat = 13.93949,
+  center_lng = 121.60240234375
+where center_lat is null
+  or center_lng is null;
+
+update public.delivery_areas
+set max_distance_km = 4
+where max_distance_km is null
+  or max_distance_km < 0;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'delivery_areas_coverage_mode_chk'
+      and conrelid = 'public.delivery_areas'::regclass
+  ) then
+    alter table public.delivery_areas
+      add constraint delivery_areas_coverage_mode_chk
+      check (coverage_mode in ('radius', 'purok_list', 'polygon'));
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'delivery_areas_center_coordinates_chk'
+      and conrelid = 'public.delivery_areas'::regclass
+  ) then
+    alter table public.delivery_areas
+      add constraint delivery_areas_center_coordinates_chk
+      check (
+        center_lat >= -90 and center_lat <= 90
+        and center_lng >= -180 and center_lng <= 180
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'delivery_areas_max_distance_km_chk'
+      and conrelid = 'public.delivery_areas'::regclass
+  ) then
+    alter table public.delivery_areas
+      add constraint delivery_areas_max_distance_km_chk
+      check (max_distance_km >= 0);
+  end if;
+end
+$$;
 
 create table if not exists public.delivery_puroks (
   id uuid primary key default gen_random_uuid(),
@@ -175,6 +242,34 @@ begin
 end;
 $$;
 
+create or replace function public.delivery_distance_km(
+  p_from_lat double precision,
+  p_from_lng double precision,
+  p_to_lat double precision,
+  p_to_lng double precision
+)
+returns numeric
+language sql
+immutable
+as $$
+  select round(
+    (
+      6371 * 2 * asin(
+        least(
+          1,
+          sqrt(
+            power(sin(radians((p_to_lat - p_from_lat) / 2)), 2)
+            + cos(radians(p_from_lat))
+              * cos(radians(p_to_lat))
+              * power(sin(radians((p_to_lng - p_from_lng) / 2)), 2)
+          )
+        )
+      )
+    )::numeric,
+    3
+  );
+$$;
+
 create or replace function public.validate_delivery_address(
   p_delivery_address jsonb
 )
@@ -195,6 +290,8 @@ declare
   v_lat double precision;
   v_lng double precision;
   v_normalized_address text;
+  v_distance_km numeric(8,3);
+  v_max_distance_km numeric(8,2);
 begin
   if p_delivery_address is null then
     raise exception 'Delivery address payload is required.';
@@ -297,25 +394,14 @@ begin
     raise exception 'Map pin coordinates are invalid.';
   end if;
 
-  select
-    coalesce(
-      jsonb_agg(
-        jsonb_build_object('lat', dap.lat, 'lng', dap.lng)
-        order by dap.point_order asc
-      ),
-      '[]'::jsonb
-    ),
-    count(*)
-  into v_polygon, v_polygon_count
-  from public.delivery_area_polygons dap
-  where dap.delivery_area_id = v_area.id;
-
-  if v_polygon_count < 3 then
-    raise exception 'Delivery polygon is not configured.';
+  v_max_distance_km := greatest(coalesce(v_area.max_distance_km, 0), 0);
+  if v_max_distance_km <= 0 then
+    raise exception 'Delivery distance limit is not configured.';
   end if;
 
-  if not public.is_point_inside_polygon(v_lat, v_lng, v_polygon) then
-    raise exception 'Selected map pin is outside our delivery area.';
+  v_distance_km := public.delivery_distance_km(v_area.center_lat, v_area.center_lng, v_lat, v_lng);
+  if v_distance_km > v_max_distance_km then
+    raise exception 'Selected delivery location is outside our % km delivery coverage.', v_max_distance_km;
   end if;
 
   v_normalized_address := public.build_delivery_address(
@@ -337,7 +423,12 @@ begin
     'country', v_area.country,
     'normalizedAddress', v_normalized_address,
     'latitude', v_lat,
-    'longitude', v_lng
+    'longitude', v_lng,
+    'coverageMode', coalesce(v_area.coverage_mode, 'radius'),
+    'centerLatitude', v_area.center_lat,
+    'centerLongitude', v_area.center_lng,
+    'maxDistanceKm', v_max_distance_km,
+    'distanceKm', v_distance_km
   );
 end;
 $$;
@@ -767,6 +858,10 @@ insert into public.delivery_areas (
   city,
   province,
   country,
+  coverage_mode,
+  center_lat,
+  center_lng,
+  max_distance_km,
   is_active,
   delivery_status
 )
@@ -776,6 +871,10 @@ select
   'Lucena City',
   'Quezon',
   'Philippines',
+  'radius',
+  13.93949::double precision,
+  121.60240234375::double precision,
+  4,
   true,
   'active'
 where not exists (
@@ -925,7 +1024,8 @@ grant select, insert on table public.delivery_area_versions to authenticated;
 
 grant execute on function public.is_point_inside_polygon(double precision, double precision, jsonb) to authenticated, anon;
 grant execute on function public.build_delivery_address(text, text, text, text, text, text) to authenticated, anon;
-grant execute on function public.validate_delivery_address(jsonb) to authenticated;
+grant execute on function public.delivery_distance_km(double precision, double precision, double precision, double precision) to authenticated, anon;
+grant execute on function public.validate_delivery_address(jsonb) to authenticated, anon;
 grant execute on function public.create_customer_order(
   public.order_type,
   public.payment_method,

@@ -10,7 +10,7 @@ import {
 } from "../constants/canonical";
 import { DELIVERY_BASE_FEE, normalizeLatLngPoint } from "./deliveryFeeService.js";
 import { validateCheckout } from "./checkoutValidation";
-import { getStoredGuestLastOrder, normalizeGuestEmail, normalizeGuestPhone } from "./guestIdentity";
+import { getStoredGuestLastOrder, getStoredGuestOrderIdentity, normalizeGuestEmail, normalizeGuestPhone } from "./guestIdentity";
 
 export { validateCheckout };
 
@@ -582,7 +582,7 @@ export async function createOrder(orderPayload) {
     if (normalized.kind === "missing_rpc" || normalized.kind === "missing_relation") {
       const err = new Error(
         !user
-          ? "Guest checkout needs the backend guest-order migration/RPC deployed before anonymous orders can be placed."
+          ? "Guest checkout needs customer/frontend/supabase/guest_order_schema.sql deployed before anonymous orders can be placed."
           : "Order system is not fully deployed. Please apply unified_schema.sql and delivery_area_schema.sql so create_customer_order and delivery validations are available."
       );
       err.kind = !user ? "missing_guest_order_backend" : normalized.kind;
@@ -592,7 +592,7 @@ export async function createOrder(orderPayload) {
 
     if (!user && /Authentication required|p_guest_phone_normalized|p_guest_email/i.test(String(error?.message || ""))) {
       const err = new Error(
-        "Guest checkout needs the backend guest-order migration/RPC deployed before anonymous orders can be placed."
+        "Guest checkout needs customer/frontend/supabase/guest_order_schema.sql deployed before anonymous orders can be placed."
       );
       err.kind = "missing_guest_order_backend";
       throw err;
@@ -700,8 +700,11 @@ export async function getOrderById(orderIdOrCode) {
   const user = await getUserOrNull();
   if (!user) {
     const supabase = requireSupabaseClient();
+    const guestIdentity = getStoredGuestOrderIdentity() || {};
     const { data, error } = await supabase.rpc("get_guest_order_for_tracking", {
       p_order_ref: String(orderIdOrCode).trim(),
+      p_guest_phone_normalized: guestIdentity.phoneNormalized || null,
+      p_guest_email: guestIdentity.emailNormalized || null,
     });
 
     if (error) {
@@ -728,17 +731,29 @@ export async function getOrderById(orderIdOrCode) {
   return attachRelatedData([row], items, history)[0] || null;
 }
 
-export async function getOrderHistory() {
+export async function getOrderHistoryPage({ page = 1, pageSize = 10, status = "all" } = {}) {
   const user = await getUserOrNull();
-  if (!user) return [];
+  if (!user) return { orders: [], total: 0 };
 
   const supabase = requireSupabaseClient();
-  const { data: rows, error } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("customer_id", user.id)
-    .order("placed_at", { ascending: false });
+  const safePageSize = Math.max(1, Math.min(50, Math.floor(asNumber(pageSize, 10))));
+  const safePage = Math.max(1, Math.floor(asNumber(page, 1)));
+  const from = (safePage - 1) * safePageSize;
+  const to = from + safePageSize - 1;
 
+  let query = supabase
+    .from("orders")
+    .select("*", { count: "exact" })
+    .eq("customer_id", user.id);
+
+  const normalizedStatus = String(status || "all").trim().toLowerCase();
+  if (normalizedStatus && normalizedStatus !== "all") {
+    query = query.eq("status", normalizedStatus);
+  }
+
+  query = query.order("placed_at", { ascending: false }).range(from, to);
+
+  const { data: rows, error, count } = await query;
   if (error) throw asDbError(error, "Unable to load your orders.", { table: "orders", operation: "select" });
 
   const orderRows = Array.isArray(rows) ? rows : [];
@@ -746,7 +761,15 @@ export async function getOrderHistory() {
   const [items, history] = await Promise.all([fetchOrderItems(orderIds), fetchStatusHistory(orderIds)]);
 
   const merged = attachRelatedData(orderRows, items, history);
-  return merged.sort((a, b) => toMs(b.placedAt) - toMs(a.placedAt));
+  return {
+    orders: merged.sort((a, b) => toMs(b.placedAt) - toMs(a.placedAt)),
+    total: count ?? merged.length,
+  };
+}
+
+export async function getOrderHistory() {
+  const page = await getOrderHistoryPage({ page: 1, pageSize: 50 });
+  return page.orders;
 }
 
 export async function getOrderStatusHistory(orderId) {

@@ -16,6 +16,47 @@
   background: #f8fafc;
 }
 
+.delivery-address-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.delivery-address-search button,
+.delivery-search-results button {
+  border: 1px solid #dedede;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.delivery-address-search button {
+  padding: 0 12px;
+}
+
+.delivery-address-search button:disabled {
+  opacity: 0.65;
+}
+
+.delivery-search-results {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.delivery-search-results button {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.delivery-search-results button:hover {
+  border-color: #ff8fa3;
+  background: #fff3f5;
+}
+
 .delivery-map {
   display: block;
   width: 100%;
@@ -48,6 +89,14 @@
 }
 
 @media (max-width: 640px) {
+  .delivery-address-search {
+    grid-template-columns: 1fr;
+  }
+
+  .delivery-address-search button {
+    padding: 10px 12px;
+  }
+
   .delivery-fixed-grid {
     grid-template-columns: 1fr;
   }

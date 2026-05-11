@@ -146,9 +146,9 @@
 }
 
 .menu-cta--primary {
-  background: linear-gradient(135deg, #ff6c9c, #36d7e8);
+  background: linear-gradient(135deg, #ff6c9c, #ff8fa3);
   color: #ffffff;
-  box-shadow: 0 12px 30px rgba(54, 215, 232, 0.2);
+  box-shadow: 0 12px 30px rgba(255, 108, 156, 0.22);
 }
 
 .menu-cta--secondary,

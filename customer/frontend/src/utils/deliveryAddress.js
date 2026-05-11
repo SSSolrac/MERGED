@@ -48,6 +48,28 @@ function getPurokCoordinates(purok) {
   return { lat, lng };
 }
 
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+export function computeDeliveryDistanceKm(fromPoint, toPoint) {
+  const fromLat = asNumber(fromPoint?.lat ?? fromPoint?.latitude);
+  const fromLng = asNumber(fromPoint?.lng ?? fromPoint?.longitude);
+  const toLat = asNumber(toPoint?.lat ?? toPoint?.latitude);
+  const toLng = asNumber(toPoint?.lng ?? toPoint?.longitude);
+  if (![fromLat, fromLng, toLat, toLng].every(Number.isFinite)) return NaN;
+
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(toLat - fromLat);
+  const deltaLng = toRadians(toLng - fromLng);
+  const haversine =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(toRadians(fromLat)) * Math.cos(toRadians(toLat)) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+  const clamped = Math.min(1, Math.max(0, haversine));
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(clamped), Math.sqrt(1 - clamped));
+}
+
 function normalizePolygonPoint(point) {
   const safe = point && typeof point === "object" ? point : {};
   const lat = asNumber(safe.lat ?? safe.latitude);
@@ -164,7 +186,6 @@ export function validateDeliveryAddress({
   const errors = {};
   const safeConfig = config && typeof config === "object" ? config : {};
   const puroks = Array.isArray(safeConfig.puroks) ? safeConfig.puroks : [];
-  const polygon = Array.isArray(safeConfig.polygon) ? safeConfig.polygon : [];
 
   const safeHouseDetails = asText(houseDetails);
   const safePurokId = asText(selectedPurokId);
@@ -174,6 +195,10 @@ export function validateDeliveryAddress({
   const lngFromPayload = asNumber(longitude);
   const safeLat = Number.isFinite(latFromPayload) ? latFromPayload : purokCoordinates?.lat ?? NaN;
   const safeLng = Number.isFinite(lngFromPayload) ? lngFromPayload : purokCoordinates?.lng ?? NaN;
+  const centerLat = asNumber(safeConfig.centerLat ?? safeConfig.center_lat);
+  const centerLng = asNumber(safeConfig.centerLng ?? safeConfig.center_lng);
+  const maxDistanceKm = asNumber(safeConfig.maxDistanceKm ?? safeConfig.max_distance_km);
+  const distanceKm = computeDeliveryDistanceKm({ lat: centerLat, lng: centerLng }, { lat: safeLat, lng: safeLng });
 
   if (!safeConfig || safeConfig.isActive === false || String(safeConfig.deliveryStatus || "").toLowerCase() === "inactive") {
     errors.address = "Delivery is currently unavailable for this area.";
@@ -187,14 +212,13 @@ export function validateDeliveryAddress({
     errors.purok = "Please select an active purok.";
   }
 
-  if (polygon.length < 3) {
-    errors.mapPin = "Delivery polygon is not configured.";
-  } else if (selectedPurok && !purokCoordinates) {
-    errors.mapPin = "Selected purok is missing map coordinates.";
+  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLng) || !Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0) {
+    errors.mapPin = "Delivery distance coverage is not configured.";
   } else if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) {
-    errors.mapPin = "Please place the delivery pin on the map.";
-  } else if (!isPointInsidePolygon(safeLat, safeLng, polygon)) {
-    errors.mapPin = "Selected pin is outside the delivery area.";
+    errors.mapPin = "Search for your address or place a delivery pin on the map.";
+  } else if (!Number.isFinite(distanceKm) || distanceKm > maxDistanceKm) {
+    const distanceText = Number.isFinite(distanceKm) ? `${distanceKm.toFixed(1)} km` : "outside";
+    errors.mapPin = `Selected pin is ${distanceText} from the cafe, outside the ${maxDistanceKm.toFixed(1)} km delivery coverage.`;
   }
 
   const normalizedAddress = buildDeliveryAddress({
@@ -217,6 +241,8 @@ export function validateDeliveryAddress({
     selectedPurok: selectedPurok || null,
     latitude: safeLat,
     longitude: safeLng,
+    distanceKm,
+    maxDistanceKm,
   };
 }
 

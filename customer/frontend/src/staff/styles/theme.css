@@ -6,6 +6,8 @@
   --color-primary-brand: #FFB6C1;
   --color-secondary-brand: #FFE4E8;
   --color-accent-brand: #FF8FA3;
+  --color-cafe-brand: #BF2456;
+  --color-grooming-brand: #FF8FA3;
   --color-success: #22C55E;
   --color-warning: #F59E0B;
   --color-danger: #EF4444;
@@ -1079,4 +1081,43 @@
   .staff-workspace__main {
     padding: 1rem 0.75rem 5rem;
   }
+}
+
+.staff-app button {
+  cursor: pointer;
+}
+
+.staff-app button:disabled {
+  cursor: not-allowed;
+}
+
+.staff-app button.border:not([class*="bg-"]):not([class*="text-red"]) {
+  border-color: #f3b7c7;
+  background: #ffffff;
+  color: #1f2937;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.staff-app button.border:not([class*="bg-"]):not([class*="text-red"]):hover:not(:disabled) {
+  border-color: #ff8fa3;
+  background: #fff3f5;
+}
+
+.staff-app button.border[class*="text-red"] {
+  border-color: #fca5a5;
+  background: #fff1f2;
+  color: #b91c1c;
+  box-shadow: 0 1px 3px rgba(185, 28, 28, 0.08);
+}
+
+.staff-app button[class*="bg-[#FFB6C1]"] {
+  border: 1px solid #f23895;
+  background: #f23895;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+}
+
+.staff-app button[class*="bg-[#FFB6C1]"]:hover:not(:disabled) {
+  background: #d92d82;
 }

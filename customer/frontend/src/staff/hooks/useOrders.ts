@@ -12,14 +12,19 @@ export const useOrders = () => {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<OrderStatus | 'all'>('all');
   const [range, setRange] = useState<DateRangePreset>('30d');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [totalOrders, setTotalOrders] = useState(0);
   const [knownOrderState, setKnownOrderState] = useState<Record<string, OrderStatus>>({});
 
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const rows = await orderService.getOrders({ query, status, range });
+      const result = await orderService.getOrders({ query, status, range, page, pageSize });
+      const rows = result.orders;
       setOrders(rows);
+      setTotalOrders(result.total);
       setKnownOrderState((known) => {
         const next = { ...known };
         rows.forEach((order) => {
@@ -51,7 +56,7 @@ export const useOrders = () => {
     } finally {
       setLoading(false);
     }
-  }, [query, status, range]);
+  }, [page, pageSize, query, status, range]);
 
   const getOrderById = useCallback(async (orderId: string) => {
     const updated = await orderService.getOrderById(orderId);
@@ -76,6 +81,7 @@ export const useOrders = () => {
         relatedOrderId: updated.id,
       });
     }
+    setKnownOrderState((known) => ({ ...known, [updated.id]: updated.status }));
     setOrders((rows) => rows.map((order) => (order.id === orderId ? updated : order)));
     return updated;
   }, []);
@@ -84,6 +90,15 @@ export const useOrders = () => {
     loadOrders();
   }, [loadOrders]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [query, status, range]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
+    if (page > totalPages) setPage(totalPages);
+  }, [page, pageSize, totalOrders]);
+
   return {
     orders,
     loading,
@@ -91,9 +106,13 @@ export const useOrders = () => {
     query,
     status,
     range,
+    page,
+    pageSize,
+    totalOrders,
     setQuery,
     setStatus,
     setRange,
+    setPage,
     getOrderById,
     confirmPayment,
     updateStatus,
