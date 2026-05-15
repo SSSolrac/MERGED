@@ -1182,6 +1182,36 @@ before update on public.loyalty_accounts
 for each row execute procedure public.touch_loyalty_account_updated_at();
 
 -- =========================================================
+-- DELIVERY RIDERS
+-- =========================================================
+
+create table if not exists public.delivery_riders (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  contact text not null,
+  vehicle_type text not null default '',
+  plate_number text not null default '',
+  notes text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.delivery_riders add column if not exists contact text not null default '';
+alter table public.delivery_riders add column if not exists vehicle_type text not null default '';
+alter table public.delivery_riders add column if not exists plate_number text not null default '';
+alter table public.delivery_riders add column if not exists notes text;
+alter table public.delivery_riders add column if not exists is_active boolean not null default true;
+alter table public.delivery_riders add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists idx_delivery_riders_active_name on public.delivery_riders(is_active, name);
+
+drop trigger if exists trg_delivery_riders_updated_at on public.delivery_riders;
+create trigger trg_delivery_riders_updated_at
+before update on public.delivery_riders
+for each row execute procedure public.set_updated_at();
+
+-- =========================================================
 -- ORDERS
 -- =========================================================
 
@@ -1189,6 +1219,7 @@ create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   code text not null unique default public.generate_order_code(),
   customer_id uuid references public.profiles(id) on delete set null,
+  rider_id uuid references public.delivery_riders(id) on delete set null,
   order_type public.order_type not null,
   status public.order_status not null default 'pending',
   payment_method public.payment_method,
@@ -1204,7 +1235,10 @@ create table if not exists public.orders (
   updated_at timestamptz not null default now()
 );
 
+alter table public.orders add column if not exists rider_id uuid references public.delivery_riders(id) on delete set null;
+
 create index if not exists idx_orders_customer_id on public.orders(customer_id);
+create index if not exists idx_orders_rider_id on public.orders(rider_id);
 create index if not exists idx_orders_status on public.orders(status);
 create index if not exists idx_orders_payment_status on public.orders(payment_status);
 create index if not exists idx_orders_created_at on public.orders(created_at desc);
@@ -3256,6 +3290,7 @@ alter table public.loyalty_rewards enable row level security;
 alter table public.loyalty_redemptions enable row level security;
 alter table public.loyalty_reward_items enable row level security;
 alter table public.loyalty_stamp_events enable row level security;
+alter table public.delivery_riders enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 alter table public.order_status_history enable row level security;
@@ -3435,6 +3470,12 @@ create policy "loyalty_stamp_events_manage_owner_staff"
 on public.loyalty_stamp_events for all
 using (public.is_owner_or_staff())
 with check (public.is_owner_or_staff());
+
+drop policy if exists "delivery_riders_owner_only" on public.delivery_riders;
+create policy "delivery_riders_owner_only"
+on public.delivery_riders for all
+using (public.is_owner())
+with check (public.is_owner());
 
 -- orders
 drop policy if exists "orders_read_own_or_staff" on public.orders;

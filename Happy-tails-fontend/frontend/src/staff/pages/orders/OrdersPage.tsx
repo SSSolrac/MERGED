@@ -3,7 +3,9 @@ import { toast } from 'sonner';
 import { DateRangeFilter } from '@/components/dashboard';
 import { Button, EmptyState, PaginationControls, PaymentQrPreview, SectionCard, StatusChip } from '@/components/ui';
 import { getErrorMessage } from '@/lib/errors';
+import { requireSupabaseClient } from '@/lib/supabase';
 import { useOrders } from '@/hooks/useOrders';
+import { useAuth } from '@/hooks/useAuth';
 import { paymentMethodToLabel } from '@/utils/payment';
 import { formatCurrency } from '@/utils/currency';
 import { formatDeliveryAddress } from '../../../utils/deliveryAddress';
@@ -69,7 +71,51 @@ const formatDate = (value: string | null | undefined) => {
   return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString();
 };
 
+type RiderOption = {
+  id: string;
+  name: string;
+  contact: string;
+  vehicleType: string;
+  plateNumber: string;
+};
+
+const asText = (value: unknown) => (value === null || value === undefined ? '' : String(value).trim());
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const riderLabel = (rider: Pick<RiderOption, 'name' | 'contact' | 'vehicleType' | 'plateNumber'> | null) => {
+  if (!rider) return 'Waiting for rider assignment';
+  const vehicle = [rider.vehicleType, rider.plateNumber].filter(Boolean).join(' ');
+  return [rider.name || 'Assigned rider', rider.contact, vehicle].filter(Boolean).join(' | ');
+};
+
+const getRiderAssignment = (order: Order | null): RiderOption | null => {
+  const deliveryAddress = asRecord(order?.deliveryAddress);
+  const assignment = asRecord(
+    deliveryAddress?.riderAssignment ||
+      deliveryAddress?.rider_assignment ||
+      deliveryAddress?.assignedRider ||
+      deliveryAddress?.assigned_rider,
+  );
+  if (!assignment) return null;
+
+  const rider = {
+    id: asText(assignment.id || assignment.riderId || assignment.rider_id),
+    name: asText(assignment.name || assignment.riderName || assignment.rider_name),
+    contact: asText(assignment.contact || assignment.phone || assignment.riderContact || assignment.rider_contact),
+    vehicleType: asText(assignment.vehicleType || assignment.vehicle_type || assignment.vehicle),
+    plateNumber: asText(assignment.plateNumber || assignment.plate_number || assignment.plate),
+  };
+
+  return rider.name || rider.contact || rider.vehicleType || rider.plateNumber ? rider : null;
+};
+
 export const OrdersPage = () => {
+  const { user } = useAuth();
+  const isOwner = user?.role === 'owner';
   const { orders, loading, error, query, status, range, page, pageSize, totalOrders, setQuery, setStatus, setRange, setPage, getOrderById, confirmPayment, updateStatus, refresh } =
     useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -77,15 +123,67 @@ export const OrdersPage = () => {
   const [statusDraft, setStatusDraft] = useState<OrderStatus>('pending');
   const [statusNote, setStatusNote] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [availableRiders, setAvailableRiders] = useState<RiderOption[]>([]);
+  const [riderDraftId, setRiderDraftId] = useState('');
+  const [riderLoadError, setRiderLoadError] = useState('');
+  const [isAssigningRider, setIsAssigningRider] = useState(false);
 
   useEffect(() => {
     if (!selectedOrder) {
       setStatusNote('');
+      setRiderDraftId('');
+      setRiderLoadError('');
       return;
     }
     setStatusDraft(selectedOrder.status);
     setStatusNote('');
   }, [selectedOrder?.id, selectedOrder?.status]);
+
+  useEffect(() => {
+    if (!selectedOrder || selectedOrder.orderType !== 'delivery' || !isOwner) {
+      setAvailableRiders([]);
+      setRiderDraftId('');
+      setRiderLoadError('');
+      return;
+    }
+
+    let cancelled = false;
+    const loadRiders = async () => {
+      try {
+        setRiderLoadError('');
+        const supabase = requireSupabaseClient();
+        const { data, error: ridersError } = await supabase
+          .from('delivery_riders')
+          .select('id, name, contact, vehicle_type, plate_number')
+          .eq('is_active', true)
+          .order('name', { ascending: true });
+
+        if (ridersError) throw ridersError;
+        if (cancelled) return;
+
+        const riders = (Array.isArray(data) ? data : []).map((row) => ({
+          id: String(row.id || ''),
+          name: asText(row.name),
+          contact: asText(row.contact),
+          vehicleType: asText(row.vehicle_type),
+          plateNumber: asText(row.plate_number),
+        }));
+        setAvailableRiders(riders);
+        const assigned = getRiderAssignment(selectedOrder);
+        setRiderDraftId(assigned?.id && riders.some((rider) => rider.id === assigned.id) ? assigned.id : '');
+      } catch (loadError) {
+        if (cancelled) return;
+        setAvailableRiders([]);
+        setRiderDraftId('');
+        setRiderLoadError(getErrorMessage(loadError, 'Rider records are unavailable. Apply the delivery_riders schema first.'));
+      }
+    };
+
+    void loadRiders();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner, selectedOrder]);
 
   const handleUpdateSelectedOrderStatus = async () => {
     if (!selectedOrder) return;
@@ -111,6 +209,83 @@ export const OrdersPage = () => {
     }
   };
 
+  const handleAssignRider = async () => {
+    if (!selectedOrder || selectedOrder.orderType !== 'delivery') return;
+    const rider = availableRiders.find((item) => item.id === riderDraftId);
+    if (!rider) {
+      toast.info('Choose an active rider first.');
+      return;
+    }
+
+    try {
+      setIsAssigningRider(true);
+      const supabase = requireSupabaseClient();
+      const assignedAt = new Date().toISOString();
+      const existingDeliveryAddress = asRecord(selectedOrder.deliveryAddress) ?? {};
+      const riderAssignment = {
+        id: rider.id,
+        name: rider.name,
+        contact: rider.contact,
+        vehicleType: rider.vehicleType,
+        plateNumber: rider.plateNumber,
+        assignedAt,
+      };
+      const nextDeliveryAddress = {
+        ...existingDeliveryAddress,
+        riderAssignment,
+        assignedRider: riderAssignment,
+      };
+
+      const payloadWithRiderColumn = {
+        rider_id: rider.id,
+        delivery_address: nextDeliveryAddress,
+        updated_at: assignedAt,
+      };
+      let updateResult = await supabase
+        .from('orders')
+        .update(payloadWithRiderColumn)
+        .eq('id', selectedOrder.id)
+        .eq('order_type', 'delivery')
+        .select('id')
+        .maybeSingle();
+
+      if (updateResult.error && /rider_id|column/i.test(String(updateResult.error.message || ''))) {
+        updateResult = await supabase
+          .from('orders')
+          .update({ delivery_address: nextDeliveryAddress, updated_at: assignedAt })
+          .eq('id', selectedOrder.id)
+          .eq('order_type', 'delivery')
+          .select('id')
+          .maybeSingle();
+      }
+
+      if (updateResult.error) throw updateResult.error;
+      if (!updateResult.data?.id) throw new Error('Rider assignment did not apply. Refresh and try again.');
+
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        await supabase.from('order_status_history').insert({
+          order_id: selectedOrder.id,
+          status: selectedOrder.status,
+          changed_by: authData?.user?.id || null,
+          note: `Assigned rider: ${riderLabel(rider)}`,
+          changed_at: assignedAt,
+        });
+      } catch {
+        // Assignment is still valid if the optional audit entry fails.
+      }
+
+      const refreshed = await getOrderById(selectedOrder.id);
+      setSelectedOrder(refreshed);
+      await refresh();
+      toast.success('Rider assigned to delivery order.');
+    } catch (assignError) {
+      toast.error(getErrorMessage(assignError, 'Unable to assign rider.'));
+    } finally {
+      setIsAssigningRider(false);
+    }
+  };
+
   const statusSummary = useMemo(
     () =>
       statuses
@@ -120,6 +295,7 @@ export const OrdersPage = () => {
   );
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalOrders / pageSize)), [pageSize, totalOrders]);
   const visibleOrders = orders;
+  const selectedRiderAssignment = getRiderAssignment(selectedOrder);
 
   if (loading) return <p>Loading orders...</p>;
   if (error) return <p className="text-red-600">{error}</p>;
@@ -278,6 +454,11 @@ export const OrdersPage = () => {
                     <strong>Delivery address:</strong> {formatDeliveryAddress(selectedOrder.deliveryAddress)}
                   </p>
                 )}
+                {selectedOrder.orderType === 'delivery' ? (
+                  <p className="whitespace-normal break-words">
+                    <strong>Rider:</strong> {riderLabel(selectedRiderAssignment)}
+                  </p>
+                ) : null}
               </div>
 
               <div className="border rounded p-3 space-y-2 text-sm">
@@ -361,6 +542,37 @@ export const OrdersPage = () => {
                 </label>
               ) : null}
             </div>
+
+            {isOwner && selectedOrder.orderType === 'delivery' ? (
+              <div className="border rounded p-3 space-y-3">
+                <div>
+                  <p className="font-medium text-sm">Delivery Rider Assignment</p>
+                  <p className="text-xs text-[#6B7280]">Assign one active rider to this delivery order. Customers can see the assignment in tracking and order history.</p>
+                </div>
+                {riderLoadError ? <p className="text-sm text-red-600">{riderLoadError}</p> : null}
+                <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-end">
+                  <label className="text-sm">
+                    Rider
+                    <select
+                      className="mt-1 block w-full rounded border px-2 py-2"
+                      value={riderDraftId}
+                      onChange={(event) => setRiderDraftId(event.target.value)}
+                      disabled={!availableRiders.length || isAssigningRider}
+                    >
+                      <option value="">{availableRiders.length ? 'Choose active rider' : 'No active riders available'}</option>
+                      {availableRiders.map((rider) => (
+                        <option key={rider.id} value={rider.id}>
+                          {riderLabel(rider)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button variant="secondary" onClick={handleAssignRider} disabled={!riderDraftId || isAssigningRider}>
+                    {isAssigningRider ? 'Assigning...' : 'Assign Rider'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
             <div className="border rounded p-3">
               <p className="font-medium text-sm mb-2">Status timeline</p>

@@ -2,14 +2,17 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getReviewCandidateOrder } from "../services/reviewService";
 import {
+  getOrderById,
   getOrderCancellationReason,
   getOrderCancellationState,
   getOrderHistoryPage,
   getOrderReference,
+  getOrderRiderAssignment,
   getStatusLabel,
   getStatusSteps,
 } from "../services/orderService";
 import ReviewPrompt from "../components/ReviewPrompt";
+import { useAuth } from "../context/AuthContext";
 import "./OrderHistory.css";
 
 const ORDERS_PER_PAGE = 5;
@@ -25,8 +28,11 @@ function formatDateTime(value) {
 }
 
 export default function OrderHistory() {
+  const { isAuthenticated } = useAuth();
   const [orders, setOrders] = useState([]);
   const [expandedId, setExpandedId] = useState("");
+  const [lookupRef, setLookupRef] = useState("");
+  const [lookupMessage, setLookupMessage] = useState("");
   const [pageIndex, setPageIndex] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
   const [totalOrders, setTotalOrders] = useState(0);
@@ -71,6 +77,32 @@ export default function OrderHistory() {
   if (isLoading) return <div className="history-state">Loading your order history...</div>;
   if (error) return <div className="history-state history-error">{error}</div>;
 
+  const handleLookupOrder = async (event) => {
+    event.preventDefault();
+    const orderRef = lookupRef.trim();
+    if (!orderRef) return;
+
+    setLookupMessage("");
+    try {
+      const found = await getOrderById(orderRef);
+      if (!found) {
+        setLookupMessage("No matching order was found. Check the order code and try again.");
+        return;
+      }
+
+      setOrders((current) => {
+        const withoutDuplicate = current.filter((order) => order.id !== found.id);
+        return [found, ...withoutDuplicate].slice(0, ORDERS_PER_PAGE);
+      });
+      setTotalOrders((current) => Math.max(current, 1));
+      setExpandedId(found.id);
+      setLookupRef("");
+      setLookupMessage("Order details loaded.");
+    } catch (lookupError) {
+      setLookupMessage(lookupError?.message || "Unable to look up that order right now.");
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(totalOrders / ORDERS_PER_PAGE));
   const safePageIndex = Math.max(0, pageIndex - 1);
   const visibleOrders = orders;
@@ -94,6 +126,18 @@ export default function OrderHistory() {
       </div>
 
       <div className="history-toolbar">
+        <form className="history-lookup" onSubmit={handleLookupOrder}>
+          <label>
+            Find order
+            <input
+              type="text"
+              value={lookupRef}
+              onChange={(event) => setLookupRef(event.target.value.toUpperCase())}
+              placeholder="Order code or ID"
+            />
+          </label>
+          <button type="submit">View details</button>
+        </form>
         <label>
           Status
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -105,11 +149,16 @@ export default function OrderHistory() {
           </select>
         </label>
       </div>
+      {lookupMessage ? <p className="history-lookup-message">{lookupMessage}</p> : null}
 
       {!orders.length ? (
         <div className="history-state history-empty">
           <h2>{statusFilter === "all" ? "No orders yet" : `No ${getStatusLabel(statusFilter).toLowerCase()} orders`}</h2>
-          <p>Try another status filter or place a new order when you are ready.</p>
+          <p>
+            {isAuthenticated
+              ? "Try another status filter or place a new order when you are ready."
+              : "Guest orders appear here after checkout on this browser. You can also enter an order code above."}
+          </p>
         </div>
       ) : null}
 
@@ -123,6 +172,7 @@ export default function OrderHistory() {
           }, 0);
           const itemLabel = totalItemQuantity === 1 ? "item" : "items";
           const cancellationReason = getOrderCancellationReason(order);
+          const riderAssignment = getOrderRiderAssignment(order);
           const steps = getStatusSteps(order.orderType);
           const activeStepIndex = Math.max(0, steps.indexOf(order.status));
 
@@ -179,6 +229,23 @@ export default function OrderHistory() {
                 <p className="history-cancel-reason">
                   <strong>Cancellation reason:</strong> {cancellationReason}
                 </p>
+              ) : null}
+
+              {order.orderType === "delivery" ? (
+                <div className="history-rider">
+                  <span>Assigned rider</span>
+                  {riderAssignment ? (
+                    <strong>
+                      {riderAssignment.name || "Rider assigned"}
+                      {riderAssignment.contact ? ` | ${riderAssignment.contact}` : ""}
+                      {riderAssignment.vehicleType || riderAssignment.plateNumber
+                        ? ` | ${[riderAssignment.vehicleType, riderAssignment.plateNumber].filter(Boolean).join(" ")}`
+                        : ""}
+                    </strong>
+                  ) : (
+                    <strong>Waiting for rider assignment</strong>
+                  )}
+                </div>
               ) : null}
 
               <div className="history-actions">

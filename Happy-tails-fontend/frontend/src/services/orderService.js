@@ -82,6 +82,35 @@ export function getOrderReference(order) {
   return String(order.code || order.id || "").trim();
 }
 
+export function getOrderRiderAssignment(order) {
+  const deliveryAddress = order?.deliveryAddress;
+  if (!deliveryAddress || typeof deliveryAddress !== "object" || Array.isArray(deliveryAddress)) return null;
+
+  const rawAssignment =
+    deliveryAddress.riderAssignment ||
+    deliveryAddress.rider_assignment ||
+    deliveryAddress.assignedRider ||
+    deliveryAddress.assigned_rider ||
+    null;
+  if (!rawAssignment || typeof rawAssignment !== "object" || Array.isArray(rawAssignment)) return null;
+
+  const name = asTrimmedText(rawAssignment.name || rawAssignment.riderName || rawAssignment.rider_name);
+  const contact = asTrimmedText(rawAssignment.contact || rawAssignment.phone || rawAssignment.riderContact || rawAssignment.rider_contact);
+  const vehicleType = asTrimmedText(rawAssignment.vehicleType || rawAssignment.vehicle_type || rawAssignment.vehicle);
+  const plateNumber = asTrimmedText(rawAssignment.plateNumber || rawAssignment.plate_number || rawAssignment.plate);
+  const assignedAt = asTrimmedText(rawAssignment.assignedAt || rawAssignment.assigned_at);
+
+  if (!name && !contact && !vehicleType && !plateNumber) return null;
+  return {
+    id: asTrimmedText(rawAssignment.id || rawAssignment.riderId || rawAssignment.rider_id),
+    name,
+    contact,
+    vehicleType,
+    plateNumber,
+    assignedAt,
+  };
+}
+
 function mapOrderRow(row) {
   if (!row) return null;
 
@@ -733,7 +762,21 @@ export async function getOrderById(orderIdOrCode) {
 
 export async function getOrderHistoryPage({ page = 1, pageSize = 10, status = "all" } = {}) {
   const user = await getUserOrNull();
-  if (!user) return { orders: [], total: 0 };
+  if (!user) {
+    const lastGuestOrder = getStoredGuestLastOrder();
+    const guestOrderRef = lastGuestOrder?.orderCode || lastGuestOrder?.orderId || "";
+    if (!guestOrderRef) return { orders: [], total: 0 };
+
+    const order = await getOrderById(guestOrderRef);
+    if (!order) return { orders: [], total: 0 };
+
+    const normalizedStatus = String(status || "all").trim().toLowerCase();
+    if (normalizedStatus && normalizedStatus !== "all" && order.status !== normalizedStatus) {
+      return { orders: [], total: 0 };
+    }
+
+    return { orders: [order], total: 1 };
+  }
 
   const supabase = requireSupabaseClient();
   const safePageSize = Math.max(1, Math.min(50, Math.floor(asNumber(pageSize, 10))));

@@ -9,7 +9,7 @@ export default function CampaignBanner({ overlay = false }) {
     let isCancelled = false;
 
     const loadAnnouncements = async () => {
-      const announcements = await getActiveCampaignAnnouncements();
+      const announcements = await getActiveCampaignAnnouncements({ force: true });
       if (isCancelled) return;
       setItems(Array.isArray(announcements) ? announcements : []);
     };

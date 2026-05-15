@@ -18,7 +18,7 @@ The system has three main user areas:
 
 - Customer website: for browsing the cafe, ordering, checkout, order tracking, notifications, profile, loyalty, and reviews.
 - Staff dashboard: for viewing orders, confirming payments, updating order status, editing the daily menu, managing menu items, checking inventory, and viewing customer loyalty.
-- Owner dashboard: for all staff features plus business settings, delivery coverage, staff access, announcements, imports, and activity logs.
+- Owner dashboard: for all staff features plus business settings, delivery coverage, staff access, announcements, reviews, rider management, imports, and activity logs.
 
 ## 2. Account Roles
 
@@ -92,7 +92,7 @@ How it works:
 - The navigation bar lets customers move to Menu, Order, About, notifications, profile, and login.
 - Announcement banners can be controlled by the owner from Settings.
 - Menu of the Day shows the current published daily menu.
-- Community Reviews shows public customer reviews from completed orders.
+- Community Reviews shows the latest 5 public customer reviews from completed orders.
 - Order buttons guide customers into the ordering flow.
 
 Staff note: If an announcement, daily menu, or review does not appear, check the owner/staff dashboard settings and the related database data.
@@ -333,16 +333,17 @@ Page:
 /order-history
 ```
 
-Order History shows previous orders for the logged-in customer.
+Order History shows previous orders for the logged-in customer. Guest customers can also open this page after checkout on the same browser or enter an order code/ID to view order details.
 
 Customers can use it to:
 
 - Review past orders.
 - Check previous totals.
 - Find order records.
+- View assigned rider details for delivery orders, when the owner has assigned a rider.
 - Access eligible review prompts when available.
 
-If no orders appear, check whether the customer is logged in with the same account used to place the order.
+If no orders appear, check whether the customer is logged in with the same account used to place the order. For guest orders, check that the order was placed on the same browser or enter the order code manually.
 
 ### 3.13 Reviews
 
@@ -453,6 +454,7 @@ Staff can:
 - Open full order details.
 - Check customer details.
 - Check order type.
+- Check delivery rider assignment for delivery orders.
 - Check payment method.
 - Preview payment QR information.
 - View uploaded receipt/payment proof.
@@ -491,6 +493,7 @@ Staff reminders:
 - Do not mark unfinished orders as completed.
 - Use cancellation notes when the reason needs to be recorded.
 - Always open order details before changing an unfamiliar order.
+- Rider assignment is owner-only. Staff can continue handling the order status and payment flow.
 
 ### 4.4 Daily Menu Page
 
@@ -637,6 +640,8 @@ Searchable links include:
 - Manage Menu Items
 - Inventory
 - Customer Loyalty
+- Reviews, owner only
+- Rider Management, owner only
 - Import Sales Data, owner only
 - Settings, owner only
 - Delivery Coverage, owner only
@@ -658,6 +663,8 @@ Owner pages:
 - `/owner/menu`
 - `/owner/inventory`
 - `/owner/customers`
+- `/owner/reviews`
+- `/owner/riders`
 - `/owner/profile`
 - `/owner/imports`
 - `/owner/settings`
@@ -742,7 +749,7 @@ Owners can:
 - Remove announcements.
 - Save announcement changes.
 
-The announcement text appears in the moving banner on the customer home page.
+The announcement text appears in the moving banner on the customer home page. The banner refreshes its announcement source on load so recently saved owner changes appear without waiting for the short client cache.
 
 #### Checkout Settings Tab
 
@@ -828,7 +835,46 @@ When delivery is not working, check:
 - The customer selected a valid purok.
 - The customer pin is inside the supported distance.
 
-### 5.4 Import Sales Data Page
+### 5.4 Reviews Page
+
+Page:
+
+```text
+/owner/reviews
+```
+
+Reviews is an owner-only page for checking customer feedback.
+
+Owners can:
+
+- View customer review totals and average rating.
+- Search reviews by customer, order code, service, or comment.
+- Filter reviews by rating and service.
+- Open review details with order context.
+- Hide or publish reviews on the customer home page.
+
+Public reviews appear in the Community Reviews section on the home page, capped at the latest 5 visible reviews.
+
+### 5.5 Rider Management Page
+
+Page:
+
+```text
+/owner/riders
+```
+
+Rider Management is an owner-only page for delivery rider records.
+
+Owners can:
+
+- Add riders with name, contact, vehicle, plate number, and notes.
+- Edit rider details.
+- Deactivate or reactivate riders.
+- Search and filter rider records.
+
+Active riders can be assigned from `/owner/orders` when a delivery order is opened. The rider snapshot is saved into the order delivery details so customers and guests can see the assigned rider in Track Order and Order History.
+
+### 5.6 Import Sales Data Page
 
 Page:
 
@@ -850,7 +896,7 @@ Recommended import workflow:
 
 Do not import a file if the preview shows many unexpected errors.
 
-### 5.5 Activity Log Page
+### 5.7 Activity Log Page
 
 Page:
 
@@ -923,12 +969,13 @@ Always log out after using the system on a shared computer.
 3. Confirm the customer information.
 4. Confirm the item list and total.
 5. Check delivery details if the order is for delivery.
-6. Check the payment method.
-7. Check the receipt image if payment is online.
-8. Click Confirm Payment only after payment is verified.
-9. Change status to `preparing` when work starts.
-10. Change status as the order moves forward.
-11. Mark the order `completed` or `delivered` only when finished.
+6. If logged in as owner, assign an active rider for delivery orders when needed.
+7. Check the payment method.
+8. Check the receipt image if payment is online.
+9. Click Confirm Payment only after payment is verified.
+10. Change status to `preparing` when work starts.
+11. Change status as the order moves forward.
+12. Mark the order `completed` or `delivered` only when finished.
 
 ### 7.3 Closing Procedure
 
@@ -1060,6 +1107,8 @@ npm run lint
 
 The root `package.json` forwards these commands to the active frontend folder: `Happy-tails-fontend/frontend`.
 
+Supabase deployment note: apply the latest `Happy-tails-fontend/frontend/supabase/unified_schema.sql` before production use. It includes `delivery_riders`, `orders.rider_id`, customer reviews, guest order tracking, announcements, delivery coverage, and the RLS policies required by the current UI.
+
 ## 10. Final Readiness Checklist
 
 Before giving the system to users, confirm:
@@ -1082,6 +1131,10 @@ Before giving the system to users, confirm:
 - Staff can check inventory.
 - Owner login works.
 - Owner settings save correctly.
+- Owner Reviews opens and can publish/hide public reviews.
+- Owner Rider Management can add, edit, deactivate, and reactivate riders.
+- Owner can assign a rider to a delivery order.
+- Customer tracking and order history show the assigned rider for delivery orders.
 - Owner delivery coverage is correct.
 - Owner can manage staff access.
 - Dashboard numbers update after payment confirmation.

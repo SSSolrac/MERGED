@@ -6,6 +6,7 @@ import {
   getOrderCancellationReason,
   getOrderCancellationState,
   getOrderReference,
+  getOrderRiderAssignment,
   getStatusLabel,
 } from "../services/orderService";
 import { syncCustomerNotifications } from "../services/notificationService";
@@ -36,6 +37,7 @@ export default function TrackOrder() {
 
   const cancellationState = useMemo(() => getOrderCancellationState(order), [order]);
   const cancellationReason = useMemo(() => getOrderCancellationReason(order), [order]);
+  const riderAssignment = useMemo(() => getOrderRiderAssignment(order), [order]);
   const orderItems = useMemo(() => (Array.isArray(order?.items) ? order.items : []), [order?.items]);
 
   const activeTimeline = useMemo(() => {
@@ -121,6 +123,18 @@ export default function TrackOrder() {
             <p><strong>Payment:</strong> {String(order.paymentStatus || "pending")} | {order.paymentMethodLabel}</p>
             <p><strong>Total:</strong> PHP {Number(order.totalAmount || 0).toFixed(2)}</p>
             <p><strong>Items:</strong> {orderItems.map((item) => `${item.itemName} x ${item.quantity}`).join(", ") || "No items found"}</p>
+            {order.orderType === "delivery" ? (
+              <p>
+                <strong>Rider:</strong>{" "}
+                {riderAssignment
+                  ? `${riderAssignment.name || "Assigned"}${riderAssignment.contact ? ` | ${riderAssignment.contact}` : ""}${
+                      riderAssignment.vehicleType || riderAssignment.plateNumber
+                        ? ` | ${[riderAssignment.vehicleType, riderAssignment.plateNumber].filter(Boolean).join(" ")}`
+                        : ""
+                    }`
+                  : "Waiting for rider assignment"}
+              </p>
+            ) : null}
             {order.status === "cancelled" && cancellationReason ? (
               <p className="track-cancel-reason"><strong>Cancellation reason:</strong> {cancellationReason}</p>
             ) : null}
@@ -159,7 +173,8 @@ export default function TrackOrder() {
       ) : null}
 
       <div className="track-actions">
-        {isAuthenticated ? <Link to="/order-history">View order history</Link> : <Link to="/order">Start another order</Link>}
+        <Link to="/order-history">View order history</Link>
+        {!isAuthenticated ? <Link to="/order">Start another order</Link> : null}
       </div>
 
       <ReviewPrompt order={order} />

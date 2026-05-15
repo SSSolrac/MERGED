@@ -35,6 +35,12 @@ const ActivityLogPage = lazy(() =>
 const DeliveryCoveragePage = lazy(() =>
   import("@/pages/admin/DeliveryCoveragePage").then((module) => ({ default: module.DeliveryCoveragePage }))
 );
+const ReviewsPage = lazy(() =>
+  import("@/pages/owner/ReviewsPage").then((module) => ({ default: module.ReviewsPage }))
+);
+const RiderManagementPage = lazy(() =>
+  import("@/pages/owner/RiderManagementPage").then((module) => ({ default: module.RiderManagementPage }))
+);
 const StaffOrdersPage = lazy(() =>
   import("@/pages/orders/OrdersPage").then((module) => ({ default: module.OrdersPage }))
 );
@@ -80,6 +86,8 @@ function staffOwnerChildRoutes(basePath) {
       <Route path="inventory" element={<InventoryManagementPage />} />
       <Route path="customers" element={<CustomersLoyaltyPage />} />
       <Route path="profile" element={<StaffProfilePage />} />
+      <Route path="reviews" element={<OwnerRoute><ReviewsPage /></OwnerRoute>} />
+      <Route path="riders" element={<OwnerRoute><RiderManagementPage /></OwnerRoute>} />
       <Route path="imports" element={<OwnerRoute><ImportsReportsPage /></OwnerRoute>} />
       <Route path="settings" element={<OwnerRoute><SettingsPage /></OwnerRoute>} />
       <Route path="admin/delivery-coverage" element={<OwnerRoute><DeliveryCoveragePage /></OwnerRoute>} />
@@ -196,7 +204,7 @@ function App() {
             <Route path="/profile" element={<Navigate to="/profile/info" replace />} />
             <Route path="/profile/info" element={<CustomerRoute><Profile view="info" /></CustomerRoute>} />
             <Route path="/profile/loyalty" element={<Profile view="loyalty" />} />
-            <Route path="/order-history" element={<CustomerRoute><OrderHistory /></CustomerRoute>} />
+            <Route path="/order-history" element={<OrderHistory />} />
             <Route path="/staff" element={<StaffRoute><StaffDashboardLayout /></StaffRoute>}>
               {staffOwnerChildRoutes("/staff")}
             </Route>

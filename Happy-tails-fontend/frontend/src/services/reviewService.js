@@ -152,7 +152,7 @@ export async function getCommunityReviewSnapshot() {
       .map(normalizeReviewRow)
       .filter((review) => review.comment);
     return {
-      reviews: reviews.slice(0, 10),
+      reviews: reviews.slice(0, 5),
       stats: buildReviewStats(reviews, count),
       backendReady: true,
     };

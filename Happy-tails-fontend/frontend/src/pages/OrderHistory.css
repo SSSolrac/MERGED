@@ -50,17 +50,22 @@
 
 .history-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 
-.history-toolbar label {
+.history-toolbar label,
+.history-lookup label {
   color: #555;
   font-size: 0.88rem;
   font-weight: 700;
 }
 
-.history-toolbar select {
+.history-toolbar select,
+.history-lookup input {
   display: block;
   min-width: 180px;
   margin-top: 5px;
@@ -68,6 +73,29 @@
   border-radius: 8px;
   background: #fff;
   padding: 9px 10px;
+}
+
+.history-lookup {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.history-lookup button {
+  border: 0;
+  border-radius: 8px;
+  background: #ff8fa3;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 9px 12px;
+}
+
+.history-lookup-message {
+  margin: -4px 0 12px;
+  color: #666;
+  font-size: 0.9rem;
 }
 
 .history-list {
@@ -199,6 +227,29 @@
   margin: 10px 0 0;
 }
 
+.history-rider {
+  margin-top: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 9px 10px;
+}
+
+.history-rider span {
+  display: block;
+  color: #315177;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.history-rider strong {
+  display: block;
+  margin-top: 2px;
+  color: #1d4ed8;
+  overflow-wrap: anywhere;
+}
+
 .history-actions {
   display: flex;
   gap: 8px;
@@ -297,7 +348,11 @@
   }
 
   .history-toolbar label,
-  .history-toolbar select {
+  .history-toolbar select,
+  .history-lookup,
+  .history-lookup label,
+  .history-lookup input,
+  .history-lookup button {
     width: 100%;
   }
 

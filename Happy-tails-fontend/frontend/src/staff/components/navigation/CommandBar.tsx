@@ -16,6 +16,8 @@ export const CommandBar = () => {
     { label: 'Manage Menu Items', path: `${workspaceBasePath}/menu` },
     { label: 'Inventory', path: `${workspaceBasePath}/inventory` },
     { label: 'Customer Loyalty', path: `${workspaceBasePath}/customers` },
+    ...(isOwner ? [{ label: 'Reviews', path: `${workspaceBasePath}/reviews` }] : []),
+    ...(isOwner ? [{ label: 'Rider Management', path: `${workspaceBasePath}/riders` }] : []),
     ...(isOwner ? [{ label: 'Import Sales Data', path: `${workspaceBasePath}/imports` }] : []),
     ...(isOwner ? [{ label: 'Settings', path: `${workspaceBasePath}/settings` }] : []),
     ...(isOwner ? [{ label: 'Delivery Coverage', path: `${workspaceBasePath}/admin/delivery-coverage` }] : []),
