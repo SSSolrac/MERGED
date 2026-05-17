@@ -1,5 +1,6 @@
 const GUEST_ORDER_IDENTITY_KEY = "happyTailsGuestOrderIdentity_v1";
 const GUEST_LAST_ORDER_KEY = "happyTailsGuestLastOrder_v1";
+export const GUEST_LAST_ORDER_UPDATED_EVENT = "happyTailsGuestLastOrderUpdated";
 
 export function normalizeGuestPhone(value) {
   let digitsOnly = String(value || "").replace(/\D/g, "");
@@ -32,6 +33,11 @@ function writeJson(key, value) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function notifyGuestLastOrderUpdated() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(GUEST_LAST_ORDER_UPDATED_EVENT));
+}
+
 export function saveGuestOrderIdentity({ phone, email } = {}) {
   const phoneNormalized = normalizeGuestPhone(phone);
   const emailNormalized = normalizeGuestEmail(email);
@@ -58,6 +64,7 @@ export function saveGuestLastOrder(order) {
     orderCode: String(order?.code || "").trim(),
     savedAt: new Date().toISOString(),
   });
+  notifyGuestLastOrderUpdated();
 }
 
 export function getStoredGuestLastOrder() {

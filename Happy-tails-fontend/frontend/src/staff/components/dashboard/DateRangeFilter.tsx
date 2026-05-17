@@ -44,6 +44,7 @@ export const DateRangeFilter = ({
     <div className="rounded-lg border bg-white dark:bg-slate-800 p-2 inline-flex gap-2 flex-wrap">
       {options.map((option) => (
         <button
+          type="button"
           key={option}
           className={`px-3 py-1.5 rounded text-sm ${
             value === option ? 'bg-[#FF8FA3] text-white' : 'bg-[#FFE4E8] text-[#1F2937] hover:bg-[#FFD1DA]'

@@ -1,0 +1,59 @@
+# Maintenance Report: SMI and DRE Results
+
+## SMI Computation
+
+The Software Maturity Index (SMI) is used to measure how stable the system became after maintenance. A higher SMI means that only a few modules were changed, added, or removed during maintenance, which indicates that the system is already stable.
+
+Formula:
+
+```text
+SMI = [MT - (Fa + Fc + Fd)] / MT
+```
+
+Where:
+
+```text
+MT = total number of modules in the current version
+Fa = number of modules added
+Fc = number of modules changed
+Fd = number of modules deleted
+```
+
+Computation:
+
+```text
+SMI = [_____ - (_____ + _____ + _____)] / _____
+SMI = _____
+```
+
+Based on the SMI result, the system can be considered stable if the computed value is close to 1.00. This means that only minimal changes were needed during the maintenance period. If the SMI result is lower, it means that more modules were modified, added, or deleted, which may indicate that the system still needed several adjustments before final acceptance.
+
+## DRE Computation
+
+The Defect Removal Efficiency (DRE) is used to measure how effective the team was in finding and fixing defects before the system was accepted by the client. A higher DRE percentage means that most defects were discovered and resolved during testing instead of after deployment.
+
+Formula:
+
+```text
+DRE = E / (E + D) x 100
+```
+
+Where:
+
+```text
+E = number of defects found before delivery or during testing
+D = number of defects found after delivery or during actual use
+```
+
+Computation:
+
+```text
+DRE = _____ / (_____ + _____) x 100
+DRE = _____%
+```
+
+Based on the DRE result, the system testing and maintenance process can be considered effective if the computed percentage is high. This means that the team was able to detect and correct most errors before the final client acceptance. A lower DRE result would mean that more defects were discovered after deployment, which may require further maintenance and monitoring.
+
+## Summary
+
+The SMI and DRE computations show the overall stability and quality of the Happy Tails Pet Cafe system after maintenance. The SMI result explains how much the system changed during the maintenance period, while the DRE result explains how effective the team was in removing defects before final acceptance. Once the actual values are inserted, these results will support the maintenance report by showing whether the system was stable, reliable, and ready for client approval.

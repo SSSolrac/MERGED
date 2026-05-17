@@ -9,6 +9,7 @@ import { normalizeSupabaseError } from "../src/lib/supabaseErrors.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readSource = (relativePath) => readFile(path.join(__dirname, "..", relativePath), "utf8");
 const readSchema = () => readSource("supabase/unified_schema.sql");
+const lineNumberAt = (source, index) => source.slice(0, index).split(/\r?\n/).length;
 
 async function listFiles(rootDir) {
   let entries = [];
@@ -421,6 +422,82 @@ test("order history: customer history is paginated to five orders per page", asy
 
   const historyCss = await readSource("src/pages/OrderHistory.css");
   assert.ok(historyCss.includes(".history-pagination"), "Order history should style pagination controls.");
+});
+
+test("guest order history stays reachable after guest order lookups", async () => {
+  const navSrc = await readSource("src/components/Navbar.jsx");
+  assert.ok(navSrc.includes("getStoredGuestLastOrder"), "Navbar should check locally saved guest order references.");
+  assert.ok(navSrc.includes("guest-history-link"), "Guests with a saved order should get a direct order history link.");
+  assert.ok(navSrc.includes("GUEST_LAST_ORDER_UPDATED_EVENT"), "Navbar should react immediately when a guest order reference is saved.");
+
+  const orderServiceSrc = await readSource("src/services/orderService.js");
+  assert.ok(orderServiceSrc.includes("saveGuestLastOrder"), "Guest lookups should refresh the saved order history reference.");
+  assert.ok(orderServiceSrc.includes("if (order) saveGuestLastOrder(order);"), "A successful guest lookup should keep history reachable.");
+
+  const guestIdentitySrc = await readSource("src/services/guestIdentity.js");
+  assert.ok(guestIdentitySrc.includes("dispatchEvent(new Event(GUEST_LAST_ORDER_UPDATED_EVENT))"));
+});
+
+test("forms: non-submit buttons declare their type", async () => {
+  const srcRoot = path.join(__dirname, "..", "src");
+  const sourceFiles = (await listFiles(srcRoot)).filter((filePath) => /\.(jsx|tsx|js|ts)$/.test(filePath));
+  const offenders = [];
+
+  for (const filePath of sourceFiles) {
+    const source = await readFile(filePath, "utf8");
+    const formBlocks = source.matchAll(/<form\b[\s\S]*?<\/form>/gi);
+
+    for (const formBlock of formBlocks) {
+      const formSource = formBlock[0];
+      const formOffset = formBlock.index ?? 0;
+      const buttonTags = formSource.matchAll(/<button\b[\s\S]*?>/gi);
+
+      for (const buttonTag of buttonTags) {
+        if (!/\btype\s*=/.test(buttonTag[0])) {
+          const line = lineNumberAt(source, formOffset + (buttonTag.index ?? 0));
+          offenders.push(`${path.relative(srcRoot, filePath)}:${line}`);
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(offenders, [], "Buttons inside forms need explicit type attributes to prevent accidental page submits.");
+});
+
+test("settings announcements load from saved sources without self-cancelling", async () => {
+  const settingsSrc = await readSource("src/staff/pages/SettingsPage.tsx");
+  assert.ok(
+    settingsSrc.includes("}, [activeTab, hasLoadedAnnouncements]);"),
+    "Announcement loading should not depend on its own loading flag."
+  );
+  assert.ok(
+    settingsSrc.includes("loading saved data"),
+    "Announcement source label should not show fallback/default data while saved sources are loading."
+  );
+
+  const serviceSrc = await readSource("src/staff/services/campaignAnnouncementService.ts");
+  assert.ok(serviceSrc.includes("if (didReadTable) return { source: 'campaign_table', items: [] };"));
+  assert.ok(serviceSrc.includes("if (didReadSettings) return { source: 'business_settings', items: [] };"));
+});
+
+test("staff orders block payment confirmation for cancelled orders", async () => {
+  const staffOrderServiceSrc = await readSource("src/staff/services/orderService.ts");
+  assert.ok(
+    staffOrderServiceSrc.includes("PAYMENT_CONFIRM_BLOCKED_STATUSES"),
+    "Order service should have a central payment confirmation status guard."
+  );
+  assert.ok(
+    staffOrderServiceSrc.includes("Change the order status first."),
+    "Service guard should tell staff how to re-enable payment confirmation."
+  );
+  assert.ok(staffOrderServiceSrc.includes(".neq('status', 'cancelled')"));
+
+  const ordersPageSrc = await readSource("src/staff/pages/orders/OrdersPage.tsx");
+  assert.ok(ordersPageSrc.includes("canConfirmPaymentForOrder"), "Orders page should derive disabled payment action state from status.");
+  assert.ok(
+    ordersPageSrc.includes("Change the order status before confirming payment."),
+    "Disabled payment buttons should explain the status requirement."
+  );
 });
 
 test("loyalty: free latte claims require a regular menu order", async () => {

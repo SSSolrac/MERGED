@@ -213,6 +213,8 @@ const ensureMutableOrder = async (orderId: string) => {
   return data as { id: string; status: OrderStatus; payment_status: Order['paymentStatus'] };
 };
 
+const PAYMENT_CONFIRM_BLOCKED_STATUSES = new Set<OrderStatus>(['cancelled', 'refunded']);
+
 export const orderService = {
   async getOrders(filters?: OrderFilters): Promise<{ orders: Order[]; total: number }> {
     const supabase = requireSupabaseClient();
@@ -250,12 +252,21 @@ export const orderService = {
 
   async confirmPayment(orderId: string): Promise<Order> {
     const supabase = requireSupabaseClient();
-    await ensureMutableOrder(orderId);
+    const current = await ensureMutableOrder(orderId);
+    if (PAYMENT_CONFIRM_BLOCKED_STATUSES.has(current.status)) {
+      throw new AppError({
+        category: 'validation',
+        message: 'Payment cannot be confirmed while the order is cancelled or refunded. Change the order status first.',
+      });
+    }
+    if (current.payment_status === 'paid') return fetchOrderById(orderId);
 
     const { data, error } = await supabase
       .from('orders')
       .update({ payment_status: 'paid', updated_at: new Date().toISOString() })
       .eq('id', orderId)
+      .neq('status', 'cancelled')
+      .neq('status', 'refunded')
       .select('id')
       .maybeSingle();
 

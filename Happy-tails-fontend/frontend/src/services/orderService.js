@@ -10,7 +10,13 @@ import {
 } from "../constants/canonical";
 import { DELIVERY_BASE_FEE, normalizeLatLngPoint } from "./deliveryFeeService.js";
 import { validateCheckout } from "./checkoutValidation";
-import { getStoredGuestLastOrder, getStoredGuestOrderIdentity, normalizeGuestEmail, normalizeGuestPhone } from "./guestIdentity";
+import {
+  getStoredGuestLastOrder,
+  getStoredGuestOrderIdentity,
+  normalizeGuestEmail,
+  normalizeGuestPhone,
+  saveGuestLastOrder,
+} from "./guestIdentity";
 
 export { validateCheckout };
 
@@ -749,7 +755,9 @@ export async function getOrderById(orderIdOrCode) {
     const orderRow = payload.order || null;
     const itemRows = Array.isArray(payload.items) ? payload.items : [];
     const historyRows = Array.isArray(payload.history) ? payload.history : [];
-    return attachRelatedData([orderRow], itemRows, historyRows)[0] || null;
+    const order = attachRelatedData([orderRow], itemRows, historyRows)[0] || null;
+    if (order) saveGuestLastOrder(order);
+    return order;
   }
 
   const row = await getOrderRowByIdOrCode(String(orderIdOrCode).trim(), user.id);

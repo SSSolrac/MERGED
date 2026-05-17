@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BagFill, BellFill } from "react-bootstrap-icons";
 import logo from "../assets/logo.png";
 import profileIcon from "../assets/profile.png";
@@ -7,6 +7,7 @@ import "./Navbar.css";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { clearCustomerNotifications, getUnreadNotificationCount, syncCustomerNotifications } from "../services/notificationService";
+import { GUEST_LAST_ORDER_UPDATED_EVENT, getStoredGuestLastOrder } from "../services/guestIdentity";
 import MiniCartPanel from "./MiniCartPanel";
 import MiniNotificationsPanel from "./MiniNotificationsPanel";
 
@@ -20,10 +21,16 @@ function Navbar({ onSignOut, onOpenModal }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [hasGuestOrderHistory, setHasGuestOrderHistory] = useState(false);
 
   const refreshUnreadCount = () => {
     setUnreadCount(getUnreadNotificationCount());
   };
+
+  const refreshGuestOrderHistory = useCallback(() => {
+    const lastGuestOrder = getStoredGuestLastOrder();
+    setHasGuestOrderHistory(Boolean(lastGuestOrder?.orderCode || lastGuestOrder?.orderId));
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -54,9 +61,27 @@ function Navbar({ onSignOut, onOpenModal }) {
     const timeoutId = window.setTimeout(() => {
       setIsNotificationsOpen(false);
       setIsProfileMenuOpen(false);
+      if (isAuthenticated) {
+        setHasGuestOrderHistory(false);
+      } else {
+        refreshGuestOrderHistory();
+      }
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [closeMiniCart, location.pathname, location.search]);
+  }, [closeMiniCart, isAuthenticated, location.pathname, location.search, refreshGuestOrderHistory]);
+
+  useEffect(() => {
+    if (isAuthenticated) return undefined;
+
+    const timeoutId = window.setTimeout(refreshGuestOrderHistory, 0);
+    window.addEventListener(GUEST_LAST_ORDER_UPDATED_EVENT, refreshGuestOrderHistory);
+    window.addEventListener("storage", refreshGuestOrderHistory);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener(GUEST_LAST_ORDER_UPDATED_EVENT, refreshGuestOrderHistory);
+      window.removeEventListener("storage", refreshGuestOrderHistory);
+    };
+  }, [isAuthenticated, refreshGuestOrderHistory]);
 
   useEffect(() => {
     if (!isMiniCartOpen && !isNotificationsOpen && !isProfileMenuOpen) return;
@@ -195,10 +220,17 @@ function Navbar({ onSignOut, onOpenModal }) {
                 </div>
               ) : null}
             </div>
-            <button className="auth-btn" onClick={onSignOut}>Sign Out</button>
+            <button type="button" className="auth-btn" onClick={onSignOut}>Sign Out</button>
           </>
         ) : (
-          <button className="auth-btn" onClick={onOpenModal}>Sign Up / Login</button>
+          <>
+            {hasGuestOrderHistory ? (
+              <Link className="guest-history-link" to="/order-history">
+                Order History
+              </Link>
+            ) : null}
+            <button type="button" className="auth-btn" onClick={onOpenModal}>Sign Up / Login</button>
+          </>
         )}
       </div>
     </nav>

@@ -141,7 +141,7 @@ export const SettingsPage = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab !== 'announcements' || hasLoadedAnnouncements || isLoadingAnnouncements) return;
+    if (activeTab !== 'announcements' || hasLoadedAnnouncements) return;
 
     let cancelled = false;
 
@@ -155,6 +155,7 @@ export const SettingsPage = () => {
         setHasLoadedAnnouncements(true);
       } catch (error) {
         if (cancelled) return;
+        setHasLoadedAnnouncements(true);
         toast.error(getErrorMessage(error, 'Unable to load homepage banner announcements.'));
       } finally {
         if (cancelled) return;
@@ -166,7 +167,7 @@ export const SettingsPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, hasLoadedAnnouncements, isLoadingAnnouncements]);
+  }, [activeTab, hasLoadedAnnouncements]);
 
   const loadStaffMembers = useCallback(async () => {
     try {
@@ -561,11 +562,13 @@ export const SettingsPage = () => {
     { key: 'staff', label: 'Staff', description: 'Grant staff access and titles' },
   ];
   const announcementSourceLabel =
-    announcementSource === 'campaign_table'
+    !hasLoadedAnnouncements
+      ? 'loading saved data'
+      : announcementSource === 'campaign_table'
       ? 'campaign_announcements table'
       : announcementSource === 'business_settings'
       ? 'business_settings JSON'
-      : 'fallback/default data';
+      : 'saved data unavailable';
   const orderWindowPreviewLines = buildOrderWindowDisplayLines({
     weekdayOpen,
     weekdayClose,
@@ -949,7 +952,7 @@ export const SettingsPage = () => {
               onChange={(event) => setStaffEmail(event.target.value)}
             />
           </label>
-          <button className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2 h-10" disabled={isAddingStaff}>
+          <button type="submit" className="rounded bg-[#FFB6C1] text-[#1F2937] px-3 py-2 h-10" disabled={isAddingStaff}>
             {isAddingStaff ? 'Adding...' : 'Add Staff'}
           </button>
         </form>

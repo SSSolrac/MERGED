@@ -215,7 +215,7 @@ export const RiderManagementPage = () => {
             </label>
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={saving}>{saving ? 'Saving...' : editingId ? 'Update Rider' : 'Save Rider'}</Button>
-              {editingId ? <Button variant="outline" onClick={resetForm}>Cancel edit</Button> : null}
+              {editingId ? <Button type="button" variant="outline" onClick={resetForm}>Cancel edit</Button> : null}
             </div>
           </form>
         </SectionCard>

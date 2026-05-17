@@ -154,13 +154,13 @@ export const ImportsReportsPage = () => {
               Showing {(historyPage - 1) * HISTORY_PAGE_SIZE + 1}-{Math.min(historyPage * HISTORY_PAGE_SIZE, history.length)} of {history.length}
             </p>
             <div className="flex items-center gap-2">
-              <button className={paginationButtonClass} disabled={historyPage <= 1} onClick={() => setHistoryPage((page) => page - 1)}>
+              <button type="button" className={paginationButtonClass} disabled={historyPage <= 1} onClick={() => setHistoryPage((page) => page - 1)}>
                 Previous
               </button>
               <span className="text-sm text-slate-700">
                 Page {historyPage} of {historyTotalPages}
               </span>
-              <button className={paginationButtonClass} disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((page) => page + 1)}>
+              <button type="button" className={paginationButtonClass} disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((page) => page + 1)}>
                 Next
               </button>
             </div>
@@ -228,13 +228,13 @@ export const ImportsReportsPage = () => {
               Showing {(salesPage - 1) * SALES_PAGE_SIZE + 1}-{Math.min(salesPage * SALES_PAGE_SIZE, filteredSalesRows.length)} of {filteredSalesRows.length}
             </p>
             <div className="flex items-center gap-2">
-              <button className={paginationButtonClass} disabled={salesPage <= 1} onClick={() => setSalesPage((page) => page - 1)}>
+              <button type="button" className={paginationButtonClass} disabled={salesPage <= 1} onClick={() => setSalesPage((page) => page - 1)}>
                 Previous
               </button>
               <span className="text-sm text-slate-700">
                 Page {salesPage} of {salesTotalPages}
               </span>
-              <button className={paginationButtonClass} disabled={salesPage >= salesTotalPages} onClick={() => setSalesPage((page) => page + 1)}>
+              <button type="button" className={paginationButtonClass} disabled={salesPage >= salesTotalPages} onClick={() => setSalesPage((page) => page + 1)}>
                 Next
               </button>
             </div>

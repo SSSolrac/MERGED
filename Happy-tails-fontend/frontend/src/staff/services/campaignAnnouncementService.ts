@@ -273,15 +273,19 @@ export const campaignAnnouncementService = {
   async listCampaignAnnouncements(): Promise<CampaignAnnouncementResult> {
     let fromTable: CampaignAnnouncement[] = [];
     let fromSettings: SettingsAnnouncementsResult = { key: null, items: [] };
+    let didReadTable = false;
+    let didReadSettings = false;
 
     try {
       fromTable = await readCampaignAnnouncementsTable();
+      didReadTable = true;
     } catch {
       // Continue to fallback source.
     }
 
     try {
       fromSettings = await readAnnouncementsFromBusinessSettings();
+      didReadSettings = Boolean(fromSettings.key);
     } catch {
       // Continue to fallback source.
     }
@@ -295,6 +299,8 @@ export const campaignAnnouncementService = {
 
     if (fromTable.length) return { source: 'campaign_table', items: fromTable };
     if (fromSettings.items.length) return { source: 'business_settings', items: fromSettings.items };
+    if (didReadTable) return { source: 'campaign_table', items: [] };
+    if (didReadSettings) return { source: 'business_settings', items: [] };
 
     return { source: 'fallback', items: getFallbackAnnouncements() };
   },

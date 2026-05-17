@@ -31,6 +31,15 @@ const statusTone = (status: OrderStatus) => {
   return 'neutral';
 };
 
+const canConfirmPaymentForOrder = (order: Pick<Order, 'paymentStatus' | 'status'> | null) =>
+  Boolean(order && order.paymentStatus !== 'paid' && order.status !== 'cancelled' && order.status !== 'refunded');
+
+const paymentActionLabel = (order: Pick<Order, 'paymentStatus' | 'status'> | null) => {
+  if (!order) return 'Confirm Payment';
+  if (order.paymentStatus === 'paid') return 'Paid';
+  return 'Confirm Payment';
+};
+
 const asMoney = (value: unknown) => {
   const numberValue = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numberValue) ? Math.round(numberValue * 100) / 100 : 0;
@@ -363,6 +372,7 @@ export const OrdersPage = () => {
               const itemsCount = (order.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
               const paymentLabel = order.paymentMethod ? paymentMethodToLabel(order.paymentMethod) : '-';
               const orderType = String(order.orderType || 'takeout').replaceAll('_', ' ');
+              const canConfirmPayment = canConfirmPaymentForOrder(order);
 
               return (
                 <tr className="border-t" key={order.id}>
@@ -394,13 +404,22 @@ export const OrdersPage = () => {
                       <Button
                         variant="secondary"
                         size="sm"
-                        disabled={order.paymentStatus === 'paid'}
+                        disabled={!canConfirmPayment}
+                        title={
+                          order.status === 'cancelled' || order.status === 'refunded'
+                            ? 'Change the order status before confirming payment.'
+                            : undefined
+                        }
                         onClick={async () => {
-                          const updated = await confirmPayment(order.id);
-                          toast.success(updated.paymentStatus === 'paid' ? 'Payment confirmed.' : 'Payment updated.');
+                          try {
+                            const updated = await confirmPayment(order.id);
+                            toast.success(updated.paymentStatus === 'paid' ? 'Payment confirmed.' : 'Payment updated.');
+                          } catch (confirmError) {
+                            toast.error(getErrorMessage(confirmError, 'Unable to confirm payment.'));
+                          }
                         }}
                       >
-                        {order.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
+                        {paymentActionLabel(order)}
                       </Button>
                     </div>
                   </td>
@@ -595,14 +614,23 @@ export const OrdersPage = () => {
             <div className="flex gap-2">
               <Button
                 variant="secondary"
-                disabled={selectedOrder.paymentStatus === 'paid'}
+                disabled={!canConfirmPaymentForOrder(selectedOrder)}
+                title={
+                  selectedOrder.status === 'cancelled' || selectedOrder.status === 'refunded'
+                    ? 'Change the order status before confirming payment.'
+                    : undefined
+                }
                 onClick={async () => {
-                  const updated = await confirmPayment(selectedOrder.id);
-                  setSelectedOrder(updated);
-                  toast.success('Payment confirmed.');
+                  try {
+                    const updated = await confirmPayment(selectedOrder.id);
+                    setSelectedOrder(updated);
+                    toast.success('Payment confirmed.');
+                  } catch (confirmError) {
+                    toast.error(getErrorMessage(confirmError, 'Unable to confirm payment.'));
+                  }
                 }}
               >
-                {selectedOrder.paymentStatus === 'paid' ? 'Paid' : 'Confirm Payment'}
+                {paymentActionLabel(selectedOrder)}
               </Button>
             </div>
           </div>

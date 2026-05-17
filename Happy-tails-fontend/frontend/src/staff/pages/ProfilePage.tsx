@@ -259,7 +259,7 @@ export const ProfilePage = () => {
                 We will send a confirmation link to the new email and route it back to this production app.
               </p>
             )}
-            <button className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingEmail}>
+            <button type="submit" className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingEmail}>
               {isUpdatingEmail ? 'Sending confirmation...' : 'Change email'}
             </button>
           </form>
@@ -282,7 +282,7 @@ export const ProfilePage = () => {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            <button className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingPassword}>
+            <button type="submit" className="rounded bg-[#FFB6C1] px-3 py-2 text-[#1F2937]" disabled={isUpdatingPassword}>
               {isUpdatingPassword ? 'Updating...' : 'Change password'}
             </button>
           </form>

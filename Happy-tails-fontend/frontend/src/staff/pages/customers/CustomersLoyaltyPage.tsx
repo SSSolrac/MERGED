@@ -262,7 +262,7 @@ export const CustomersLoyaltyPage = () => {
       <section className="rounded-lg border bg-white dark:bg-slate-800 p-4">
         <div className="max-h-[620px] overflow-auto">
           <table className="w-full text-sm min-w-[920px]"><thead><tr className="text-left"><th>Name</th><th>Email</th><th>Stamps</th><th>Available Rewards</th><th>Redeemed</th><th>Status</th><th>Action</th></tr></thead><tbody>
-            {visibleCustomers.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardCountLabels(customer) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
+            {visibleCustomers.map((customer) => <tr key={customer.id} className="border-t"><td>{customer.name}</td><td>{customer.email}</td><td>{customer.loyalty.stampCount}/{LOYALTY_TOTAL_STAMPS}</td><td>{rewardLabels(customer.loyalty.availableRewards) || 'None'}</td><td>{rewardCountLabels(customer) || 'None'}</td><td>{rewardReadiness(customer)}</td><td><button type="button" className="border rounded px-2 py-1" onClick={() => openCustomerDetails(customer)}>Details / Award</button></td></tr>)}
           </tbody></table>
         </div>
         {!filtered.length ? <p className="py-3 text-sm text-[#6B7280]">No loyalty records found for the selected filters.</p> : null}
@@ -284,7 +284,7 @@ export const CustomersLoyaltyPage = () => {
                 <h3 className="font-semibold" id="loyalty-award-title">{selected.name || 'Customer'}</h3>
                 <p className="text-sm text-[#6B7280]">{selected.email}</p>
               </div>
-              <button className="border rounded px-2 py-1" onClick={() => setSelected(null)}>Close</button>
+              <button type="button" className="border rounded px-2 py-1" onClick={() => setSelected(null)}>Close</button>
             </div>
 
             <div className="grid sm:grid-cols-2 gap-2 text-sm">
